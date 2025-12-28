@@ -45,8 +45,9 @@ const toSnakeCase = (obj) => {
         else if (key === 'coverImage') mapped['cover_image'] = value;
         else if (key === 'beatUrl') mapped['beat_url'] = value;
         else if (key === 'isVerified') mapped['is_verified'] = value;
-        else if (key === 'lastLogin') mapped['last_login'] = value;
+        else if (key === 'lastLogin' || key === 'last_login') mapped['last_login'] = value;
         else if (key === 'promptText') mapped['prompt_text'] = value;
+        else if (key === 'isVerified' || key === 'is_verified') mapped['is_verified'] = value;
         else mapped[snakeKey] = value;
     }
     return mapped;

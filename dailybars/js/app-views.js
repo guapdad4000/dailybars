@@ -1368,16 +1368,13 @@ const LoginScreen = ({ onLogin }) => {
                         username: 'guap', 
                         email: 'guapdad@gmail.com',
                         password: simpleHash('admin123'),
-                        created_at_custom: Date.now(),
-                        last_login: Date.now(),
+                        last_login: new Date().toISOString(),
                         is_verified: true
                     });
                 } else {
                     // Update existing admin user
                     await api.update('users', adminUser.id, { 
-                        last_login: Date.now(),
-                        email: 'guapdad@gmail.com', // Ensure email is set to guapdad@gmail.com
-                        username: 'guap' // Ensure username is guap
+                        last_login: new Date().toISOString()
                     });
                 }
                 
@@ -1414,8 +1411,7 @@ const LoginScreen = ({ onLogin }) => {
                         username: username.toLowerCase(), 
                         email: email.toLowerCase(),
                         password: simpleHash(password),
-                        created_at_custom: Date.now(),
-                        last_login: Date.now(),
+                        last_login: new Date().toISOString(),
                         is_verified: false
                     });
                     
@@ -1429,7 +1425,7 @@ const LoginScreen = ({ onLogin }) => {
                 }
             } else {
                 if (existingUser && existingUser.password === simpleHash(password)) {
-                    await api.update('users', existingUser.id, { last_login: Date.now() });
+                    await api.update('users', existingUser.id, { last_login: new Date().toISOString() });
                     
                     if (rememberMe) {
                         localStorage.setItem('dailybars_remembered_login', loginIdentifier);
@@ -1442,7 +1438,7 @@ const LoginScreen = ({ onLogin }) => {
                 } else if (existingUser && existingUser.password === password) {
                     await api.update('users', existingUser.id, { 
                         password: simpleHash(password),
-                        last_login: Date.now() 
+                        last_login: new Date().toISOString() 
                     });
                     
                     if (rememberMe) {
@@ -1457,8 +1453,9 @@ const LoginScreen = ({ onLogin }) => {
                 }
             }
         } catch (err) {
-            console.error(err);
-            setError('CONNECTION ERROR - TRY AGAIN');
+            console.error('Login error:', err);
+            console.error('Error details:', err.message);
+            setError(err.message || 'CONNECTION ERROR - TRY AGAIN');
         } finally {
             setLoading(false);
         }
