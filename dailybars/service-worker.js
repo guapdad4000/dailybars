@@ -1,10 +1,10 @@
 // ============================================================================
-// DAILY BARS SERVICE WORKER - v12
+// DAILY BARS SERVICE WORKER - v16
 // NETWORK-FIRST strategy - NOW WITH SUPABASE 🔥
 // ============================================================================
 
-const CACHE_NAME = 'daily-bars-v12';
-const CACHE_VERSION = 12;
+const CACHE_NAME = 'daily-bars-v16';
+const CACHE_VERSION = 16;
 
 const urlsToCache = [
   '/',

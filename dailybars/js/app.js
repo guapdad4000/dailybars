@@ -612,7 +612,7 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
         onUsePrompt?.(currentPrompt);
         setIsOpen(false);
         haptic('success');
-        toast?.addToast('PROMPT LOADED - GO OFF! 🔥', 'success');
+        toast?.addToast('PROMPT LOADED - GO OFF!', 'success');
     };
     
     const streakCount = parseInt(localStorage.getItem('dailydrop_streak') || '0');
@@ -761,7 +761,7 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
                         {/* Streak indicator */}
                         {streakCount > 0 && (
                             <div className="daily-drop-streak">
-                                <span>🔥</span>
+                                <SvgIcon name="fire" size={14} color="var(--black)" />
                                 <span>{streakCount} DAY PROMPT STREAK</span>
                             </div>
                         )}
@@ -827,7 +827,7 @@ const ImagePreview = ({ src, onClose }) => {
 // BOTTOM STATUS BAR
 // ============================================================================
 
-const BottomBar = ({ currentView, streak }) => {
+const BottomBar = ({ currentView, streak, user }) => {
     const getBorderColor = () => {
         switch(currentView) {
             case 'feed': return 'var(--brand-green)';
@@ -963,11 +963,25 @@ const BottomBar = ({ currentView, streak }) => {
             }}>
                 <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} <span style={{ opacity: 0.3, fontSize: 8, marginLeft: 4 }}>v11</span></span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button onClick={handleBackup} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
-                        💾
+                    <button onClick={handleBackup} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4 }}>
+                        <SvgIcon name="save" size={16} color="var(--black)" />
                     </button>
+                    {/* XP Display */}
+                    <span style={{ 
+                        color: '#FFD700', 
+                        fontWeight: 'bold', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 4,
+                        background: 'linear-gradient(135deg, #1a1a1a 0%, #333 100%)',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        border: '1px solid #FFD700'
+                    }}>
+                        <SvgIcon name="star" size={12} color="#FFD700" /> {user?.xp || 0} XP
+                    </span>
                     <span style={{ color: 'var(--black)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span className="animate-pulse">🔥</span> {streak} DAY STREAK
+                        <span className="animate-pulse"><SvgIcon name="fire" size={14} color="var(--black)" /></span> {streak} DAY STREAK
                     </span>
                 </div>
             </div>
@@ -976,53 +990,112 @@ const BottomBar = ({ currentView, streak }) => {
                 <div style={{
                     position: 'fixed',
                     inset: 0,
-                    background: 'rgba(0,0,0,0.95)',
                     zIndex: 2000,
-                    padding: 20,
                     display: 'flex',
-                    flexDirection: 'column',
-                    color: 'white'
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 16
                 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <h2 style={{ fontSize: 14 }}>YOUR DATA ARCHIVE</h2>
-                        <button onClick={() => setShowBackup(false)} style={{ color: 'white' }}>CLOSE</button>
-                    </div>
-                    <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                        <button 
-                            onClick={downloadTxt}
-                            style={{
-                                flex: 1, padding: 12, background: 'var(--white)', color: 'var(--black)',
-                                fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
-                            }}
-                        >
-                            DOWNLOAD .TXT
-                        </button>
-                        <button 
-                            onClick={() => { navigator.clipboard.writeText(backupData); alert('JSON COPIED!'); }}
-                            style={{
-                                flex: 1, padding: 12, border: '1px solid var(--white)', color: 'var(--white)',
-                                fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
-                            }}
-                        >
-                            COPY JSON BACKUP
-                        </button>
-                    </div>
-                    <div style={{ fontSize: 10, marginBottom: 10, color: '#aaa' }}>
-                        RAW BACKUP DATA (FOR RESTORE):
-                    </div>
-                    <textarea 
-                        readOnly
-                        value={backupData}
+                    {/* Backdrop */}
+                    <div 
+                        onClick={() => setShowBackup(false)}
                         style={{
-                            flex: 1,
-                            background: '#111',
-                            color: '#0f0',
-                            fontFamily: 'monospace',
-                            fontSize: 10,
-                            border: '1px solid #333',
-                            padding: 10
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.85)',
+                            backdropFilter: 'blur(4px)'
                         }}
                     />
+                    {/* Modal */}
+                    <div style={{
+                        position: 'relative',
+                        width: '100%',
+                        maxWidth: 500,
+                        maxHeight: '90vh',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        borderRadius: 4,
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                        border: '2px solid var(--black)'
+                    }}>
+                        {/* Header */}
+                        <div style={{ 
+                            display: 'flex', 
+                            justifyContent: 'space-between', 
+                            alignItems: 'center',
+                            padding: '16px 20px',
+                            borderBottom: '2px solid var(--black)'
+                        }}>
+                            <h2 style={{ 
+                                fontSize: 14, 
+                                fontWeight: 900, 
+                                letterSpacing: '0.15em',
+                                margin: 0,
+                                color: 'var(--black)'
+                            }}>YOUR DATA ARCHIVE</h2>
+                            <button 
+                                onClick={() => setShowBackup(false)} 
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                            >
+                                <SvgIcon name="x" size={20} color="var(--black)" />
+                            </button>
+                        </div>
+                        {/* Actions */}
+                        <div style={{ display: 'flex', gap: 10, padding: '16px 20px' }}>
+                            <button 
+                                onClick={downloadTxt}
+                                style={{
+                                    flex: 1, padding: 12, background: 'var(--black)', color: 'var(--white)',
+                                    fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', border: 'none', cursor: 'pointer'
+                                }}
+                            >
+                                <SvgIcon name="save" size={14} color="var(--white)" style={{ marginRight: 6 }} />
+                                DOWNLOAD .TXT
+                            </button>
+                            <button 
+                                onClick={() => { 
+                                    navigator.clipboard.writeText(backupData);
+                                    // Visual feedback instead of alert
+                                    const btn = event.target;
+                                    const original = btn.innerHTML;
+                                    btn.innerHTML = 'COPIED!';
+                                    setTimeout(() => btn.innerHTML = original, 1500);
+                                }}
+                                style={{
+                                    flex: 1, padding: 12, border: '2px solid var(--black)', color: 'var(--black)',
+                                    fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', background: 'transparent', cursor: 'pointer'
+                                }}
+                            >
+                                COPY JSON
+                            </button>
+                        </div>
+                        {/* Data Preview */}
+                        <div style={{ padding: '0 20px 8px' }}>
+                            <div style={{ fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em' }}>
+                                RAW BACKUP DATA:
+                            </div>
+                        </div>
+                        <textarea 
+                            readOnly
+                            value={backupData}
+                            style={{
+                                flex: 1,
+                                margin: '0 20px 20px',
+                                minHeight: 200,
+                                background: 'rgba(0,0,0,0.9)',
+                                color: '#0f0',
+                                fontFamily: 'var(--font-mono)',
+                                fontSize: 9,
+                                border: '2px solid var(--black)',
+                                padding: 12,
+                                resize: 'none'
+                            }}
+                        />
+                    </div>
                 </div>
             )}
         </>
