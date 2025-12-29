@@ -567,7 +567,8 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                 display: 'flex', 
                 justifyContent: 'space-between', 
                 alignItems: 'center',
-                padding: 16, 
+                padding: '16px 16px 16px 16px',
+                paddingTop: 'max(16px, env(safe-area-inset-top))',
                 borderBottom: '2px solid var(--black)',
                 background: 'var(--paper)'
             }}>
@@ -881,14 +882,14 @@ const TrackEditor = ({ song, onClose, onSave }) => {
             )}
             
             <button onClick={onClose} style={{
-                position: 'fixed', top: 'max(12px, env(safe-area-inset-top))', left: 16, zIndex: 102,
+                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', left: 16, zIndex: 102,
                 width: 40, height: 40, background: 'var(--white)', border: '2px solid var(--black)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
             }}><Icon name="ArrowLeft" size={20} /></button>
             
             <button onClick={handleSave} disabled={saving} style={{
-                position: 'fixed', top: 'max(12px, env(safe-area-inset-top))', right: 16, zIndex: 102,
+                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 16, zIndex: 102,
                 padding: '10px 16px', background: 'var(--brand-green)', color: 'var(--white)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving ? 0.7 : 1
@@ -2281,7 +2282,9 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
                 position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
                 background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)',
                 borderBottom: '1px solid rgba(255,255,255,0.1)',
-                padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                padding: '16px 16px 16px',
+                paddingTop: 'max(16px, env(safe-area-inset-top))',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
             }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <div style={{ padding: 8, background: 'rgba(234, 179, 8, 0.2)', borderRadius: 8 }}>

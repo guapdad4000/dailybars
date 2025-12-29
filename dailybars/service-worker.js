@@ -3,8 +3,8 @@
 // NETWORK-FIRST strategy - NOW WITH SUPABASE 🔥
 // ============================================================================
 
-const CACHE_NAME = 'daily-bars-v22';
-const CACHE_VERSION = 22;
+const CACHE_NAME = 'daily-bars-v23';
+const CACHE_VERSION = 23;
 
 const urlsToCache = [
   '/',
