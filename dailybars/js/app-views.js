@@ -2030,7 +2030,9 @@ const SafeComponent = () => {
                 display: 'flex', 
                 alignItems: 'center', 
                 justifyContent: 'center',
-                transform: `scale(${GLOBAL_SCALE})`
+                transform: `scale(${GLOBAL_SCALE})`,
+                width: '100%',
+                height: '100%'
             }}>
                 {LAYER_ORDER.map(layerName => (
                     <div
