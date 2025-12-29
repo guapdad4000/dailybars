@@ -1792,8 +1792,10 @@ const LoginScreen = ({ onLogin }) => {
 
 const TrophyCaseView = ({ user, onClose }) => {
     const [tiles, setTiles] = useState([]);
-    const [isLoading, setIsLoading] = useState(false);
-    const loaderRef = useRef(null);
+    const [loading, setLoading] = useState(true);
+    const [userUnlocks, setUserUnlocks] = useState(new Set());
+    const [allTrophies, setAllTrophies] = useState([]);
+    const toast = useToast();
 
     // --- CONFIGURATION ---
     const CABINET_CONFIG = {
@@ -1805,102 +1807,113 @@ const TrophyCaseView = ({ user, onClose }) => {
         image: "images/trophy/trophy-case.png"
     };
 
-    // --- MOCK DATA ---
-    const MOCK_ITEMS = [
-        { name: "Gold Cup", icon: "Trophy", color: "#FACC15" }, // yellow-400
-        { name: "Star Dust", icon: "Star", color: "#C084FC" }, // purple-400
-        { name: "Royal Crown", icon: "Crown", color: "#F59E0B" }, // amber-500
-        { name: "Top Award", icon: "Award", color: "#F87171" }, // red-400
-        { name: "Valor Medal", icon: "Medal", color: "#60A5FA" }, // blue-400
-        { name: "Iron Shield", icon: "Shield", color: "#9CA3AF" }, // gray-400
-        { name: "Rare Gem", icon: "Gem", color: "#F472B6" }, // pink-400
-        { name: "Lightning", icon: "Zap", color: "#FDE047" }, // yellow-300
-        { name: "Life Force", icon: "Heart", color: "#EF4444" }, // red-500
-        { name: "Sea Anchor", icon: "Anchor", color: "#93C5FD" }, // blue-300
-        { name: "Melody", icon: "Music", color: "#4ADE80" }, // green-400
-        { name: "Spirit", icon: "Ghost", color: "#E5E7EB" }, // gray-200
-        { name: "Storm", icon: "CloudLightning", color: "#818CF8" }, // indigo-400
-        { name: "Victory", icon: "Flag", color: "#FB923C" } // orange-400
-    ];
+    // Helper to chunk array into groups of N
+    const chunkArray = (arr, size) => {
+        const chunks = [];
+        for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
+    };
 
-    const generateRandomItems = useCallback((count) => {
-        // Ensure exactly 3 slots, some may be null
-        const items = Array.from({ length: 3 }).map(() => {
-            // 50% chance of an item if count > 0 is not strictly enforced, 
-            // but let's just make it random or based on "count" passed in which was random before.
-            // Actually, the requirement says "exactly 3 slots per row (some may be empty/null)".
-            // Let's preserve the existing randomness logic but map it to 3 fixed slots.
+    // Prepare data for the cabinet view
+    const processTrophies = (trophies, unlocks) => {
+        // We need 9 items per tile (3 rows * 3 items)
+        const itemsPerTile = 9;
+        
+        // Map trophies to display format
+        const formattedItems = trophies.map(t => ({
+            ...t,
+            unlocked: unlocks.has(t.id),
+            // Random visual properties that stay consistent
+            scale: 0.8 + (parseInt(t.id.slice(-2), 16) % 4) * 0.1, // Deterministic scale based on ID
+            glow: unlocks.has(t.id) // Glow if unlocked
+        }));
+
+        const chunks = chunkArray(formattedItems, itemsPerTile);
+        
+        return chunks.map((tileItems, tileIndex) => {
+            // Split tile items into 3 rows of 3
+            const rows = [
+                tileItems.slice(0, 3),
+                tileItems.slice(3, 6),
+                tileItems.slice(6, 9)
+            ];
             
-            if (Math.random() > 0.6) return null; // Simple random density for now
+            // Pad rows with nulls if needed to ensure grid alignment
+            const paddedRows = rows.map(row => {
+                const padded = [...row];
+                while (padded.length < 3) padded.push(null);
+                return padded;
+            });
 
-            const randomItem = MOCK_ITEMS[Math.floor(Math.random() * MOCK_ITEMS.length)];
             return {
-                id: Math.random().toString(36).substr(2, 9),
-                ...randomItem,
-                glow: Math.random() > 0.7,
-                scale: 0.8 + Math.random() * 0.4
+                id: tileIndex,
+                data: paddedRows
             };
         });
-        return items;
-    }, []);
-
-    // Function to generate a new "Tile" of data (3 rows of items)
-    const generateTileData = useCallback(() => {
-        return [
-            generateRandomItems(),
-            generateRandomItems(),
-            generateRandomItems()
-        ];
-    }, [generateRandomItems]);
+    };
 
     // Initial Load
     useEffect(() => {
-        const initialTiles = Array.from({ length: 2 }).map((_, i) => ({
-            id: i,
-            data: generateTileData()
-        }));
-        setTiles(initialTiles);
-    }, [generateTileData]);
+        const loadData = async () => {
+            setLoading(true);
+            try {
+                // Fetch all trophies
+                const trophies = await window.DailyDepositEngine.getTrophies();
+                setAllTrophies(trophies);
 
-    // Infinite Scroll Handler
-    useEffect(() => {
-        const observer = new IntersectionObserver(
-            (entries) => {
-                const first = entries[0];
-                if (first.isIntersecting && !isLoading) {
-                    loadMoreTiles();
+                // Fetch user unlocks
+                if (user?.id) {
+                    const unlockIds = await window.DailyDepositEngine.getUserTrophies(user.id);
+                    setUserUnlocks(new Set(unlockIds));
+                    setTiles(processTrophies(trophies, new Set(unlockIds)));
+                } else {
+                    setTiles(processTrophies(trophies, new Set()));
                 }
-            },
-            { threshold: 0.1, rootMargin: '200px' }
-        );
-
-        const currentLoader = loaderRef.current;
-        if (currentLoader) {
-            observer.observe(currentLoader);
-        }
-
-        return () => {
-            if (currentLoader) observer.unobserve(currentLoader);
+            } catch (err) {
+                console.error("Trophy load error:", err);
+                toast?.addToast("FAILED TO LOAD TROPHIES", "error");
+            }
+            setLoading(false);
         };
-    }, [isLoading, tiles.length, generateTileData]);
+        loadData();
+    }, [user]);
 
-    const loadMoreTiles = () => {
-        setIsLoading(true);
-        setTimeout(() => {
-            setTiles(prev => [
-                ...prev,
-                { id: prev.length, data: generateTileData() },
-                { id: prev.length + 1, data: generateTileData() }
-            ]);
-            setIsLoading(false);
-        }, 500);
+    const handleUnlockAttempt = async (trophy) => {
+        if (trophy.unlocked) return;
+        
+        if ((user.xp || 0) >= trophy.xp_cost) {
+            // Attempt unlock
+            try {
+                // Here we would ideally subtract XP, but for now we just check threshold
+                await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
+                
+                // Optimistic update
+                const newUnlocks = new Set(userUnlocks);
+                newUnlocks.add(trophy.id);
+                setUserUnlocks(newUnlocks);
+                setTiles(processTrophies(allTrophies, newUnlocks));
+                
+                haptic('success');
+                toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}!`, 'success');
+            } catch (e) {
+                toast?.addToast("UNLOCK FAILED", "error");
+            }
+        } else {
+            haptic('heavy');
+            toast?.addToast(`NEED ${trophy.xp_cost} XP (HAVE ${user.xp || 0})`, 'error');
+        }
     };
 
     // --- SUB-COMPONENTS ---
 
     const ShelfItem = ({ item }) => {
+        if (!item) return <div style={{ width: 40 }} />; // Spacer
+
         return (
             <div 
+                onClick={() => handleUnlockAttempt(item)}
                 style={{ 
                     position: 'relative', 
                     display: 'flex', 
@@ -1909,7 +1922,9 @@ const TrophyCaseView = ({ user, onClose }) => {
                     justifyContent: 'flex-end',
                     transform: `scale(${item.scale})`,
                     transition: 'transform 0.3s ease',
-                    cursor: 'pointer'
+                    cursor: 'pointer',
+                    opacity: item.unlocked ? 1 : 0.5,
+                    filter: item.unlocked ? 'none' : 'grayscale(100%) brightness(0.6)'
                 }}
                 className="trophy-item"
             >
@@ -1917,7 +1932,7 @@ const TrophyCaseView = ({ user, onClose }) => {
                 {item.glow && (
                     <div style={{
                         position: 'absolute', inset: 0,
-                        background: 'rgba(234, 179, 8, 0.3)', // yellow-500/30
+                        background: `${item.color}4D`, // hex + 30% alpha
                         filter: 'blur(12px)',
                         borderRadius: '50%',
                         opacity: 0.5,
@@ -1927,7 +1942,19 @@ const TrophyCaseView = ({ user, onClose }) => {
                 
                 {/* Icon */}
                 <div style={{ position: 'relative', zIndex: 10, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))', color: item.color }}>
-                    <Icon name={item.icon} size={48} />
+                    {item.unlocked ? (
+                        <Icon name={item.icon || 'Trophy'} size={48} />
+                    ) : (
+                        <div style={{ position: 'relative' }}>
+                            <Icon name="Lock" size={32} color="#666" />
+                            <div style={{ 
+                                fontSize: 8, textAlign: 'center', marginTop: 4, 
+                                background: 'rgba(0,0,0,0.8)', padding: '2px 4px', borderRadius: 4 
+                            }}>
+                                {item.xp_cost} XP
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Reflection */}
@@ -1941,15 +1968,17 @@ const TrophyCaseView = ({ user, onClose }) => {
                     opacity: 0.4
                 }} />
                 
-                {/* Tooltip (Simple Title) */}
+                {/* Tooltip */}
                 <div className="trophy-tooltip" style={{
                     position: 'absolute', bottom: '100%', marginBottom: 8,
-                    background: 'rgba(0,0,0,0.8)', color: 'white',
-                    fontSize: 10, padding: '2px 6px', borderRadius: 4,
-                    pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 20,
-                    opacity: 0, transition: 'opacity 0.2s'
+                    background: 'rgba(0,0,0,0.9)', color: 'white',
+                    padding: '6px 10px', borderRadius: 4,
+                    pointerEvents: 'none', zIndex: 20,
+                    opacity: 0, transition: 'opacity 0.2s',
+                    textAlign: 'center', width: 140
                 }}>
-                    {item.name}
+                    <div style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.name}</div>
+                    {item.description && <div style={{ fontSize: 8, color: '#aaa', marginTop: 2 }}>{item.description}</div>}
                 </div>
             </div>
         );
@@ -1973,7 +2002,7 @@ const TrophyCaseView = ({ user, onClose }) => {
                 }}
             >
                 {items.map((item, i) => (
-                    item ? <ShelfItem key={item.id} item={item} /> : <div key={i} />
+                    <ShelfItem key={item?.id || i} item={item} />
                 ))}
             </div>
         );
@@ -1992,7 +2021,7 @@ const TrophyCaseView = ({ user, onClose }) => {
                         <Shelf 
                             key={rowConfig.id} 
                             config={rowConfig} 
-                            items={rowData[idx] || []} 
+                            items={rowData[idx] || [null, null, null]} 
                         />
                     ))}
                 </div>

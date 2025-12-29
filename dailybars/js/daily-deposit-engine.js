@@ -215,6 +215,60 @@ const DailyDepositEngine = {
             console.error("❌ Failed to like post:", error);
             throw error;
         }
+    },
+
+    // ========================================================================
+    // Trophy Logic
+    // ========================================================================
+
+    async getTrophies() {
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('trophies')
+                .select('*')
+                .order('xp_cost', { ascending: true });
+            
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error("❌ Failed to fetch trophies:", error);
+            return [];
+        }
+    },
+
+    async getUserTrophies(userId) {
+        if (!userId) return [];
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('user_trophies')
+                .select('trophy_id')
+                .eq('user_id', userId);
+            
+            if (error) throw error;
+            return data.map(t => t.trophy_id);
+        } catch (error) {
+            console.error("❌ Failed to fetch user trophies:", error);
+            return [];
+        }
+    },
+
+    async unlockTrophy(userId, trophyId) {
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('user_trophies')
+                .insert({ user_id: userId, trophy_id: trophyId })
+                .select()
+                .single();
+            
+            if (error) throw error;
+            return data;
+        } catch (error) {
+            console.error("❌ Failed to unlock trophy:", error);
+            throw error;
+        }
     }
 };
 
