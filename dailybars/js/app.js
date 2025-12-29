@@ -284,6 +284,364 @@ const fetchNearRhymes = async (word) => {
 };
 
 // ============================================================================
+// RHYME HIGHLIGHTING SYSTEM - Color-coded end-of-line rhymes
+// Simple background colors, no effects
+// ============================================================================
+
+// Rhyme color palette - simple distinct background colors
+const RHYME_COLORS = [
+    '#FF6B6B',  // Coral Red
+    '#4ECDC4',  // Teal
+    '#FFE66D',  // Yellow
+    '#95E1D3',  // Mint
+    '#F38181',  // Salmon
+    '#AA96DA',  // Lavender
+    '#FCBAD3',  // Pink
+    '#A8D8EA',  // Sky Blue
+    '#FF9F43',  // Orange
+    '#6C5CE7',  // Purple
+    '#00CEC9',  // Cyan
+    '#FD79A8',  // Hot Pink
+];
+
+// Simple phonetic ending extraction for rhyme detection
+const getPhoneticEnding = (word) => {
+    if (!word) return '';
+    word = word.toLowerCase().replace(/[^a-z]/g, '');
+    // if (word.length < 2) return word;
+    
+    const isVowel = (char) => 'aeiouy'.includes(char);
+    
+    let index = word.length - 1;
+    
+    // Skip trailing silent 'e' if appropriate
+    if (word.length > 2 && word.endsWith('e') && !isVowel(word[word.length - 2])) {
+        // Tentatively skip
+        const tempIndex = word.length - 2;
+        // Check if there are vowels before this?
+        let hasVowelBefore = false;
+        for(let k=0; k<=tempIndex; k++) {
+            if(isVowel(word[k])) { hasVowelBefore = true; break; }
+        }
+        if(hasVowelBefore) {
+            index = tempIndex;
+        }
+    }
+    
+    // Scan backwards for the first vowel encountered
+    let i = index;
+    // 1. Skip consonants at end (if we started at a consonant)
+    while (i >= 0 && !isVowel(word[i])) {
+        i--;
+    }
+    
+    if (i < 0) return word; // No vowels found
+    
+    // 2. Consume vowel cluster
+    while (i >= 0 && isVowel(word[i])) {
+        i--;
+    }
+    
+    let start = i + 1;
+    let rawEnding = word.substring(start);
+    let ending = rawEnding;
+    
+    const mappings = [
+        { regex: /uice$/, val: 'oose' }, // Juice / Loose
+        { regex: /uce$/, val: 'oose' },  // Spruce / Loose
+        { regex: /use$/, val: 'oose' },  // Use / Loose
+        { regex: /ight$/, val: 'ite' },  // Night / Kite
+        { regex: /yht$/, val: 'ite' },   // Kyte
+        { regex: /ite$/, val: 'ite' },   // Kite
+        { regex: /yme$/, val: 'ime' },   // Rhyme / Time
+        { regex: /ime$/, val: 'ime' },   // Time
+        { regex: /tion$/, val: 'shun' }, // Action
+        { regex: /sion$/, val: 'shun' }, // Tension
+        { regex: /cion$/, val: 'shun' }, // Coercion
+        { regex: /xion$/, val: 'shun' }, // Complexion
+        { regex: /eak$/, val: 'eek' },   // Speak / Cheek
+        { regex: /eek$/, val: 'eek' },
+        { regex: /ee$/, val: 'ee' },     // Tree
+        { regex: /ea$/, val: 'ee' },     // Sea
+        { regex: /y$/, val: 'ee' },      // Family (ends in y, handled specially)
+        // Expanded Mappings
+        { regex: /our$/, val: 'or' },    // Your / Door
+        { regex: /oor$/, val: 'or' },    // Door
+        { regex: /ore$/, val: 'or' },    // More
+        { regex: /ear$/, val: 'eer' },   // Near / Year
+        { regex: /ere$/, val: 'eer' },   // Here / Severe
+        { regex: /ier$/, val: 'eer' },   // Tier
+        { regex: /air$/, val: 'air' },   // Hair
+        { regex: /are$/, val: 'air' },   // Share
+        { regex: /aith$/, val: 'ait' },  // Faith / Wait
+        { regex: /eight$/, val: 'ait' }, // Weight / Wait
+        { regex: /ate$/, val: 'ait' },   // Late / Wait
+        { regex: /ait$/, val: 'ait' },   // Wait
+        { regex: /andle$/, val: 'andle' }, // Handle / Candle
+        { regex: /angle$/, val: 'andle' }, // Jangle / Handle (Slant)
+        { regex: /eigh$/, val: 'ay' },   // Weigh / Hay
+        { regex: /ay$/, val: 'ay' },     // Say
+        { regex: /ey$/, val: 'ee' },     // Money
+        // Plural / Verb ending Normalizations
+        { regex: /eers?$/, val: 'eer' }, // Queers / Here
+        { regex: /eres?$/, val: 'eer' }, // Heres / Here
+        { regex: /ears?$/, val: 'eer' }, // Nears / Near
+        { regex: /iers?$/, val: 'eer' }, // Tiers / Tier
+        { regex: /eeks?$/, val: 'eek' }, // Cheeks / Cheek
+        { regex: /eaks?$/, val: 'eek' }, // Speaks / Speak
+        { regex: /ooms?$/, val: 'oom' }, // Rooms / Room
+        { regex: /oms?$/, val: 'oom' },  // Moms / Mom
+        { regex: /ams?$/, val: 'am' },   // Hams / Ham
+        { regex: /ems?$/, val: 'em' },   // Gems / Gem
+        { regex: /ims?$/, val: 'im' },   // Hims / Him
+        { regex: /ings?$/, val: 'ing' }, // Rings / Ring
+        { regex: /ongs?$/, val: 'ong' }, // Songs / Song
+        { regex: /ungs?$/, val: 'ung' }, // Lungs / Lung
+        { regex: /angs?$/, val: 'ang' }, // Bangs / Bang
+        { regex: /engs?$/, val: 'eng' }, // Lengths / Length
+        { regex: /owns?$/, val: 'own' }, // Towns / Town
+        { regex: /ounds?$/, val: 'ound' }, // Sounds / Sound
+    ];
+    
+    for (const map of mappings) {
+        if (map.regex.test(ending)) {
+            // Special check for 'y' -> 'ee' (only if multi-syllable)
+            if (map.regex.source.includes('y$')) {
+                // If word has other vowels...
+                const otherVowels = word.slice(0, -1).match(/[aeiou]/);
+                if (otherVowels) {
+                    return map.val;
+                } else {
+                    return 'eye'; // Fly / Sky
+                }
+            }
+            return map.val;
+        }
+    }
+    
+    // Fallback normalizations
+    if (ending === 'e') return 'ee'; // Me -> ee
+    
+    return ending;
+};
+
+// Analyze text and find all rhyme groups across the entire text
+const analyzeRhymes = (text) => {
+    if (!text) return { endingToColor: {} };
+    
+    // Match all words (including those with apostrophes)
+    const words = text.match(/[a-zA-Z']+/g) || [];
+    const endingCounts = {};
+    
+    words.forEach(word => {
+        // Skip single characters unless they are 'I' or 'A' (though 'a' rarely rhymes in multisyllabic contexts, 'I' is common)
+        // Actually, let's just allow all. The map logic handles normalization.
+        if (word.length < 1) return;
+        
+        const ending = getPhoneticEnding(word);
+        if (ending && ending.length > 0) {
+            endingCounts[ending] = (endingCounts[ending] || 0) + 1;
+        }
+    });
+    
+    // Assign colors to endings with > 1 count
+    const endingToColor = {};
+    let colorIndex = 0;
+    
+    // Sort endings by frequency to assign colors deterministically
+    const sortedEndings = Object.keys(endingCounts).sort((a,b) => endingCounts[b] - endingCounts[a]);
+    
+    sortedEndings.forEach(ending => {
+        if (endingCounts[ending] >= 2) {
+            endingToColor[ending] = getRhymeColor(colorIndex);
+            colorIndex++;
+        }
+    });
+    
+    return { endingToColor };
+};
+
+// Get color for a specific rhyme group index
+const getRhymeColor = (groupIndex) => {
+    return RHYME_COLORS[groupIndex % RHYME_COLORS.length];
+};
+
+// Textarea with rhyme highlighting overlay
+const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef }) => {
+    const internalRef = useRef(null);
+    const overlayRef = useRef(null);
+    const ref = textareaRef || internalRef;
+    
+    const handleChange = (e) => {
+        onChange?.(e);
+        // Auto-resize both textarea and overlay
+        if (ref.current) {
+            ref.current.style.height = 'auto';
+            ref.current.style.height = ref.current.scrollHeight + 'px';
+        }
+    };
+    
+    // Sync scroll between textarea and overlay
+    const handleScroll = () => {
+        if (overlayRef.current && ref.current) {
+            overlayRef.current.scrollTop = ref.current.scrollTop;
+        }
+    };
+    
+    useEffect(() => {
+        if (autoFocus && ref.current) {
+            ref.current.focus();
+        }
+    }, [autoFocus]);
+    
+    // Analyze rhymes
+    const { endingToColor } = useMemo(() => analyzeRhymes(value || ''), [value]);
+    
+    // Build highlighted HTML for display
+    const renderHighlightedText = () => {
+        if (!value) return null;
+        
+        const lines = value.split('\n');
+        
+        return lines.map((line, lineIndex) => {
+            // Split by non-word characters to preserve delimiters
+            // The capturing group ( ) includes the delimiters in the output array
+            const segments = line.split(/([^a-zA-Z']+)/);
+            
+            return (
+                <div key={lineIndex}>
+                    {segments.map((segment, segIndex) => {
+                        // Check if it's a word
+                        if (/^[a-zA-Z']+$/.test(segment)) {
+                            const ending = getPhoneticEnding(segment);
+                            const color = endingToColor[ending];
+                            
+                            if (color) {
+                                return (
+                                    <span key={segIndex} style={{
+                                        backgroundColor: color,
+                                        boxShadow: `0 0 0 2px ${color}`,
+                                        borderRadius: '4px',
+                                    }}>
+                                        {segment}
+                                    </span>
+                                );
+                            }
+                        }
+                        return segment;
+                    })}
+                </div>
+            );
+        });
+    };
+    
+    const containerStyle = {
+        position: 'relative',
+        ...style
+    };
+    
+    const baseTextStyle = {
+        width: '100%',
+        minHeight: style?.minHeight || 80,
+        fontSize: style?.fontSize || 18,
+        lineHeight: style?.lineHeight || 1.5,
+        fontFamily: 'inherit',
+        whiteSpace: 'pre-wrap',
+        wordWrap: 'break-word',
+        padding: 0,
+        margin: 0,
+        border: 'none',
+        outline: 'none'
+    };
+    
+    return (
+        <div style={containerStyle} className={className}>
+            {/* Overlay with highlighted text - sits behind textarea */}
+            <div 
+                ref={overlayRef}
+                style={{
+                    ...baseTextStyle,
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    pointerEvents: 'none',
+                    overflow: 'hidden',
+                    color: 'var(--black)',
+                    background: 'transparent'
+                }}
+            >
+                {renderHighlightedText()}
+            </div>
+            
+            {/* Actual textarea - transparent text so overlay shows through */}
+            <textarea
+                ref={ref}
+                value={value}
+                onChange={handleChange}
+                onBlur={onBlur}
+                onKeyDown={onKeyDown}
+                onScroll={handleScroll}
+                placeholder={placeholder}
+                autoFocus={autoFocus}
+                className={className}
+                spellCheck="false"
+                style={{
+                    ...baseTextStyle,
+                    resize: 'none',
+                    background: 'transparent',
+                    color: 'transparent',
+                    caretColor: 'var(--black)',
+                    position: 'relative',
+                    zIndex: 1
+                }}
+            />
+        </div>
+    );
+};
+
+// Also export a simple display-only component for showing rhymes in read mode
+const RhymeHighlightedText = ({ text, style }) => {
+    const { endingToColor } = useMemo(() => analyzeRhymes(text || ''), [text]);
+    
+    if (!text) return null;
+    
+    const lines = text.split('\n');
+    
+    return (
+        <div style={style}>
+            {lines.map((line, lineIndex) => {
+                const segments = line.split(/([^a-zA-Z']+)/);
+                
+                return (
+                    <div key={lineIndex}>
+                        {segments.map((segment, segIndex) => {
+                            if (/^[a-zA-Z']+$/.test(segment)) {
+                                const ending = getPhoneticEnding(segment);
+                                const color = endingToColor[ending];
+                                
+                                if (color) {
+                                    return (
+                                        <span key={segIndex} style={{ 
+                                            backgroundColor: color, 
+                                            boxShadow: `0 0 0 2px ${color}`,
+                                            borderRadius: '2px' 
+                                        }}>
+                                            {segment}
+                                        </span>
+                                    );
+                                }
+                            }
+                            return segment;
+                        })}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ============================================================================
 // DAILY DROP - INSPIRATION PROMPTS DATA
 // ============================================================================
 
@@ -961,7 +1319,7 @@ const BottomBar = ({ currentView, streak, user }) => {
                 transition: 'border-color 0.3s ease',
                 paddingBottom: 'max(8px, env(safe-area-inset-bottom))'
             }}>
-                <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} <span style={{ opacity: 0.3, fontSize: 8, marginLeft: 4 }}>v11</span></span>
+                <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} <span style={{ opacity: 0.3, fontSize: 8, marginLeft: 4 }}>v22</span></span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <button onClick={handleBackup} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4 }}>
                         <SvgIcon name="save" size={16} color="var(--black)" />
@@ -1644,27 +2002,23 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                     </div>
                     
                     {isEditing ? (
-                        <textarea
-                            ref={textRef}
-                            value={editText}
-                            onChange={(e) => {
-                                setEditText(e.target.value);
-                                e.target.style.height = 'auto';
-                                e.target.style.height = e.target.scrollHeight + 'px';
-                            }}
-                            onBlur={handleTextBlur}
-                            onKeyDown={handleKeyDown}
-                            style={{
-                                flex: 1,
-                                fontSize: 13,
-                                lineHeight: 1.5,
-                                resize: 'none',
-                                background: 'var(--electric)',
-                                padding: 8,
-                                margin: -8,
-                                overflow: 'hidden'
-                            }}
-                        />
+                        <div style={{ flex: 1, margin: -8, padding: 8, background: 'var(--electric)' }}>
+                            <RhymeTextarea
+                                textareaRef={textRef}
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                onBlur={handleTextBlur}
+                                onKeyDown={handleKeyDown}
+                                autoFocus
+                                className="font-mono rhyme-editor-active"
+                                style={{
+                                    width: '100%',
+                                    minHeight: 60,
+                                    fontSize: 13,
+                                    lineHeight: 1.5
+                                }}
+                            />
+                        </div>
                     ) : (
                         <div 
                             onClick={handleTextClick}
@@ -1751,24 +2105,23 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
             </div>
             
             {isEditing ? (
-                <textarea
-                    ref={textRef}
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    onBlur={handleTextBlur}
-                    onKeyDown={handleKeyDown}
-                    className="font-serif"
-                    style={{
-                        width: '100%',
-                        minHeight: 80,
-                        fontSize: 18,
-                        lineHeight: 1.5,
-                        resize: 'none',
-                        background: 'var(--electric)',
-                        padding: 8,
-                        margin: -8
-                    }}
-                />
+                <div style={{ margin: -8, padding: 8, background: 'var(--electric)' }}>
+                    <RhymeTextarea
+                        textareaRef={textRef}
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onBlur={handleTextBlur}
+                        onKeyDown={handleKeyDown}
+                        autoFocus
+                        className="font-serif rhyme-editor-active"
+                        style={{
+                            width: '100%',
+                            minHeight: 80,
+                            fontSize: 18,
+                            lineHeight: 1.5
+                        }}
+                    />
+                </div>
             ) : (
                 <div 
                     onClick={handleTextClick}
@@ -2027,7 +2380,7 @@ const RhymePopup = ({ word, position, onSelect, onClose }) => {
 // QUICK INPUT
 // ============================================================================
 
-const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt }) => {
+const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt, style }) => {
     const [expanded, setExpanded] = useState(false);
     const [text, setText] = useState('');
     const [tags, setTags] = useState([]);
@@ -2177,8 +2530,9 @@ const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt }) => {
         return (
             <div style={{
                 display: 'flex',
-                background: 'var(--white)',
-                borderBottom: '2px solid var(--black)'
+                background: style?.background || 'var(--white)',
+                borderBottom: '2px solid var(--black)',
+                ...style
             }}>
                 <button 
                     onClick={() => { setExpanded(true); haptic('light'); }}
@@ -2235,7 +2589,7 @@ const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt }) => {
     }
     
     return (
-        <div className="animate-slide-up" style={{ background: 'var(--white)', borderBottom: '2px solid var(--black)' }}>
+        <div className="animate-slide-up" style={{ background: style?.background || 'var(--white)', borderBottom: '2px solid var(--black)', ...style }}>
             {(isRecording || audioUrl || savedAudioUrl) && (
                 <div style={{
                     background: isRecording ? '#FEE2E2' : '#F0FDF4',
@@ -2343,19 +2697,17 @@ const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt }) => {
             )}
             
             <div style={{ padding: 16 }}>
-                <textarea
-                    ref={textareaRef}
+                <RhymeTextarea
+                    textareaRef={textareaRef}
                     value={text}
                     onChange={handleTextChange}
-                    onClick={handleTextDoubleTap}
-                    onTouchEnd={handleTextDoubleTap}
                     placeholder="WRITE YOUR BARS... (DOUBLE-TAP A WORD FOR RHYMES)"
                     autoFocus
-                    className="font-serif"
-                    style={{ width: '100%', minHeight: 80, fontSize: 18, lineHeight: 1.5, resize: 'none' }}
+                    className="font-serif rhyme-editor-active"
+                    style={{ width: '100%', minHeight: 80, fontSize: 18, lineHeight: 1.5 }}
                 />
                 <div style={{ fontSize: 9, color: 'var(--gray)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Icon name="Info" size={10} /> DOUBLE-TAP ANY WORD FOR RHYME SUGGESTIONS
+                    <Icon name="Info" size={10} /> RHYMES AUTO-HIGHLIGHTED • DOUBLE-TAP FOR SUGGESTIONS
                 </div>
                 <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 10, color: 'var(--gray)' }}>
                     <span>{countBars(text)} BARS</span>
@@ -2575,6 +2927,11 @@ window.DailyBarsApp = {
     IdeaCard,
     RhymePopup,
     QuickInput,
+    RhymeTextarea,
+    RhymeHighlightedText,
+    RHYME_COLORS,
+    analyzeRhymes,
     LOGO_SOLID,
-    LOGO_HOLLOW
+    LOGO_HOLLOW,
+    RadioWidget: window.RadioWidget
 };

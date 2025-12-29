@@ -41,7 +41,7 @@ INSERT INTO trophies (name, description, xp_cost, color, icon, image_url, catego
   ('Ice Cube "Bye Felicia" Plaque', 'Legendary West Coast trophy', 300, '#1E90FF', 'Trophy', 'images/trophy/Ice_Cube_%E2%80%9CBye_Felicia%E2%80%9D_Plaque_%F0%9F%98%AD_trophy.png', 'west_coast'),
   ('J Dilla MPC3000', 'Legendary Producer trophy', 350, '#CD7F32', 'Trophy', 'images/trophy/J_Dilla_MPC3000_trophy.png', 'producer'),
   ('Jay Dilla Donuts Vinyl', 'pink box homage', 400, '#C0C0C0', 'Trophy', 'images/trophy/Jay_Dilla_Donuts_Vinyl_%28pink_box_homage%29_trophy.png', 'classic'),
-  ('Jigga Juice giant #10', 'Legendary Misc trophy', 150, '#87CEEB', 'Trophy', 'images/trophy/Jigga_Juice__giant_%2310_trophy.png', 'misc'),
+  ('Jigga Juice giant #10', 'Legendary Misc trophy', 150, '#87CEEB', 'Trophy', 'images/trophy/Jigga_Juice__giant_10_trophy.png', 'misc'),
   ('Just Blaze Yankee Fitted', 'Legendary Producer trophy', 350, '#CD7F32', 'Trophy', 'images/trophy/Just_Blaze_Yankee_Fitted_trophy.png', 'producer'),
   ('Kanye West College Dropout Bear Head', 'Legendary Misc trophy', 150, '#87CEEB', 'Trophy', 'images/trophy/Kanye_West_College_Dropout_Bear_Head_trophy.png', 'misc'),
   ('Kanye West MPC with the missing buttons', 'Legendary Misc trophy', 150, '#87CEEB', 'Trophy', 'images/trophy/Kanye_West_MPC_with_the_missing_buttons_trophy.png', 'misc'),

@@ -374,3 +374,13 @@ button:active { transform: scale(0.98); }
         padding-bottom: env(safe-area-inset-bottom);
     }
 }
+
+/* ============================================================================
+   RHYME HIGHLIGHTING SYSTEM
+   Simple color-coded end-of-line rhymes for lyric writing
+   ============================================================================ */
+
+/* Container for rhyme-enabled textareas */
+.rhyme-editor-active {
+    position: relative;
+}
