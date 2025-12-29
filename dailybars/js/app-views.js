@@ -1855,6 +1855,9 @@ const XPStoreView = ({ user, onClose }) => {
 // ============================================================================
 
 const SafeComponent = () => {
+    // Global scaling factor to tame the size
+    const GLOBAL_SCALE = 0.5; // Adjusted to reduce size while maintaining layout
+
     // --- ASSETS ---
     const ASSETS = {
         wall: "https://i.postimg.cc/mZKX1D3G/safe-wall.png",
@@ -1985,7 +1988,13 @@ const SafeComponent = () => {
             pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
             backgroundColor: 'white'
         }}>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ 
+                position: 'relative', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                transform: `scale(${GLOBAL_SCALE})`
+            }}>
                 {LAYER_ORDER.map(layerName => (
                     <div
                         key={layerName}
