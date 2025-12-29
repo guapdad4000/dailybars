@@ -1940,21 +1940,57 @@ const TrophyCaseView = ({ user, onClose }) => {
                     }} />
                 )}
                 
-                {/* Icon */}
+                {/* Trophy Image or Lock */}
                 <div style={{ position: 'relative', zIndex: 10, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))', color: item.color }}>
                     {item.unlocked ? (
-                        <Icon name={item.icon || 'Trophy'} size={48} />
+                        item.image_url ? (
+                            <img 
+                                src={item.image_url} 
+                                alt={item.name}
+                                style={{ 
+                                    width: 56, 
+                                    height: 56, 
+                                    objectFit: 'contain',
+                                    borderRadius: 4
+                                }}
+                                onError={(e) => {
+                                    e.target.style.display = 'none';
+                                    e.target.nextSibling.style.display = 'block';
+                                }}
+                            />
+                        ) : (
+                            <Icon name={item.icon || 'Trophy'} size={48} />
+                        )
                     ) : (
-                        <div style={{ position: 'relative' }}>
-                            <Icon name="Lock" size={32} color="#666" />
+                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                            {item.image_url ? (
+                                <img 
+                                    src={item.image_url} 
+                                    alt={item.name}
+                                    style={{ 
+                                        width: 40, 
+                                        height: 40, 
+                                        objectFit: 'contain',
+                                        filter: 'grayscale(100%) brightness(0.4)',
+                                        borderRadius: 4
+                                    }}
+                                />
+                            ) : (
+                                <Icon name="Lock" size={32} color="#666" />
+                            )}
                             <div style={{ 
                                 fontSize: 8, textAlign: 'center', marginTop: 4, 
-                                background: 'rgba(0,0,0,0.8)', padding: '2px 4px', borderRadius: 4 
+                                background: 'rgba(0,0,0,0.8)', padding: '2px 4px', borderRadius: 4,
+                                color: '#FFD700'
                             }}>
                                 {item.xp_cost} XP
                             </div>
                         </div>
                     )}
+                    {/* Fallback icon if image fails */}
+                    <div style={{ display: 'none' }}>
+                        <Icon name={item.icon || 'Trophy'} size={48} />
+                    </div>
                 </div>
 
                 {/* Reflection */}
@@ -2074,8 +2110,8 @@ const TrophyCaseView = ({ user, onClose }) => {
                 </div>
 
                 {/* Loading Indicator */}
-                <div ref={loaderRef} style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-                    {isLoading && (
+                {loading && (
+                    <div style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
                             <div className="animate-spin" style={{ 
                                 width: 32, height: 32, 
@@ -2086,8 +2122,8 @@ const TrophyCaseView = ({ user, onClose }) => {
                                 POLISHING TROPHIES...
                             </span>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
 
             {/* Scroll Top FAB */}
