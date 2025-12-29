@@ -148,16 +148,15 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
             {/* Content Layer (scrolls over background) */}
             <div className="font-serif" style={{
                 padding: '40px 0 20px',
-                fontSize: 28,
+                fontSize: 48,
                 fontWeight: 700,
                 textAlign: 'center',
                 width: '100%',
-                borderBottom: '1px solid rgba(0,0,0,0.1)',
                 marginBottom: 40,
-                background: 'rgba(244, 244, 240, 0.8)', // Semi-transparent paper
-                backdropFilter: 'blur(5px)',
+                color: 'var(--electric)',
                 zIndex: 20,
-                position: 'relative' // Ensure above background
+                position: 'relative', // Ensure above background
+                textShadow: '0 4px 12px rgba(0,0,0,0.2)'
             }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
@@ -226,10 +225,12 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         const bgY = Math.floor(spriteIndex / 3) * 100;
                         
                         const column = spriteIndex % 3;
+                        // Adjust padding to match visual offset of newspapers in sprite sheet
+                        // Column 1 and 2 appear shifted right, so we increase left padding to push text onto the paper
                         const paddingConfig = {
                             0: { top: 55, right: 35, bottom: 40, left: 45 },
-                            1: { top: 55, right: 40, bottom: 40, left: 40 },
-                            2: { top: 55, right: 50, bottom: 40, left: 30 }
+                            1: { top: 55, right: 40, bottom: 40, left: 65 }, // Shifted text right
+                            2: { top: 55, right: 50, bottom: 40, left: 55 }  // Shifted text right
                         }[column];
 
                         return (
