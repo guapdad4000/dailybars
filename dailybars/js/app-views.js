@@ -126,10 +126,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
 
     return (
         <div style={{
-            background: `url(${backgroundUrl})`,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundAttachment: 'fixed', // Parallax effect
+            position: 'relative',
             minHeight: '100%',
             paddingBottom: 80,
             display: 'flex',
@@ -137,6 +134,18 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
             alignItems: 'center',
             overflowX: 'hidden'
         }}>
+            {/* Fixed Background Layer */}
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                zIndex: 0
+            }} />
+
+            {/* Content Layer (scrolls over background) */}
             <div className="font-serif" style={{
                 padding: '40px 0 20px',
                 fontSize: 28,
@@ -147,7 +156,8 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 marginBottom: 40,
                 background: 'rgba(244, 244, 240, 0.8)', // Semi-transparent paper
                 backdropFilter: 'blur(5px)',
-                zIndex: 20
+                zIndex: 20,
+                position: 'relative' // Ensure above background
             }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
@@ -167,7 +177,8 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     gap: 12,
                     marginBottom: 40,
                     boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
-                    zIndex: 15
+                    zIndex: 15,
+                    position: 'relative' // Ensure above background
                 }}
             >
                 <div style={{
@@ -195,12 +206,14 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 display: 'flex', 
                 flexDirection: 'column', 
                 alignItems: 'center',
-                paddingTop: 20
+                paddingTop: 20,
+                position: 'relative', // Ensure above background
+                zIndex: 10
             }}>
                 {songs.length === 0 ? (
-                    <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.5 }}>
+                    <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.8, color: 'var(--black)', background: 'rgba(255,255,255,0.7)', borderRadius: 12, backdropFilter: 'blur(4px)', width: '80%' }}>
                         <div style={{ fontSize: 40, marginBottom: 10 }}>🗞️</div>
-                        <div className="font-mono" style={{ fontSize: 12 }}>NO NEWS IS GOOD NEWS</div>
+                        <div className="font-mono" style={{ fontSize: 12, fontWeight: 700 }}>NO NEWS IS GOOD NEWS</div>
                         <div className="font-mono" style={{ fontSize: 10, marginTop: 4 }}>START A TRACK ABOVE</div>
                     </div>
                 ) : (
