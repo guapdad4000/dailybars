@@ -1392,14 +1392,17 @@ const LoginScreen = ({ onLogin }) => {
                     u.email?.toLowerCase() === 'guapdad@gmail.com'
                 );
                 
+                let guapUser = adminUser;
                 if (!adminUser) {
                     // Create admin user with guapdad@gmail.com as primary email
-                    await api.create('users', { 
+                    guapUser = await api.create('users', { 
                         username: 'guap', 
                         email: 'guapdad@gmail.com',
                         password: simpleHash('admin123'),
                         last_login: new Date().toISOString(),
-                        is_verified: true
+                        is_verified: true,
+                        xp: 0,
+                        level: 1
                     });
                 } else {
                     // Update existing admin user
@@ -1415,7 +1418,8 @@ const LoginScreen = ({ onLogin }) => {
                 }
                 
                 haptic('success');
-                onLogin({ username: 'guap', email: 'guapdad@gmail.com' });
+                // Pass full user object including ID for XP system
+                onLogin({ id: guapUser.id, username: guapUser.username || 'guap', email: guapUser.email || 'guapdad@gmail.com', xp: guapUser.xp || 0, level: guapUser.level || 1 });
                 return;
             }
 
@@ -1451,7 +1455,8 @@ const LoginScreen = ({ onLogin }) => {
                     
                     haptic('success');
                     toast?.addToast('WELCOME TO THE LAB', 'success');
-                    onLogin({ username: username.toLowerCase(), email: email.toLowerCase() });
+                    // Pass full user object including ID for XP system
+                    onLogin({ id: newUser.id, username: newUser.username, email: newUser.email, xp: newUser.xp || 0, level: newUser.level || 1 });
                 }
             } else {
                 if (existingUser && existingUser.password === simpleHash(password)) {
@@ -1464,7 +1469,8 @@ const LoginScreen = ({ onLogin }) => {
                     }
                     
                     haptic('success');
-                    onLogin({ username: existingUser.username, email: existingUser.email });
+                    // Pass full user object including ID for XP system
+                    onLogin({ id: existingUser.id, username: existingUser.username, email: existingUser.email, xp: existingUser.xp || 0, level: existingUser.level || 1 });
                 } else if (existingUser && existingUser.password === password) {
                     await api.update('users', existingUser.id, { 
                         password: simpleHash(password),
@@ -1476,7 +1482,8 @@ const LoginScreen = ({ onLogin }) => {
                     }
                     
                     haptic('success');
-                    onLogin({ username: existingUser.username, email: existingUser.email });
+                    // Pass full user object including ID for XP system
+                    onLogin({ id: existingUser.id, username: existingUser.username, email: existingUser.email, xp: existingUser.xp || 0, level: existingUser.level || 1 });
                 } else {
                     setError('INVALID LOGIN OR PASSWORD');
                     haptic('heavy');
@@ -2626,7 +2633,30 @@ const App = () => {
 
     // XP SYSTEM LOGIC
     const addExperience = async (amount, reason) => {
-        if (!user || !user.id) return;
+        if (!user) {
+            console.warn('⚠️ addExperience called but no user');
+            return;
+        }
+        if (!user.id) {
+            console.warn('⚠️ addExperience called but user has no ID:', user);
+            // Try to fetch user ID from database
+            try {
+                const res = await api.get('users', { limit: 1000 });
+                const dbUser = res.data?.find(u => u.username?.toLowerCase() === user.username?.toLowerCase());
+                if (dbUser?.id) {
+                    console.log('🔧 Found user ID in DB, updating local user');
+                    user.id = dbUser.id;
+                    user.xp = dbUser.xp || 0;
+                    user.level = dbUser.level || 1;
+                } else {
+                    console.error('❌ Could not find user in database');
+                    return;
+                }
+            } catch (e) {
+                console.error('❌ Failed to fetch user ID:', e);
+                return;
+            }
+        }
         
         try {
             const currentXp = user.xp || 0;
@@ -2634,25 +2664,26 @@ const App = () => {
             const newXp = currentXp + amount;
             const newLevel = Math.floor(newXp / 100) + 1;
             
+            console.log(`⭐ +${amount} XP: ${reason} (${currentXp} -> ${newXp})`);
+            
             // Optimistic update
             const updatedUser = { ...user, xp: newXp, level: newLevel };
             setUser(updatedUser);
-            localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session')), user: updatedUser }));
+            localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
             
             // API Update
             await api.update('users', user.id, { xp: newXp, level: newLevel });
             
-            // Notifications
-            // toast?.addToast(`+${amount} XP: ${reason}`, 'success'); // Need to expose toast here or use simple alert
-            console.log(`⭐ +${amount} XP: ${reason}`);
+            // Visual feedback - show XP gain briefly
+            haptic('light');
             
             if (newLevel > currentLevel) {
                 // Level Up!
                 haptic('success');
-                setTimeout(() => alert(`LEVEL UP! YOU ARE NOW LEVEL ${newLevel}`), 500); // Simple alert for now
+                setTimeout(() => alert(`LEVEL UP! YOU ARE NOW LEVEL ${newLevel}`), 500);
             }
         } catch (err) {
-            console.error('XP Update failed:', err);
+            console.error('❌ XP Update failed:', err);
         }
     };
 
@@ -2911,14 +2942,35 @@ const App = () => {
     // Initial data load when user changes
     useEffect(() => {
         if (user?.username) {
-            console.log(`👤 User session active: @${user.username} (${user.email || 'no email'})`);
+            console.log(`👤 User session active: @${user.username} (${user.email || 'no email'}), XP: ${user.xp || 0}`);
+            
+            // Refresh user XP from database to ensure it's current
+            const refreshUserXP = async () => {
+                try {
+                    const res = await api.get('users', { limit: 1000 });
+                    const dbUser = res.data?.find(u => u.username?.toLowerCase() === user.username?.toLowerCase());
+                    if (dbUser && (dbUser.xp !== user.xp || dbUser.id !== user.id)) {
+                        console.log(`🔄 Syncing user data from DB: XP=${dbUser.xp}, ID=${dbUser.id}`);
+                        const updatedUser = { ...user, id: dbUser.id, xp: dbUser.xp || 0, level: dbUser.level || 1 };
+                        setUser(updatedUser);
+                        // Update localStorage too
+                        const session = JSON.parse(localStorage.getItem('dailybars_session') || '{}');
+                        session.user = updatedUser;
+                        localStorage.setItem('dailybars_session', JSON.stringify(session));
+                    }
+                } catch (err) {
+                    console.warn('Could not refresh user XP:', err);
+                }
+            };
+            
             // Small delay to ensure state is settled
             const loadTimeout = setTimeout(() => {
+                refreshUserXP();
                 loadUserData(user);
             }, 100);
             return () => clearTimeout(loadTimeout);
         }
-    }, [user]);
+    }, [user?.username]); // Only re-run when username changes, not on every user object change
     
     const addBar = async (data) => {
         try {
