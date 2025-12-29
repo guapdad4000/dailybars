@@ -827,7 +827,7 @@ const ImagePreview = ({ src, onClose }) => {
 // BOTTOM STATUS BAR
 // ============================================================================
 
-const BottomBar = ({ currentView, streak }) => {
+const BottomBar = ({ currentView, streak, user }) => {
     const getBorderColor = () => {
         switch(currentView) {
             case 'feed': return 'var(--brand-green)';
@@ -966,6 +966,20 @@ const BottomBar = ({ currentView, streak }) => {
                     <button onClick={handleBackup} style={{ border: 'none', background: 'none', cursor: 'pointer' }}>
                         💾
                     </button>
+                    {/* XP Display */}
+                    <span style={{ 
+                        color: '#FFD700', 
+                        fontWeight: 'bold', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 4,
+                        background: 'linear-gradient(135deg, #1a1a1a 0%, #333 100%)',
+                        padding: '4px 8px',
+                        borderRadius: 4,
+                        border: '1px solid #FFD700'
+                    }}>
+                        <span style={{ fontSize: 10 }}>⭐</span> {user?.xp || 0} XP
+                    </span>
                     <span style={{ color: 'var(--black)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span className="animate-pulse">🔥</span> {streak} DAY STREAK
                     </span>

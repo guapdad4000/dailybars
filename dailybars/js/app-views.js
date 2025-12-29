@@ -1790,7 +1790,7 @@ const LoginScreen = ({ onLogin }) => {
 // TROPHY CASE VIEW (REPLACES XP STORE)
 // ============================================================================
 
-const TrophyCaseView = ({ user, onClose }) => {
+const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
     const [tiles, setTiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [userUnlocks, setUserUnlocks] = useState(new Set());
@@ -1881,35 +1881,52 @@ const TrophyCaseView = ({ user, onClose }) => {
     }, [user]);
 
     const handleUnlockAttempt = async (trophy) => {
-        if (trophy.unlocked) return;
+        if (trophy.unlocked) {
+            // Show info about already unlocked trophy
+            toast?.addToast(`${trophy.name.toUpperCase()} - ALREADY YOURS!`, 'success');
+            return;
+        }
         
-        if ((user.xp || 0) >= trophy.xp_cost) {
-            // Attempt unlock
+        const currentXP = user.xp || 0;
+        
+        if (currentXP >= trophy.xp_cost) {
+            // Confirm purchase
+            if (!confirm(`Spend ${trophy.xp_cost} XP to unlock "${trophy.name}"?\n\nYou have: ${currentXP} XP\nAfter: ${currentXP - trophy.xp_cost} XP`)) {
+                return;
+            }
+            
             try {
-                // Here we would ideally subtract XP, but for now we just check threshold
+                // 1. Spend the XP first
+                if (onSpendXP) {
+                    await onSpendXP(trophy.xp_cost);
+                }
+                
+                // 2. Record the trophy unlock
                 await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
                 
-                // Optimistic update
+                // 3. Optimistic UI update
                 const newUnlocks = new Set(userUnlocks);
                 newUnlocks.add(trophy.id);
                 setUserUnlocks(newUnlocks);
                 setTiles(processTrophies(allTrophies, newUnlocks));
                 
                 haptic('success');
-                toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}!`, 'success');
+                toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}! (-${trophy.xp_cost} XP)`, 'success');
             } catch (e) {
-                toast?.addToast("UNLOCK FAILED", "error");
+                console.error('Trophy unlock error:', e);
+                toast?.addToast("UNLOCK FAILED - XP REFUNDED", "error");
             }
         } else {
             haptic('heavy');
-            toast?.addToast(`NEED ${trophy.xp_cost} XP (HAVE ${user.xp || 0})`, 'error');
+            const needed = trophy.xp_cost - currentXP;
+            toast?.addToast(`NEED ${needed} MORE XP! (${currentXP}/${trophy.xp_cost})`, 'error');
         }
     };
 
     // --- SUB-COMPONENTS ---
 
     const ShelfItem = ({ item }) => {
-        if (!item) return <div style={{ width: 40 }} />; // Spacer
+        if (!item) return <div style={{ width: 60 }} />; // Spacer
 
         return (
             <div 
@@ -1920,88 +1937,88 @@ const TrophyCaseView = ({ user, onClose }) => {
                     flexDirection: 'column', 
                     alignItems: 'center', 
                     justifyContent: 'flex-end',
-                    transform: `scale(${item.scale})`,
                     transition: 'transform 0.3s ease',
                     cursor: 'pointer',
-                    opacity: item.unlocked ? 1 : 0.5,
-                    filter: item.unlocked ? 'none' : 'grayscale(100%) brightness(0.6)'
+                    marginTop: '10%' // Push items down 10%
                 }}
                 className="trophy-item"
             >
-                {/* Glow Effect */}
-                {item.glow && (
+                {/* Glow Effect for unlocked */}
+                {item.unlocked && (
                     <div style={{
-                        position: 'absolute', inset: 0,
-                        background: `${item.color}4D`, // hex + 30% alpha
-                        filter: 'blur(12px)',
+                        position: 'absolute', inset: -10,
+                        background: `${item.color}4D`,
+                        filter: 'blur(15px)',
                         borderRadius: '50%',
-                        opacity: 0.5,
+                        opacity: 0.6,
                         animation: 'pulse 2s infinite'
                     }} />
                 )}
                 
-                {/* Trophy Image or Lock */}
-                <div style={{ position: 'relative', zIndex: 10, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))', color: item.color }}>
-                    {item.unlocked ? (
-                        item.image_url ? (
-                            <img 
-                                src={item.image_url} 
-                                alt={item.name}
-                                style={{ 
-                                    width: 56, 
-                                    height: 56, 
-                                    objectFit: 'contain',
-                                    borderRadius: 4
-                                }}
-                                onError={(e) => {
-                                    e.target.style.display = 'none';
-                                    e.target.nextSibling.style.display = 'block';
-                                }}
-                            />
-                        ) : (
-                            <Icon name={item.icon || 'Trophy'} size={48} />
-                        )
+                {/* Trophy Image - DOUBLED SIZE */}
+                <div style={{ 
+                    position: 'relative', 
+                    zIndex: 10, 
+                    filter: item.unlocked 
+                        ? 'drop-shadow(0 6px 10px rgba(0,0,0,0.5))' 
+                        : 'drop-shadow(0 4px 6px rgba(0,0,0,0.3)) brightness(0.7)', 
+                    color: item.color 
+                }}>
+                    {item.image_url ? (
+                        <img 
+                            src={item.image_url} 
+                            alt={item.name}
+                            style={{ 
+                                width: item.unlocked ? 90 : 80, // DOUBLED from 56/40
+                                height: item.unlocked ? 90 : 80,
+                                objectFit: 'contain',
+                                borderRadius: 6,
+                                opacity: item.unlocked ? 1 : 0.75, // Brighter when locked (was too dim)
+                                filter: item.unlocked ? 'none' : 'saturate(0.3)' // Slight desaturation instead of full grayscale
+                            }}
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                if (e.target.nextSibling) e.target.nextSibling.style.display = 'block';
+                            }}
+                        />
                     ) : (
-                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                            {item.image_url ? (
-                                <img 
-                                    src={item.image_url} 
-                                    alt={item.name}
-                                    style={{ 
-                                        width: 40, 
-                                        height: 40, 
-                                        objectFit: 'contain',
-                                        filter: 'grayscale(100%) brightness(0.4)',
-                                        borderRadius: 4
-                                    }}
-                                />
-                            ) : (
-                                <Icon name="Lock" size={32} color="#666" />
-                            )}
-                            <div style={{ 
-                                fontSize: 8, textAlign: 'center', marginTop: 4, 
-                                background: 'rgba(0,0,0,0.8)', padding: '2px 4px', borderRadius: 4,
-                                color: '#FFD700'
-                            }}>
-                                {item.xp_cost} XP
-                            </div>
-                        </div>
+                        <Icon name={item.icon || 'Trophy'} size={item.unlocked ? 72 : 64} />
                     )}
                     {/* Fallback icon if image fails */}
                     <div style={{ display: 'none' }}>
-                        <Icon name={item.icon || 'Trophy'} size={48} />
+                        <Icon name={item.icon || 'Trophy'} size={72} />
                     </div>
+                    
+                    {/* XP Cost Badge for locked items */}
+                    {!item.unlocked && (
+                        <div style={{ 
+                            position: 'absolute',
+                            bottom: -8,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            fontSize: 10, 
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            background: 'rgba(0,0,0,0.9)', 
+                            padding: '3px 8px', 
+                            borderRadius: 6,
+                            color: '#FFD700',
+                            border: '1px solid #FFD700',
+                            whiteSpace: 'nowrap'
+                        }}>
+                            {item.xp_cost} XP
+                        </div>
+                    )}
                 </div>
 
                 {/* Reflection */}
                 <div style={{
-                    height: 8, width: '100%',
-                    background: 'rgba(0,0,0,0.3)',
+                    height: 10, width: '80%',
+                    background: 'rgba(0,0,0,0.4)',
                     borderRadius: '50%',
-                    filter: 'blur(4px)',
-                    marginTop: 4,
-                    transform: 'scaleX(0.75)',
-                    opacity: 0.4
+                    filter: 'blur(5px)',
+                    marginTop: 8,
+                    opacity: 0.5
                 }} />
                 
                 {/* Tooltip */}
@@ -3082,7 +3099,16 @@ const App = () => {
             {showXPStore && (
                 <TrophyCaseView 
                     user={user} 
-                    onClose={() => setShowXPStore(false)} 
+                    onClose={() => setShowXPStore(false)}
+                    onSpendXP={async (amount) => {
+                        // Subtract XP when spending on trophies
+                        const newXp = Math.max(0, (user.xp || 0) - amount);
+                        const updatedUser = { ...user, xp: newXp };
+                        setUser(updatedUser);
+                        localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
+                        await api.update('users', user.id, { xp: newXp });
+                        return true;
+                    }}
                 />
             )}
 
@@ -3108,7 +3134,7 @@ const App = () => {
                     }}>LOGOUT @{user.username.toUpperCase()}</button>
                 </div>
 
-                <BottomBar currentView={view} streak={streak} />
+                <BottomBar currentView={view} streak={streak} user={user} />
             </div>
         </ToastProvider>
     );
