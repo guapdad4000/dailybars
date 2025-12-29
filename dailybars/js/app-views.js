@@ -1824,7 +1824,15 @@ const TrophyCaseView = ({ user, onClose }) => {
     ];
 
     const generateRandomItems = useCallback((count) => {
-        return Array.from({ length: count }).map((_, i) => {
+        // Ensure exactly 3 slots, some may be null
+        const items = Array.from({ length: 3 }).map(() => {
+            // 50% chance of an item if count > 0 is not strictly enforced, 
+            // but let's just make it random or based on "count" passed in which was random before.
+            // Actually, the requirement says "exactly 3 slots per row (some may be empty/null)".
+            // Let's preserve the existing randomness logic but map it to 3 fixed slots.
+            
+            if (Math.random() > 0.6) return null; // Simple random density for now
+
             const randomItem = MOCK_ITEMS[Math.floor(Math.random() * MOCK_ITEMS.length)];
             return {
                 id: Math.random().toString(36).substr(2, 9),
@@ -1833,14 +1841,15 @@ const TrophyCaseView = ({ user, onClose }) => {
                 scale: 0.8 + Math.random() * 0.4
             };
         });
+        return items;
     }, []);
 
     // Function to generate a new "Tile" of data (3 rows of items)
     const generateTileData = useCallback(() => {
         return [
-            generateRandomItems(Math.floor(Math.random() * 3) + 2),
-            generateRandomItems(Math.floor(Math.random() * 3) + 2),
-            generateRandomItems(Math.floor(Math.random() * 3) + 2)
+            generateRandomItems(),
+            generateRandomItems(),
+            generateRandomItems()
         ];
     }, [generateRandomItems]);
 
@@ -1951,9 +1960,10 @@ const TrophyCaseView = ({ user, onClose }) => {
             <div 
                 style={{
                     position: 'absolute',
-                    display: 'flex',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
                     alignItems: 'flex-end',
-                    justifyContent: 'space-around',
+                    justifyItems: 'center',
                     padding: '0 16px 8px',
                     top: `${config.top}%`,
                     height: `${config.height}%`,
@@ -1962,8 +1972,8 @@ const TrophyCaseView = ({ user, onClose }) => {
                     transform: 'translateX(-50%)'
                 }}
             >
-                {items.map(item => (
-                    <ShelfItem key={item.id} item={item} />
+                {items.map((item, i) => (
+                    item ? <ShelfItem key={item.id} item={item} /> : <div key={i} />
                 ))}
             </div>
         );
@@ -1971,7 +1981,7 @@ const TrophyCaseView = ({ user, onClose }) => {
 
     const CabinetTile = ({ rowData }) => {
         return (
-            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', margin: '0 auto' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', margin: '0 auto', marginBottom: 14 }}>
                 <img 
                     src={CABINET_CONFIG.image} 
                     alt="" 
