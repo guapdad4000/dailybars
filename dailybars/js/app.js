@@ -1319,7 +1319,7 @@ const BottomBar = ({ currentView, streak, user }) => {
                 transition: 'border-color 0.3s ease',
                 paddingBottom: 'max(8px, env(safe-area-inset-bottom))'
             }}>
-                <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} <span style={{ opacity: 0.3, fontSize: 8, marginLeft: 4 }}>v22</span></span>
+                <span>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })} <span style={{ opacity: 0.3, fontSize: 8, marginLeft: 4 }}>v23</span></span>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                     <button onClick={handleBackup} style={{ border: 'none', background: 'none', cursor: 'pointer', padding: 4 }}>
                         <SvgIcon name="save" size={16} color="var(--black)" />
