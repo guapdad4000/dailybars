@@ -1786,93 +1786,287 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // ============================================================================
-// XP STORE VIEW
+// TROPHY CASE VIEW (REPLACES XP STORE)
 // ============================================================================
 
-const XPStoreView = ({ user, onClose }) => {
-    const xp = user.xp || 0;
-    const level = user.level || 1;
-    const nextLevelXp = level * 100;
-    const progress = (xp % 100) / 100 * 100;
+const TrophyCaseView = ({ user, onClose }) => {
+    const [tiles, setTiles] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const loaderRef = useRef(null);
 
-    const artifacts = [
-        { id: 1, name: "E-40'S GLASSES", level: 5, description: "Unlocks Slang Dictionary", icon: "Glasses" },
-        { id: 2, name: "SLICK RICK'S EYE PATCH", level: 10, description: "Unlocks Storytelling Mode", icon: "Eye" },
-        { id: 3, name: "GHOSTFACE'S CHAIN", level: 20, description: "Unlocks Golden Era Theme", icon: "Award" },
-        { id: 4, name: "KANYE'S PINK POLO", level: 50, description: "Unlocks Soul Chop Beats", icon: "Shirt" }
+    // --- CONFIGURATION ---
+    const CABINET_CONFIG = {
+        rows: [
+            { id: 1, top: 12, height: 20, width: 87.5, x: 0 },
+            { id: 2, top: 43.5, height: 21, width: 80, x: 0 },
+            { id: 3, top: 76.5, height: 20, width: 87.5, x: 0 }
+        ],
+        image: "images/trophy/trophy-case.png"
+    };
+
+    // --- MOCK DATA ---
+    const MOCK_ITEMS = [
+        { name: "Gold Cup", icon: "Trophy", color: "#FACC15" }, // yellow-400
+        { name: "Star Dust", icon: "Star", color: "#C084FC" }, // purple-400
+        { name: "Royal Crown", icon: "Crown", color: "#F59E0B" }, // amber-500
+        { name: "Top Award", icon: "Award", color: "#F87171" }, // red-400
+        { name: "Valor Medal", icon: "Medal", color: "#60A5FA" }, // blue-400
+        { name: "Iron Shield", icon: "Shield", color: "#9CA3AF" }, // gray-400
+        { name: "Rare Gem", icon: "Gem", color: "#F472B6" }, // pink-400
+        { name: "Lightning", icon: "Zap", color: "#FDE047" }, // yellow-300
+        { name: "Life Force", icon: "Heart", color: "#EF4444" }, // red-500
+        { name: "Sea Anchor", icon: "Anchor", color: "#93C5FD" }, // blue-300
+        { name: "Melody", icon: "Music", color: "#4ADE80" }, // green-400
+        { name: "Spirit", icon: "Ghost", color: "#E5E7EB" }, // gray-200
+        { name: "Storm", icon: "CloudLightning", color: "#818CF8" }, // indigo-400
+        { name: "Victory", icon: "Flag", color: "#FB923C" } // orange-400
     ];
+
+    const generateRandomItems = useCallback((count) => {
+        return Array.from({ length: count }).map((_, i) => {
+            const randomItem = MOCK_ITEMS[Math.floor(Math.random() * MOCK_ITEMS.length)];
+            return {
+                id: Math.random().toString(36).substr(2, 9),
+                ...randomItem,
+                glow: Math.random() > 0.7,
+                scale: 0.8 + Math.random() * 0.4
+            };
+        });
+    }, []);
+
+    // Function to generate a new "Tile" of data (3 rows of items)
+    const generateTileData = useCallback(() => {
+        return [
+            generateRandomItems(Math.floor(Math.random() * 3) + 2),
+            generateRandomItems(Math.floor(Math.random() * 3) + 2),
+            generateRandomItems(Math.floor(Math.random() * 3) + 2)
+        ];
+    }, [generateRandomItems]);
+
+    // Initial Load
+    useEffect(() => {
+        const initialTiles = Array.from({ length: 2 }).map((_, i) => ({
+            id: i,
+            data: generateTileData()
+        }));
+        setTiles(initialTiles);
+    }, [generateTileData]);
+
+    // Infinite Scroll Handler
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const first = entries[0];
+                if (first.isIntersecting && !isLoading) {
+                    loadMoreTiles();
+                }
+            },
+            { threshold: 0.1, rootMargin: '200px' }
+        );
+
+        const currentLoader = loaderRef.current;
+        if (currentLoader) {
+            observer.observe(currentLoader);
+        }
+
+        return () => {
+            if (currentLoader) observer.unobserve(currentLoader);
+        };
+    }, [isLoading, tiles.length, generateTileData]);
+
+    const loadMoreTiles = () => {
+        setIsLoading(true);
+        setTimeout(() => {
+            setTiles(prev => [
+                ...prev,
+                { id: prev.length, data: generateTileData() },
+                { id: prev.length + 1, data: generateTileData() }
+            ]);
+            setIsLoading(false);
+        }, 500);
+    };
+
+    // --- SUB-COMPONENTS ---
+
+    const ShelfItem = ({ item }) => {
+        return (
+            <div 
+                style={{ 
+                    position: 'relative', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'flex-end',
+                    transform: `scale(${item.scale})`,
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer'
+                }}
+                className="trophy-item"
+            >
+                {/* Glow Effect */}
+                {item.glow && (
+                    <div style={{
+                        position: 'absolute', inset: 0,
+                        background: 'rgba(234, 179, 8, 0.3)', // yellow-500/30
+                        filter: 'blur(12px)',
+                        borderRadius: '50%',
+                        opacity: 0.5,
+                        animation: 'pulse 2s infinite'
+                    }} />
+                )}
+                
+                {/* Icon */}
+                <div style={{ position: 'relative', zIndex: 10, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))', color: item.color }}>
+                    <Icon name={item.icon} size={48} />
+                </div>
+
+                {/* Reflection */}
+                <div style={{
+                    height: 8, width: '100%',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '50%',
+                    filter: 'blur(4px)',
+                    marginTop: 4,
+                    transform: 'scaleX(0.75)',
+                    opacity: 0.4
+                }} />
+                
+                {/* Tooltip (Simple Title) */}
+                <div className="trophy-tooltip" style={{
+                    position: 'absolute', bottom: '100%', marginBottom: 8,
+                    background: 'rgba(0,0,0,0.8)', color: 'white',
+                    fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                    pointerEvents: 'none', whiteSpace: 'nowrap', zIndex: 20,
+                    opacity: 0, transition: 'opacity 0.2s'
+                }}>
+                    {item.name}
+                </div>
+            </div>
+        );
+    };
+
+    const Shelf = ({ config, items }) => {
+        return (
+            <div 
+                style={{
+                    position: 'absolute',
+                    display: 'flex',
+                    alignItems: 'flex-end',
+                    justifyContent: 'space-around',
+                    padding: '0 16px 8px',
+                    top: `${config.top}%`,
+                    height: `${config.height}%`,
+                    width: `${config.width}%`,
+                    left: '50%',
+                    transform: 'translateX(-50%)'
+                }}
+            >
+                {items.map(item => (
+                    <ShelfItem key={item.id} item={item} />
+                ))}
+            </div>
+        );
+    };
+
+    const CabinetTile = ({ rowData }) => {
+        return (
+            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', margin: '0 auto' }}>
+                <img 
+                    src={CABINET_CONFIG.image} 
+                    alt="" 
+                    style={{ width: '100%', height: 'auto', display: 'block', userSelect: 'none' }}
+                />
+                <div style={{ position: 'absolute', inset: 0 }}>
+                    {CABINET_CONFIG.rows.map((rowConfig, idx) => (
+                        <Shelf 
+                            key={rowConfig.id} 
+                            config={rowConfig} 
+                            items={rowData[idx] || []} 
+                        />
+                    ))}
+                </div>
+            </div>
+        );
+    };
 
     return (
         <div className="animate-slide-up" style={{
             position: 'fixed', inset: 0, zIndex: 200,
-            background: 'var(--paper)', display: 'flex', flexDirection: 'column'
+            background: '#1a1a1a', color: 'white',
+            display: 'flex', flexDirection: 'column'
         }}>
             {/* Header */}
             <div style={{
-                padding: 16, background: 'var(--black)', color: 'var(--white)',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+                background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
             }}>
-                <div>
-                    <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.8 }}>STUDENT STATUS</div>
-                    <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.1em' }}>LEVEL {level}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ padding: 8, background: 'rgba(234, 179, 8, 0.2)', borderRadius: 8 }}>
+                        <Icon name="Trophy" size={24} color="#FACC15" />
+                    </div>
+                    <div>
+                        <h1 style={{ 
+                            fontSize: 16, fontWeight: 700, letterSpacing: '0.1em',
+                            background: 'linear-gradient(to right, #FDE047, #D97706)',
+                            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
+                        }}>
+                            HALL OF FAME
+                        </h1>
+                        <div style={{ fontSize: 10, color: '#9CA3AF' }}>{tiles.length * 3} SHELVES LOADED</div>
+                    </div>
                 </div>
-                <button onClick={onClose} style={{ color: 'var(--white)' }}><Icon name="X" size={24} /></button>
+                <button onClick={onClose} style={{ color: 'white', padding: 8 }}>
+                    <Icon name="X" size={24} />
+                </button>
             </div>
 
-            {/* XP Progress */}
-            <div style={{ padding: 20, background: 'var(--white)', borderBottom: '2px solid var(--black)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 10, fontWeight: 700 }}>
-                    <span>XP: {xp}</span>
-                    <span>NEXT LEVEL: {nextLevelXp}</span>
+            {/* Main Content Area */}
+            <div className="scrollable" style={{ flex: 1, paddingTop: 80, paddingBottom: 80 }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {tiles.map((tile) => (
+                        <CabinetTile 
+                            key={tile.id} 
+                            rowData={tile.data} 
+                        />
+                    ))}
                 </div>
-                <div style={{ height: 12, background: 'var(--light-gray)', border: '1px solid var(--black)', position: 'relative' }}>
-                    <div style={{
-                        position: 'absolute', left: 0, top: 0, bottom: 0, width: `${progress}%`,
-                        background: 'var(--electric)', transition: 'width 0.5s ease'
-                    }} />
+
+                {/* Loading Indicator */}
+                <div ref={loaderRef} style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                    {isLoading && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                            <div className="animate-spin" style={{ 
+                                width: 32, height: 32, 
+                                border: '4px solid #EAB308', borderTopColor: 'transparent', 
+                                borderRadius: '50%' 
+                            }} />
+                            <span className="animate-pulse" style={{ color: 'rgba(234, 179, 8, 0.8)', fontSize: 12, fontWeight: 500 }}>
+                                POLISHING TROPHIES...
+                            </span>
+                        </div>
+                    )}
                 </div>
             </div>
 
-            {/* Store Shelf */}
-            <div className="scrollable" style={{ flex: 1, padding: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', marginBottom: 16, textAlign: 'center' }}>
-                    THE TROPHY ROOM
-                </div>
-                
-                <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 20 }}>
-                    {artifacts.map(item => {
-                        const isLocked = level < item.level;
-                        return (
-                            <div key={item.id} style={{
-                                minWidth: 200,
-                                background: isLocked ? '#E5E5E5' : 'var(--white)',
-                                border: '2px solid var(--black)',
-                                padding: 16,
-                                display: 'flex', flexDirection: 'column', alignItems: 'center',
-                                opacity: isLocked ? 0.7 : 1
-                            }}>
-                                <div style={{
-                                    width: 80, height: 80, 
-                                    background: isLocked ? '#999' : 'var(--electric)',
-                                    borderRadius: '50%', border: '2px solid var(--black)',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    marginBottom: 16
-                                }}>
-                                    {isLocked ? <Icon name="Lock" size={32} /> : <Icon name={item.icon} size={32} />}
-                                </div>
-                                <div style={{ fontSize: 11, fontWeight: 900, textAlign: 'center', marginBottom: 8 }}>{item.name}</div>
-                                <div style={{ fontSize: 9, textAlign: 'center', color: 'var(--gray)', marginBottom: 12 }}>{item.description}</div>
-                                <div style={{ 
-                                    fontSize: 9, fontWeight: 700, padding: '4px 8px', 
-                                    background: 'var(--black)', color: 'var(--white)' 
-                                }}>
-                                    LVL {item.level} REQ
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+            {/* Scroll Top FAB */}
+            <button 
+                onClick={() => document.querySelector('.scrollable').scrollTo({ top: 0, behavior: 'smooth' })}
+                style={{
+                    position: 'fixed', bottom: 24, right: 24,
+                    padding: 12, background: '#EAB308', color: 'black',
+                    borderRadius: '50%', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+            >
+                <Icon name="ArrowUp" size={24} />
+            </button>
+            
+            <style>{`
+                .trophy-item:hover .trophy-tooltip { opacity: 1 !important; }
+                .trophy-item:hover { transform: translateY(-8px) scale(var(--scale, 1)) !important; }
+            `}</style>
         </div>
     );
 };
@@ -2809,9 +3003,12 @@ const App = () => {
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                 </main>
 
-                {showXPStore && (
-                    <XPStoreView user={user} onClose={() => setShowXPStore(false)} />
-                )}
+            {showXPStore && (
+                <TrophyCaseView 
+                    user={user} 
+                    onClose={() => setShowXPStore(false)} 
+                />
+            )}
 
                 {crateModalBar && (
                     <AddToCrateModal 
