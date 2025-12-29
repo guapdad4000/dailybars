@@ -21,7 +21,7 @@ const {
 // FEED VIEW
 // ============================================================================
 
-const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt }) => {
+const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt, onAddToCrate, onSendToFreeGame }) => {
     const [previewImage, setPreviewImage] = useState(null);
     
     return (
@@ -42,6 +42,8 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
                         onTextEdit={onEditBar}
                         onFavorite={onFavorite}
                         onDelete={onDeleteBar}
+                        onAddToCrate={onAddToCrate}
+                        onSendToFreeGame={onSendToFreeGame}
                     />
                 ))
             ) : (
@@ -112,9 +114,19 @@ const ArchiveView = ({ bars, onSelect }) => {
 // ============================================================================
 
 const CratesView = ({ songs, onCreateSong, onEditSong }) => {
+    const [isWide, setIsWide] = useState(window.innerWidth > 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsWide(window.innerWidth > 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
+
     return (
         <div style={{
-            background: 'var(--paper)',
+            position: 'relative',
             minHeight: '100%',
             paddingBottom: 80,
             display: 'flex',
@@ -122,16 +134,29 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
             alignItems: 'center',
             overflowX: 'hidden'
         }}>
+            {/* Fixed Background Layer */}
+            <div style={{
+                position: 'fixed',
+                inset: 0,
+                backgroundImage: `url(${backgroundUrl})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                zIndex: 0
+            }} />
+
+            {/* Content Layer (scrolls over background) */}
             <div className="font-serif" style={{
                 padding: '40px 0 20px',
-                fontSize: 28,
+                fontSize: 48,
                 fontWeight: 700,
                 textAlign: 'center',
                 width: '100%',
-                borderBottom: '1px solid var(--light-gray)',
                 marginBottom: 40,
-                background: 'var(--paper)',
-                zIndex: 20
+                color: 'var(--electric)',
+                zIndex: 20,
+                position: 'relative', // Ensure above background
+                textShadow: '0 4px 12px rgba(0,0,0,0.2)'
             }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
@@ -151,7 +176,8 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     gap: 12,
                     marginBottom: 40,
                     boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
-                    zIndex: 15
+                    zIndex: 15,
+                    position: 'relative' // Ensure above background
                 }}
             >
                 <div style={{
@@ -179,12 +205,14 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 display: 'flex', 
                 flexDirection: 'column', 
                 alignItems: 'center',
-                paddingTop: 20
+                paddingTop: 20,
+                position: 'relative', // Ensure above background
+                zIndex: 10
             }}>
                 {songs.length === 0 ? (
-                    <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.5 }}>
+                    <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.8, color: 'var(--black)', background: 'rgba(255,255,255,0.7)', borderRadius: 12, backdropFilter: 'blur(4px)', width: '80%' }}>
                         <div style={{ fontSize: 40, marginBottom: 10 }}>🗞️</div>
-                        <div className="font-mono" style={{ fontSize: 12 }}>NO NEWS IS GOOD NEWS</div>
+                        <div className="font-mono" style={{ fontSize: 12, fontWeight: 700 }}>NO NEWS IS GOOD NEWS</div>
                         <div className="font-mono" style={{ fontSize: 10, marginTop: 4 }}>START A TRACK ABOVE</div>
                     </div>
                 ) : (
@@ -197,10 +225,12 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         const bgY = Math.floor(spriteIndex / 3) * 100;
                         
                         const column = spriteIndex % 3;
+                        // Adjust padding to match visual offset of newspapers in sprite sheet
+                        // Column 1 and 2 appear shifted right, so we increase left padding to push text onto the paper
                         const paddingConfig = {
                             0: { top: 55, right: 35, bottom: 40, left: 45 },
-                            1: { top: 55, right: 40, bottom: 40, left: 40 },
-                            2: { top: 55, right: 50, bottom: 40, left: 30 }
+                            1: { top: 55, right: 40, bottom: 40, left: 65 }, // Shifted text right
+                            2: { top: 55, right: 50, bottom: 40, left: 55 }  // Shifted text right
                         }[column];
 
                         return (
@@ -352,7 +382,7 @@ const FavoritesView = ({ bars, onSelect }) => {
 // SYNDICATE VIEW (COMMUNITY)
 // ============================================================================
 
-const SyndicateView = ({ user, onTyping }) => {
+const SyndicateViewOld = ({ user, onTyping }) => {
     const [prompts, setPrompts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [submissionText, setSubmissionText] = useState('');
@@ -1757,13 +1787,776 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // ============================================================================
+// TROPHY CASE VIEW (REPLACES XP STORE)
+// ============================================================================
+
+const TrophyCaseView = ({ user, onClose }) => {
+    const [tiles, setTiles] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [userUnlocks, setUserUnlocks] = useState(new Set());
+    const [allTrophies, setAllTrophies] = useState([]);
+    const toast = useToast();
+
+    // --- CONFIGURATION ---
+    const CABINET_CONFIG = {
+        rows: [
+            { id: 1, top: 12, height: 20, width: 87.5, x: 0 },
+            { id: 2, top: 43.5, height: 21, width: 80, x: 0 },
+            { id: 3, top: 76.5, height: 20, width: 87.5, x: 0 }
+        ],
+        image: "images/trophy/trophy-case.png"
+    };
+
+    // Helper to chunk array into groups of N
+    const chunkArray = (arr, size) => {
+        const chunks = [];
+        for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
+    };
+
+    // Prepare data for the cabinet view
+    const processTrophies = (trophies, unlocks) => {
+        // We need 9 items per tile (3 rows * 3 items)
+        const itemsPerTile = 9;
+        
+        // Map trophies to display format
+        const formattedItems = trophies.map(t => ({
+            ...t,
+            unlocked: unlocks.has(t.id),
+            // Random visual properties that stay consistent
+            scale: 0.8 + (parseInt(t.id.slice(-2), 16) % 4) * 0.1, // Deterministic scale based on ID
+            glow: unlocks.has(t.id) // Glow if unlocked
+        }));
+
+        const chunks = chunkArray(formattedItems, itemsPerTile);
+        
+        return chunks.map((tileItems, tileIndex) => {
+            // Split tile items into 3 rows of 3
+            const rows = [
+                tileItems.slice(0, 3),
+                tileItems.slice(3, 6),
+                tileItems.slice(6, 9)
+            ];
+            
+            // Pad rows with nulls if needed to ensure grid alignment
+            const paddedRows = rows.map(row => {
+                const padded = [...row];
+                while (padded.length < 3) padded.push(null);
+                return padded;
+            });
+
+            return {
+                id: tileIndex,
+                data: paddedRows
+            };
+        });
+    };
+
+    // Initial Load
+    useEffect(() => {
+        const loadData = async () => {
+            setLoading(true);
+            try {
+                // Fetch all trophies
+                const trophies = await window.DailyDepositEngine.getTrophies();
+                setAllTrophies(trophies);
+
+                // Fetch user unlocks
+                if (user?.id) {
+                    const unlockIds = await window.DailyDepositEngine.getUserTrophies(user.id);
+                    setUserUnlocks(new Set(unlockIds));
+                    setTiles(processTrophies(trophies, new Set(unlockIds)));
+                } else {
+                    setTiles(processTrophies(trophies, new Set()));
+                }
+            } catch (err) {
+                console.error("Trophy load error:", err);
+                toast?.addToast("FAILED TO LOAD TROPHIES", "error");
+            }
+            setLoading(false);
+        };
+        loadData();
+    }, [user]);
+
+    const handleUnlockAttempt = async (trophy) => {
+        if (trophy.unlocked) return;
+        
+        if ((user.xp || 0) >= trophy.xp_cost) {
+            // Attempt unlock
+            try {
+                // Here we would ideally subtract XP, but for now we just check threshold
+                await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
+                
+                // Optimistic update
+                const newUnlocks = new Set(userUnlocks);
+                newUnlocks.add(trophy.id);
+                setUserUnlocks(newUnlocks);
+                setTiles(processTrophies(allTrophies, newUnlocks));
+                
+                haptic('success');
+                toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}!`, 'success');
+            } catch (e) {
+                toast?.addToast("UNLOCK FAILED", "error");
+            }
+        } else {
+            haptic('heavy');
+            toast?.addToast(`NEED ${trophy.xp_cost} XP (HAVE ${user.xp || 0})`, 'error');
+        }
+    };
+
+    // --- SUB-COMPONENTS ---
+
+    const ShelfItem = ({ item }) => {
+        if (!item) return <div style={{ width: 40 }} />; // Spacer
+
+        return (
+            <div 
+                onClick={() => handleUnlockAttempt(item)}
+                style={{ 
+                    position: 'relative', 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    justifyContent: 'flex-end',
+                    transform: `scale(${item.scale})`,
+                    transition: 'transform 0.3s ease',
+                    cursor: 'pointer',
+                    opacity: item.unlocked ? 1 : 0.5,
+                    filter: item.unlocked ? 'none' : 'grayscale(100%) brightness(0.6)'
+                }}
+                className="trophy-item"
+            >
+                {/* Glow Effect */}
+                {item.glow && (
+                    <div style={{
+                        position: 'absolute', inset: 0,
+                        background: `${item.color}4D`, // hex + 30% alpha
+                        filter: 'blur(12px)',
+                        borderRadius: '50%',
+                        opacity: 0.5,
+                        animation: 'pulse 2s infinite'
+                    }} />
+                )}
+                
+                {/* Icon */}
+                <div style={{ position: 'relative', zIndex: 10, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.3))', color: item.color }}>
+                    {item.unlocked ? (
+                        <Icon name={item.icon || 'Trophy'} size={48} />
+                    ) : (
+                        <div style={{ position: 'relative' }}>
+                            <Icon name="Lock" size={32} color="#666" />
+                            <div style={{ 
+                                fontSize: 8, textAlign: 'center', marginTop: 4, 
+                                background: 'rgba(0,0,0,0.8)', padding: '2px 4px', borderRadius: 4 
+                            }}>
+                                {item.xp_cost} XP
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Reflection */}
+                <div style={{
+                    height: 8, width: '100%',
+                    background: 'rgba(0,0,0,0.3)',
+                    borderRadius: '50%',
+                    filter: 'blur(4px)',
+                    marginTop: 4,
+                    transform: 'scaleX(0.75)',
+                    opacity: 0.4
+                }} />
+                
+                {/* Tooltip */}
+                <div className="trophy-tooltip" style={{
+                    position: 'absolute', bottom: '100%', marginBottom: 8,
+                    background: 'rgba(0,0,0,0.9)', color: 'white',
+                    padding: '6px 10px', borderRadius: 4,
+                    pointerEvents: 'none', zIndex: 20,
+                    opacity: 0, transition: 'opacity 0.2s',
+                    textAlign: 'center', width: 140
+                }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: item.color }}>{item.name}</div>
+                    {item.description && <div style={{ fontSize: 8, color: '#aaa', marginTop: 2 }}>{item.description}</div>}
+                </div>
+            </div>
+        );
+    };
+
+    const Shelf = ({ config, items }) => {
+        return (
+            <div 
+                style={{
+                    position: 'absolute',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    alignItems: 'flex-end',
+                    justifyItems: 'center',
+                    padding: '0 16px 8px',
+                    top: `${config.top}%`,
+                    height: `${config.height}%`,
+                    width: `${config.width}%`,
+                    left: '50%',
+                    transform: 'translateX(-50%)'
+                }}
+            >
+                {items.map((item, i) => (
+                    <ShelfItem key={item?.id || i} item={item} />
+                ))}
+            </div>
+        );
+    };
+
+    const CabinetTile = ({ rowData }) => {
+        return (
+            <div style={{ position: 'relative', width: '100%', maxWidth: '100%', margin: '0 auto', marginBottom: 14 }}>
+                <img 
+                    src={CABINET_CONFIG.image} 
+                    alt="" 
+                    style={{ width: '100%', height: 'auto', display: 'block', userSelect: 'none' }}
+                />
+                <div style={{ position: 'absolute', inset: 0 }}>
+                    {CABINET_CONFIG.rows.map((rowConfig, idx) => (
+                        <Shelf 
+                            key={rowConfig.id} 
+                            config={rowConfig} 
+                            items={rowData[idx] || [null, null, null]} 
+                        />
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    return (
+        <div className="animate-slide-up" style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: '#1a1a1a', color: 'white',
+            display: 'flex', flexDirection: 'column'
+        }}>
+            {/* Header */}
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
+                background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(10px)',
+                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ padding: 8, background: 'rgba(234, 179, 8, 0.2)', borderRadius: 8 }}>
+                        <Icon name="Trophy" size={24} color="#FACC15" />
+                    </div>
+                    <div>
+                        <h1 style={{ 
+                            fontSize: 16, fontWeight: 700, letterSpacing: '0.1em',
+                            background: 'linear-gradient(to right, #FDE047, #D97706)',
+                            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
+                        }}>
+                            HALL OF FAME
+                        </h1>
+                        <div style={{ fontSize: 10, color: '#9CA3AF' }}>{tiles.length * 3} SHELVES LOADED</div>
+                    </div>
+                </div>
+                <button onClick={onClose} style={{ color: 'white', padding: 8 }}>
+                    <Icon name="X" size={24} />
+                </button>
+            </div>
+
+            {/* Main Content Area */}
+            <div className="scrollable" style={{ flex: 1, paddingTop: 80, paddingBottom: 80 }}>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {tiles.map((tile) => (
+                        <CabinetTile 
+                            key={tile.id} 
+                            rowData={tile.data} 
+                        />
+                    ))}
+                </div>
+
+                {/* Loading Indicator */}
+                <div ref={loaderRef} style={{ height: 128, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+                    {isLoading && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                            <div className="animate-spin" style={{ 
+                                width: 32, height: 32, 
+                                border: '4px solid #EAB308', borderTopColor: 'transparent', 
+                                borderRadius: '50%' 
+                            }} />
+                            <span className="animate-pulse" style={{ color: 'rgba(234, 179, 8, 0.8)', fontSize: 12, fontWeight: 500 }}>
+                                POLISHING TROPHIES...
+                            </span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Scroll Top FAB */}
+            <button 
+                onClick={() => document.querySelector('.scrollable').scrollTo({ top: 0, behavior: 'smooth' })}
+                style={{
+                    position: 'fixed', bottom: 24, right: 24,
+                    padding: 12, background: '#EAB308', color: 'black',
+                    borderRadius: '50%', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                }}
+            >
+                <Icon name="ArrowUp" size={24} />
+            </button>
+            
+            <style>{`
+                .trophy-item:hover .trophy-tooltip { opacity: 1 !important; }
+                .trophy-item:hover { transform: translateY(-8px) scale(var(--scale, 1)) !important; }
+            `}</style>
+        </div>
+    );
+};
+
+// ============================================================================
+// SAFE COMPONENT (VAULT BACKGROUND)
+// ============================================================================
+
+const SafeComponent = () => {
+    // Global scaling factor to tame the size
+    const GLOBAL_SCALE = 0.5; // Adjusted to reduce size while maintaining layout
+
+    // --- ASSETS ---
+    const ASSETS = {
+        wall: "images/safe/safe-wall.png",
+        backOfSafe: "images/safe/back-of-safe.png",
+        gearLarge: "images/safe/large-gear.png",
+        gearMedium: "images/safe/medium-gear.png",
+        gearSmall: "images/safe/small-gear.png",
+        hinges: "images/safe/hinges-and-bolts.png",
+        knob: "images/safe/center-knob.png"
+    };
+
+    // --- CONFIGURATIONS ---
+    const CONFIGS = {
+        MOBILE: {
+            wall: { x: 26, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 48, y: -31, scale: 0.3, rotate: true },
+            gearMedium: { x: 102, y: -4, scale: 0.2, rotate: true },
+            gearSmall: { x: 73, y: 28, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        },
+        TABLET: {
+            wall: { x: 50, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 193, y: -46, scale: 0.21, rotate: true },
+            gearMedium: { x: 215, y: 50, scale: 0.2, rotate: true },
+            gearSmall: { x: 117, y: 28, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        },
+        DESKTOP: {
+            wall: { x: 50, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 300, y: -46, scale: 0.21, rotate: true },
+            gearMedium: { x: 300, y: 114, scale: 0.2, rotate: true },
+            gearSmall: { x: 169, y: 41, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        }
+    };
+
+    const LAYER_ORDER = ['backOfSafe', 'gearLarge', 'gearMedium', 'gearSmall', 'hinges', 'knob'];
+
+    // Gear Ratios (Controls speed and direction)
+    const RATIOS = {
+        backOfSafe: 0, hinges: 0,
+        gearLarge: 1, gearMedium: -1.5, gearSmall: 2.5, knob: 0.5
+    };
+
+    const configRef = useRef(CONFIGS.MOBILE);
+    const layerRefs = useRef({});
+    const rotationRef = useRef(0);
+    const isScrollingRef = useRef(false);
+
+    // --- 1. RESPONSIVE HANDLER ---
+    useEffect(() => {
+        const handleResize = () => {
+            const width = window.innerWidth;
+            if (width >= 1200) {
+                configRef.current = CONFIGS.DESKTOP;
+            } else if (width >= 768) {
+                configRef.current = CONFIGS.TABLET;
+            } else {
+                configRef.current = CONFIGS.MOBILE;
+            }
+            updateVisuals(rotationRef.current);
+        };
+
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // --- 2. SCROLL DETECTION ---
+    useEffect(() => {
+        let scrollTimeout;
+        const onScroll = () => {
+            isScrollingRef.current = true;
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                isScrollingRef.current = false;
+            }, 150);
+        };
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => {
+            window.removeEventListener('scroll', onScroll);
+            clearTimeout(scrollTimeout);
+        };
+    }, []);
+
+    // --- 3. ANIMATION LOOP ---
+    useEffect(() => {
+        let animationFrameId;
+        const SPEED = 0.2; 
+
+        const animate = () => {
+            if (!isScrollingRef.current) {
+                rotationRef.current += SPEED;
+                updateVisuals(rotationRef.current);
+            }
+            animationFrameId = requestAnimationFrame(animate);
+        };
+
+        animationFrameId = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(animationFrameId);
+    }, []);
+
+    // --- 4. RENDERER ---
+    const updateVisuals = (deg) => {
+        LAYER_ORDER.forEach(layerName => {
+            const el = layerRefs.current[layerName];
+            const cfg = configRef.current[layerName];
+            
+            if (el && cfg) {
+                const ratio = RATIOS[layerName] || 0;
+                const rotateVal = cfg.rotate ? deg * ratio : 0;
+                el.style.transform = `translate(${cfg.x}px, ${cfg.y}px) scale(${cfg.scale}) rotate(${rotateVal}deg) translate3d(0,0,0)`;
+            }
+        });
+    };
+
+    return (
+        <div style={{
+            position: 'fixed', inset: 0, width: '100%', height: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
+            backgroundColor: '#1a1a1a' // Dark background for the safe
+        }}>
+            {/* Wall Background - Separated to cover full screen */}
+            <div style={{
+                position: 'absolute', inset: 0,
+                backgroundImage: `url(${ASSETS.wall})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                filter: 'brightness(0.7)' // Slightly darken wall to make safe pop
+            }} />
+
+            {/* Safe Mechanism - Scaled Container */}
+            <div style={{ 
+                position: 'relative', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                transform: `scale(${GLOBAL_SCALE})`,
+                width: '100%',
+                height: '100%'
+            }}>
+                {LAYER_ORDER.map(layerName => (
+                    <div
+                        key={layerName}
+                        ref={el => layerRefs.current[layerName] = el}
+                        style={{
+                            position: layerName === 'wall' ? 'relative' : 'absolute',
+                            top: layerName === 'wall' ? 'auto' : 0,
+                            left: layerName === 'wall' ? 'auto' : 0,
+                            right: layerName === 'wall' ? 'auto' : 0,
+                            bottom: layerName === 'wall' ? 'auto' : 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            willChange: 'transform',
+                            transform: `translate(${configRef.current[layerName].x}px, ${configRef.current[layerName].y}px) scale(${configRef.current[layerName].scale})`
+                        }}
+                    >
+                        <img 
+                            src={ASSETS[layerName]} 
+                            alt={layerName} 
+                            style={{
+                                objectFit: 'contain',
+                                display: layerName === 'wall' ? 'block' : 'block',
+                                width: layerName === 'wall' ? 'auto' : '100%',
+                                height: layerName === 'wall' ? 'auto' : '100%'
+                            }}
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// SYNDICATE VIEW
+// ============================================================================
+
+const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
+    const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars)
+    const [loading, setLoading] = useState(false);
+    const [feed, setFeed] = useState([]);
+    const [promptText, setPromptText] = useState('');
+    const [submitting, setSubmission] = useState(false);
+    const toast = useToast();
+
+    // Load initial data
+    useEffect(() => {
+        loadFeed();
+    }, [tab]);
+
+    const loadFeed = async () => {
+        setLoading(true);
+        const data = await window.DailyDepositEngine.getSyndicateFeed();
+        
+        // Filter based on tab
+        const filtered = data.filter(post => {
+            if (tab === 'vault') return post.submission_type === 'PROMPT' || !post.submission_type; // Legacy assumes PROMPT
+            if (tab === 'free_game') return post.submission_type === 'VERSE';
+            return true;
+        });
+        
+        setFeed(filtered);
+        setLoading(false);
+    };
+
+    const handleSubmitPrompt = async (e) => {
+        e.preventDefault();
+        if (!promptText.trim()) return;
+        
+        setSubmission(true);
+        try {
+            await window.DailyDepositEngine.submitToSyndicate(promptText, user.username, 'PROMPT');
+            toast?.addToast('PROMPT SUBMITTED +50 XP', 'success');
+            if (onAction) onAction(50, 'PROMPT SUBMITTED');
+            setPromptText('');
+            loadFeed();
+        } catch (err) {
+            toast?.addToast('SUBMISSION FAILED', 'error');
+        }
+        setSubmission(false);
+    };
+
+    return (
+        <div style={{ paddingBottom: 40 }}>
+            {/* Tab Switcher */}
+            <div style={{ 
+                display: 'flex', 
+                borderBottom: '2px solid var(--black)',
+                background: 'var(--white)',
+                position: 'sticky', top: 0, zIndex: 10
+            }}>
+                <button 
+                    onClick={() => setTab('vault')}
+                    style={{
+                        flex: 1, padding: 16,
+                        background: tab === 'vault' ? 'var(--black)' : 'transparent',
+                        color: tab === 'vault' ? 'var(--electric)' : 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em'
+                    }}
+                >
+                    THE VAULT
+                </button>
+                <button 
+                    onClick={() => setTab('free_game')}
+                    style={{
+                        flex: 1, padding: 16,
+                        background: tab === 'free_game' ? 'var(--black)' : 'transparent',
+                        color: tab === 'free_game' ? 'var(--white)' : 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em'
+                    }}
+                >
+                    FREE GAME
+                </button>
+                <button 
+                    onClick={onOpenStore}
+                    style={{
+                        padding: '16px 20px',
+                        background: 'var(--electric)',
+                        color: 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                        borderLeft: '2px solid var(--black)'
+                    }}
+                >
+                    <Icon name="Award" size={16} />
+                </button>
+            </div>
+
+            {/* VAULT CONTENT */}
+            {tab === 'vault' && (
+                <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
+                    <SafeComponent />
+                    
+                    {/* VAULT FEED - REORDERED: Now First */}
+                    <div style={{ padding: '20px 20px 0', position: 'relative', zIndex: 1 }}>
+                        <div style={{ 
+                            fontSize: 10, fontWeight: 900, letterSpacing: '0.1em', 
+                            textAlign: 'center', marginBottom: 16,
+                            color: 'var(--black)',
+                            background: 'rgba(255,255,255,0.8)',
+                            padding: '8px',
+                            borderRadius: 4,
+                            display: 'inline-block'
+                        }}>
+                            COMMUNITY DROPS
+                        </div>
+
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, letterSpacing: '0.1em' }}>LOADING VAULT...</div>
+                            </div>
+                        ) : feed.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.5 }}>VAULT IS EMPTY</div>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
+                                {feed.map((p, i) => (
+                                    <div key={p.id || i} className="animate-slide-up" style={{
+                                        background: 'rgba(255,255,255,0.95)',
+                                        padding: 16,
+                                        border: '1px solid var(--black)',
+                                        boxShadow: '4px 4px 0 rgba(0,0,0,0.1)'
+                                    }}>
+                                        <div style={{ 
+                                            fontFamily: "'Space Mono', monospace", 
+                                            fontSize: 12, 
+                                            lineHeight: 1.5,
+                                            marginBottom: 12
+                                        }}>
+                                            {p.prompt_text}
+                                        </div>
+                                        <div style={{ 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            fontSize: 9, 
+                                            color: 'var(--gray)',
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase'
+                                        }}>
+                                            <span>@{p.author}</span>
+                                            <span>💎 {p.likes || 0}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Submit Prompt Form - REORDERED: Now Second */}
+                    <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.95)',
+                            padding: 20,
+                            border: '2px solid var(--black)',
+                            boxShadow: '8px 8px 0 rgba(0,0,0,0.2)'
+                        }}>
+                            <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
+                            <textarea
+                                value={promptText}
+                                onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
+                                placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
+                                style={{
+                                    width: '100%', minHeight: 80,
+                                    padding: 12, border: '2px solid var(--black)',
+                                    background: 'var(--white)',
+                                    fontFamily: 'var(--font-mono)', fontSize: 12
+                                }}
+                            />
+                            <button 
+                                onClick={handleSubmitPrompt}
+                                disabled={submitting || !promptText.trim()}
+                                style={{
+                                    width: '100%', marginTop: 12, padding: 14,
+                                    background: 'var(--electric)', color: 'var(--black)',
+                                    fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                                    border: '2px solid var(--black)',
+                                    opacity: submitting ? 0.5 : 1
+                                }}
+                            >
+                                {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* FREE GAME CONTENT */}
+            {tab === 'free_game' && (
+                <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
+                    <SafeComponent />
+                    
+                    <div style={{ padding: 16, background: 'rgba(31, 41, 55, 0.9)', color: 'white', fontSize: 10, textAlign: 'center', letterSpacing: '0.1em', position: 'relative', zIndex: 1, backdropFilter: 'blur(4px)' }}>
+                        PUBLIC DOMAIN BARS • FREE TO USE
+                    </div>
+                    
+                    {loading ? (
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>LOADING FEED...</div>
+                    ) : feed.length === 0 ? (
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>NO FREE GAME YET</div>
+                    ) : (
+                        <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                            {feed.map((post) => (
+                                <div key={post.id} style={{ 
+                                    padding: 20, 
+                                    marginBottom: 12,
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    background: 'rgba(255,255,255,0.9)',
+                                    boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                                }}>
+                                <div style={{ fontSize: 9, color: 'var(--gray)', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>@{post.author || 'ANONYMOUS'}</span>
+                                    <span>{new Date(post.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <div className="font-mono" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+                                    {post.prompt_text}
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(post.prompt_text);
+                                        toast?.addToast('COPIED TO CLIPBOARD', 'success');
+                                    }}
+                                    style={{
+                                        fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+                                        padding: '6px 12px', border: '1px solid var(--black)',
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        background: 'var(--white)',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    <Icon name="Copy" size={10} /> STEAL THIS
+                                </button>
+                            </div>
+                        ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================================
 // MAIN APP
 // ============================================================================
 
 const App = () => {
     const [user, setUser] = useState(null);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-    const [view, setView] = useState('feed');
+    // Initialize view from storage or default to feed
+    const [view, setView] = useState(() => localStorage.getItem('dailybars_view') || 'feed');
     const [bars, setBars] = useState([]);
     const [songs, setSongs] = useState([]);
     const [loadingBars, setLoadingBars] = useState(true);
@@ -1774,7 +2567,41 @@ const App = () => {
     const [streak, setStreak] = useState(0);
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [dailyPrompt, setDailyPrompt] = useState(null);
+    const [crateModalBar, setCrateModalBar] = useState(null);
+    const [showXPStore, setShowXPStore] = useState(false);
     const typingTimeoutRef = useRef(null);
+
+    // XP SYSTEM LOGIC
+    const addExperience = async (amount, reason) => {
+        if (!user || !user.id) return;
+        
+        try {
+            const currentXp = user.xp || 0;
+            const currentLevel = user.level || 1;
+            const newXp = currentXp + amount;
+            const newLevel = Math.floor(newXp / 100) + 1;
+            
+            // Optimistic update
+            const updatedUser = { ...user, xp: newXp, level: newLevel };
+            setUser(updatedUser);
+            localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session')), user: updatedUser }));
+            
+            // API Update
+            await api.update('users', user.id, { xp: newXp, level: newLevel });
+            
+            // Notifications
+            // toast?.addToast(`+${amount} XP: ${reason}`, 'success'); // Need to expose toast here or use simple alert
+            console.log(`⭐ +${amount} XP: ${reason}`);
+            
+            if (newLevel > currentLevel) {
+                // Level Up!
+                haptic('success');
+                setTimeout(() => alert(`LEVEL UP! YOU ARE NOW LEVEL ${newLevel}`), 500); // Simple alert for now
+            }
+        } catch (err) {
+            console.error('XP Update failed:', err);
+        }
+    };
 
     const updateStreak = useCallback(() => {
         if (!user) return;
@@ -1795,6 +2622,9 @@ const App = () => {
             localStorage.setItem(`streakCount_${user.username}`, currentStreak.toString());
             localStorage.setItem(`lastPostDate_${user.username}`, today);
             setStreak(currentStreak);
+            
+            // Award XP for daily activity (once per day)
+            addExperience(10, 'DAILY CHECK-IN');
         }
     }, [user]);
 
@@ -2013,8 +2843,16 @@ const App = () => {
     const currentView = views[currentIndex];
     
     const swipeHandlers = useSwipe(
-        () => setView(views[(currentIndex + 1) % views.length].id),
-        () => setView(views[(currentIndex - 1 + views.length) % views.length].id)
+        () => {
+            const nextView = views[(currentIndex + 1) % views.length].id;
+            setView(nextView);
+            localStorage.setItem('dailybars_view', nextView);
+        },
+        () => {
+            const prevView = views[(currentIndex - 1 + views.length) % views.length].id;
+            setView(prevView);
+            localStorage.setItem('dailybars_view', prevView);
+        }
     );
     
     // Initial data load when user changes
@@ -2042,6 +2880,7 @@ const App = () => {
             });
             setBars(prev => [newBar, ...prev]);
             updateStreak();
+            addExperience(5, 'BAR WRITTEN');
         } catch (err) { console.error(err); }
     };
     
@@ -2060,10 +2899,10 @@ const App = () => {
         catch (err) { console.error(err); }
     };
     
-    const createSong = async () => {
+    const createSong = async (initialTitle = 'UNTITLED') => {
         try {
             const newSong = await api.create('songs', { 
-                title: 'UNTITLED', 
+                title: initialTitle, 
                 blocks: [], 
                 status: 'draft', 
                 isFavorite: false, 
@@ -2073,7 +2912,8 @@ const App = () => {
             setSongs(prev => [newSong, ...prev]);
             setEditingSong(newSong);
             updateStreak();
-        } catch (err) { console.error(err); }
+            return newSong;
+        } catch (err) { console.error(err); return null; }
     };
     
     const saveSong = async (songData) => {
@@ -2090,6 +2930,43 @@ const App = () => {
         } catch (err) { throw err; }
     };
     
+    const handleAddToCrate = async (songId, bar) => {
+        try {
+            const song = songs.find(s => s.id === songId);
+            if (!song) return;
+            
+            const newBlock = { 
+                id: generateId(), 
+                type: 'text', 
+                content: bar.text 
+            };
+            
+            const updatedBlocks = [...(song.blocks || []), newBlock];
+            
+            const updatedSong = await api.update('songs', songId, { 
+                blocks: updatedBlocks,
+                username: user.username 
+            });
+            
+            setSongs(prev => prev.map(s => s.id === songId ? updatedSong : s));
+            
+            // Show toast via ToastProvider logic if accessible, or just console
+            console.log('Added to crate!');
+        } catch (err) {
+            console.error('Failed to add to crate:', err);
+        }
+    };
+    
+    const handleSendToFreeGame = async (bar) => {
+        try {
+            await window.DailyDepositEngine.submitToSyndicate(bar.text, user.username, 'VERSE');
+            console.log('Sent to free game'); 
+            addExperience(25, 'CONTRIBUTED TO FREE GAME');
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     if (isCheckingAuth) return <div style={{ background: 'var(--paper)', minHeight: '100vh' }} />;
     
     if (!user) {
@@ -2129,7 +3006,10 @@ const App = () => {
                     subtitle={currentView.subtitle}
                     currentView={view}
                     views={views}
-                    onViewChange={setView}
+                    onViewChange={(newView) => {
+                        setView(newView);
+                        localStorage.setItem('dailybars_view', newView);
+                    }}
                     isTyping={isTyping}
                     onDailyDropUse={handleUsePrompt}
                 />
@@ -2146,13 +3026,44 @@ const App = () => {
                             onTyping={handleTyping}
                             onInputExpandChange={setIsInputExpanded}
                             dailyPrompt={dailyPrompt}
+                            onAddToCrate={(bar) => setCrateModalBar(bar)}
+                            onSendToFreeGame={handleSendToFreeGame}
                         />
                     )}
-                    {view === 'syndicate' && <SyndicateView user={user} onTyping={handleTyping} />}
+                    {view === 'syndicate' && (
+                        <SyndicateView 
+                            user={user} 
+                            onTyping={handleTyping} 
+                            onOpenStore={() => setShowXPStore(true)}
+                            onAction={addExperience}
+                        />
+                    )}
                     {view === 'archive' && <ArchiveView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
-                    {view === 'crates' && <CratesView songs={songs} onCreateSong={createSong} onEditSong={setEditingSong} />}
+                    {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                 </main>
+
+            {showXPStore && (
+                <TrophyCaseView 
+                    user={user} 
+                    onClose={() => setShowXPStore(false)} 
+                />
+            )}
+
+                {crateModalBar && (
+                    <AddToCrateModal 
+                        bar={crateModalBar}
+                        songs={songs}
+                        onClose={() => setCrateModalBar(null)}
+                        onSave={handleAddToCrate}
+                        onCreateNew={async () => {
+                            const newSong = await createSong(`NEW TRACK - ${formatDate(new Date())}`);
+                            if (newSong) {
+                                handleAddToCrate(newSong.id, crateModalBar);
+                            }
+                        }}
+                    />
+                )}
 
                 <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
                     <button onClick={handleLogout} style={{

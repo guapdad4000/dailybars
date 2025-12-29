@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
     password TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_login TIMESTAMPTZ,
-    is_verified BOOLEAN DEFAULT FALSE
+    is_verified BOOLEAN DEFAULT FALSE,
+    xp INTEGER DEFAULT 0,
+    level INTEGER DEFAULT 1
 );
 
 -- Index for faster lookups
@@ -108,6 +110,7 @@ CREATE TABLE IF NOT EXISTS community_submissions (
     prompt_text TEXT NOT NULL,
     author TEXT DEFAULT 'Anonymous',
     likes INTEGER DEFAULT 0,
+    submission_type TEXT DEFAULT 'PROMPT', -- 'PROMPT' or 'VERSE'
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
