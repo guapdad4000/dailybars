@@ -354,7 +354,7 @@ const FavoritesView = ({ bars, onSelect }) => {
 // SYNDICATE VIEW (COMMUNITY)
 // ============================================================================
 
-const SyndicateView = ({ user, onTyping }) => {
+const SyndicateViewOld = ({ user, onTyping }) => {
     const [prompts, setPrompts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [submissionText, setSubmissionText] = useState('');
