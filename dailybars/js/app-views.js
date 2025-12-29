@@ -14,6 +14,8 @@ const {
     ToastProvider, useToast, Icon,
     DailyDropWidget, ImagePreview, BottomBar, Header,
     SocialExportModal, IdeaCard, RhymePopup, QuickInput,
+    RhymeTextarea, RhymeHighlightedText,
+    RadioWidget,
     LOGO_SOLID, LOGO_HOLLOW
 } = window.DailyBarsApp;
 
@@ -26,7 +28,13 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
     
     return (
         <div>
-            <QuickInput onSave={onAddBar} onTyping={onTyping} onExpandChange={onInputExpandChange} initialPrompt={dailyPrompt} />
+            <QuickInput 
+                onSave={onAddBar} 
+                onTyping={onTyping} 
+                onExpandChange={onInputExpandChange} 
+                initialPrompt={dailyPrompt} 
+                style={{ background: 'var(--white)' }}
+            />
             
             {loading ? (
                 <div style={{ padding: 60, textAlign: 'center' }}>
@@ -287,7 +295,6 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                     }}>
                                         <span>VOL. {songs.length - i}</span>
                                         <span>{formatDate(song.updated_at)}</span>
-                                        <span>{song.status === 'complete' ? 'FINAL' : 'DRAFT'}</span>
                                     </div>
                                 </div>
 
@@ -604,16 +611,17 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     </div>
                     
                     {isEditing ? (
-                        <textarea
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            className="font-serif"
-                            autoFocus
-                            style={{
-                                width: '100%', minHeight: 200, fontSize: 20, lineHeight: 1.6,
-                                resize: 'none', background: 'var(--electric)', padding: 12
-                            }}
-                        />
+                        <div style={{ background: 'var(--electric)', padding: 12, margin: -8 }}>
+                            <RhymeTextarea
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                autoFocus
+                                className="font-serif rhyme-editor-active"
+                                style={{
+                                    width: '100%', minHeight: 200, fontSize: 20, lineHeight: 1.6
+                                }}
+                            />
+                        </div>
                     ) : (
                         <div 
                             onClick={() => setIsEditing(true)}
@@ -729,9 +737,11 @@ const TrackEditor = ({ song, onClose, onSave }) => {
     const [aiLoading, setAiLoading] = useState(false);
     
     const [beatUrl, setBeatUrl] = useState(song?.beatUrl || '');
+    const [videoUrl, setVideoUrl] = useState(song?.videoUrl || '');
     const [beatPlaying, setBeatPlaying] = useState(false);
     const [showBeatLocker, setShowBeatLocker] = useState(false);
     const [beatUrlInput, setBeatUrlInput] = useState('');
+    const [videoUrlInput, setVideoUrlInput] = useState('');
     const beatAudioRef = useRef(null);
     
     const toast = useToast();
@@ -785,7 +795,7 @@ const TrackEditor = ({ song, onClose, onSave }) => {
     const handleSave = async () => {
         setSaving(true);
         try {
-            await onSave({ ...song, title, blocks, status, coverImage, beatUrl });
+            await onSave({ ...song, title, blocks, status, coverImage, beatUrl, videoUrl });
             toast?.addToast('SAVED', 'success');
         } catch { toast?.addToast('SAVE FAILED', 'error'); }
         setSaving(false);
@@ -796,6 +806,8 @@ const TrackEditor = ({ song, onClose, onSave }) => {
         if (file && file.type.startsWith('audio/')) {
             const url = URL.createObjectURL(file);
             setBeatUrl(url);
+            // If we have a beat, we might want to clear video or keep it? 
+            // Usually beat locker handles audio. Let's keep it simple.
             setShowBeatLocker(false);
             haptic('success');
             toast?.addToast('BEAT LOADED!', 'success');
@@ -811,6 +823,25 @@ const TrackEditor = ({ song, onClose, onSave }) => {
             setShowBeatLocker(false);
             haptic('success');
             toast?.addToast('BEAT LINKED!', 'success');
+        }
+    };
+
+    const handleVideoUrlSet = () => {
+        if (videoUrlInput.trim()) {
+            // Basic YouTube ID extraction
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+            const match = videoUrlInput.match(regExp);
+            
+            if (match && match[2].length === 11) {
+                const embedUrl = `https://www.youtube.com/embed/${match[2]}`;
+                setVideoUrl(embedUrl);
+                setVideoUrlInput('');
+                setShowBeatLocker(false);
+                haptic('success');
+                toast?.addToast('VIDEO LINKED!', 'success');
+            } else {
+                toast?.addToast('INVALID YOUTUBE LINK', 'error');
+            }
         }
     };
     
@@ -829,6 +860,11 @@ const TrackEditor = ({ song, onClose, onSave }) => {
     const clearBeat = () => {
         setBeatUrl('');
         setBeatPlaying(false);
+        haptic('light');
+    };
+
+    const clearVideo = () => {
+        setVideoUrl('');
         haptic('light');
     };
     
@@ -858,6 +894,7 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving ? 0.7 : 1
             }}>{saving ? 'SAVING...' : 'SAVE'}</button>
             
+            {/* BEAT LOCKER MODAL */}
             {showBeatLocker && (
                 <div 
                     className="animate-fade-in"
@@ -877,22 +914,24 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                         style={{
                             width: '100%',
                             maxWidth: 360,
-                            background: 'var(--white)',
+                            backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                            backgroundSize: 'cover',
                             border: '3px solid var(--black)',
                             boxShadow: '8px 8px 0 var(--black)'
                         }}
                     >
                         <div style={{
-                            background: '#7C3AED',
+                            background: '#EF4444',
                             color: 'var(--white)',
                             padding: 16,
                             display: 'flex',
                             justifyContent: 'space-between',
-                            alignItems: 'center'
+                            alignItems: 'center',
+                            borderBottom: '3px solid var(--black)'
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <Icon name="Headphones" size={24} />
-                                <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: '0.1em' }}>🎧 BEAT LOCKER</span>
+                                <span className="font-display" style={{ fontSize: 16, fontWeight: 900, letterSpacing: '0.1em', textTransform: 'uppercase' }}>BEAT LOCKER</span>
                             </div>
                             <button onClick={() => setShowBeatLocker(false)}>
                                 <Icon name="X" size={20} color="white" />
@@ -900,35 +939,37 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                         </div>
                         
                         <div style={{ padding: 20 }}>
+                            {/* MP3 Section */}
                             <label style={{
                                 display: 'flex',
                                 flexDirection: 'column',
                                 alignItems: 'center',
                                 justifyContent: 'center',
-                                padding: 30,
-                                border: '2px dashed var(--gray)',
+                                padding: 24,
+                                border: '2px dashed var(--black)',
                                 cursor: 'pointer',
                                 gap: 10,
-                                marginBottom: 16
+                                marginBottom: 16,
+                                background: 'rgba(255,255,255,0.5)'
                             }}>
                                 <Icon name="Upload" size={32} style={{ opacity: 0.5 }} />
-                                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em' }}>UPLOAD MP3</span>
-                                <span style={{ fontSize: 10, color: 'var(--gray)' }}>Local file, loops forever</span>
+                                <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em' }}>UPLOAD MP3 FILE</span>
+                                <span style={{ fontSize: 9, color: 'var(--gray)' }}>Local file, loops forever</span>
                                 <input type="file" accept="audio/*" onChange={handleBeatUpload} style={{ display: 'none' }} />
                             </label>
                             
-                            <div style={{ textAlign: 'center', marginBottom: 16, color: 'var(--gray)', fontSize: 10 }}>— OR PASTE LINK —</div>
-                            
-                            <div style={{ display: 'flex', gap: 8 }}>
+                            <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
                                 <input 
                                     value={beatUrlInput}
                                     onChange={(e) => setBeatUrlInput(e.target.value)}
-                                    placeholder="https://... (MP3 URL)"
+                                    placeholder="PASTE MP3 URL..."
+                                    className="font-mono"
                                     style={{
                                         flex: 1,
                                         padding: 12,
                                         border: '2px solid var(--black)',
-                                        fontSize: 11
+                                        fontSize: 11,
+                                        background: 'var(--white)'
                                     }}
                                 />
                                 <button 
@@ -942,85 +983,181 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                                     }}
                                 >SET</button>
                             </div>
+
+                            <div style={{ height: 1, background: 'var(--black)', margin: '0 0 24px', opacity: 0.2 }}></div>
+
+                            {/* YouTube Section */}
+                            <div style={{ marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>ADD YOUTUBE VIDEO</div>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <input 
+                                    value={videoUrlInput}
+                                    onChange={(e) => setVideoUrlInput(e.target.value)}
+                                    placeholder="PASTE YOUTUBE LINK..."
+                                    className="font-mono"
+                                    style={{
+                                        flex: 1,
+                                        padding: 12,
+                                        border: '2px solid var(--black)',
+                                        fontSize: 11,
+                                        background: 'var(--white)'
+                                    }}
+                                />
+                                <button 
+                                    onClick={handleVideoUrlSet}
+                                    style={{
+                                        padding: '12px 16px',
+                                        background: '#FF0000',
+                                        color: 'var(--white)',
+                                        fontWeight: 700,
+                                        fontSize: 10,
+                                        border: '2px solid var(--black)'
+                                    }}
+                                >ADD</button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
             <header style={{ borderBottom: '2px solid var(--black)', backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', paddingTop: 'max(60px, calc(env(safe-area-inset-top) + 50px))' }}>
+                {/* Title Input */}
                 <div style={{ padding: '0 16px 12px', background: 'rgba(255,255,255,0.5)' }}>
                     <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="TRACK TITLE"
-                        className="font-display" style={{ width: '100%', fontSize: 22, fontWeight: 900, textTransform: 'uppercase' }} />
+                        className="font-display" style={{ 
+                            width: '100%', 
+                            fontSize: 28, 
+                            fontWeight: 900, 
+                            textTransform: 'uppercase', 
+                            textAlign: 'center',
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                        }} 
+                    />
                 </div>
                 
-                <div style={{ display: 'flex', borderTop: '1px solid var(--light-gray)', background: 'rgba(255,255,255,0.8)' }}>
-                    {['draft', 'in-progress', 'complete'].map(s => (
-                        <button key={s} onClick={() => setStatus(s)} style={{
-                            flex: 1, padding: '10px 8px', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-                            background: status === s ? 'var(--brand-green)' : 'transparent', color: status === s ? 'var(--white)' : 'var(--black)',
-                            borderRight: '1px solid var(--light-gray)'
-                        }}>{s.replace('-', ' ')}</button>
-                    ))}
-                </div>
-                
+                {/* Media Area: Radio (Left) & Video (Right) */}
                 <div style={{ 
-                    background: beatPlaying ? '#7C3AED' : '#1F2937',
-                    padding: '8px 16px',
+                    borderTop: '2px solid var(--black)',
                     display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    transition: 'background 0.3s ease'
+                    height: 180, // Increased height for spacing
+                    background: 'transparent',
+                    position: 'relative'
                 }}>
-                    {beatUrl ? (
-                        <>
-                            <button 
-                                onClick={toggleBeat}
-                                className={beatPlaying ? 'animate-pulse' : ''}
+                    {/* LEFT: Radio Beat Player - Full width if no video, 50% if video */}
+                    <div style={{ 
+                        width: videoUrl ? '50%' : '100%',
+                        borderRight: videoUrl ? '2px solid var(--black)' : 'none',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '24px 12px 12px', // Added top padding to prevent clipping
+                        position: 'relative',
+                        transition: 'width 0.3s ease'
+                    }}>
+                        <div style={{ 
+                            width: '100%', 
+                            flex: 1,
+                            position: 'relative',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                        }}>
+                            {/* Radio Widget - Centered */}
+                            <div 
+                                onClick={beatUrl ? toggleBeat : () => setShowBeatLocker(true)}
                                 style={{
-                                    width: 36, height: 36,
-                                    background: beatPlaying ? 'var(--white)' : '#7C3AED',
-                                    color: beatPlaying ? '#7C3AED' : 'var(--white)',
-                                    borderRadius: '50%',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                    width: '100%',
+                                    maxWidth: videoUrl ? '100%' : '300px', // Constrain width when centered alone
+                                    height: '100%',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.3s ease',
+                                    pointerEvents: 'auto'
                                 }}
                             >
-                                <Icon name={beatPlaying ? 'Pause' : 'Play'} size={18} />
-                            </button>
-                            <div style={{ flex: 1, color: 'var(--white)' }}>
-                                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>
-                                    {beatPlaying ? '🔊 BEAT PLAYING' : '🎧 BEAT LOADED'}
-                                </div>
-                                <div style={{ fontSize: 8, opacity: 0.7, marginTop: 2 }}>
-                                    {beatPlaying ? 'LOOPING • TAP TO PAUSE' : 'TAP PLAY TO VIBE'}
-                                </div>
+                                <RadioWidget isPlaying={beatPlaying} />
                             </div>
-                            <button onClick={clearBeat} style={{ color: 'rgba(255,255,255,0.5)', padding: 8 }}>
-                                <Icon name="X" size={16} />
+
+                            {/* Eject Button (Mini) */}
+                            {beatUrl && (
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); clearBeat(); }}
+                                    style={{
+                                        position: 'absolute', top: -4, right: -4,
+                                        background: 'var(--black)', color: 'var(--white)',
+                                        width: 20, height: 20, borderRadius: '50%',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        zIndex: 20, border: '1px solid var(--white)'
+                                    }}
+                                >
+                                    <Icon name="X" size={12} />
+                                </button>
+                            )}
+
+                            {/* Text Overlay - Positioned over the radio */}
+                            <div 
+                                style={{ 
+                                    position: 'absolute',
+                                    bottom: '20%', // ~Quarter up from bottom
+                                    left: 0, 
+                                    right: 0,
+                                    textAlign: 'center',
+                                    pointerEvents: 'none', // Let clicks pass through to radio
+                                    zIndex: 10
+                                }}
+                            >
+                                <span style={{
+                                    fontSize: 9, 
+                                    fontWeight: 900, 
+                                    letterSpacing: '0.1em',
+                                    color: 'var(--black)',
+                                    background: 'rgba(255, 255, 255, 0.8)',
+                                    padding: '2px 6px',
+                                    borderRadius: 2,
+                                    backdropFilter: 'blur(2px)'
+                                }}>
+                                    {!beatUrl ? "OPEN BEAT LOCKER" : (beatPlaying ? "NOW PLAYING" : "CLICK TO PLAY")}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* RIGHT: Video Player - Only visible if videoUrl exists */}
+                    {videoUrl && (
+                        <div style={{ 
+                            width: '50%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            position: 'relative',
+                            background: '#000'
+                        }}>
+                            <iframe 
+                                src={videoUrl} 
+                                style={{ width: '100%', height: '100%', border: 'none' }} 
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                                allowFullScreen
+                            />
+                            
+                            <button 
+                                onClick={clearVideo}
+                                style={{
+                                    position: 'absolute', top: 4, right: 4,
+                                    background: 'rgba(0,0,0,0.6)', color: 'var(--white)',
+                                    width: 24, height: 24, borderRadius: '50%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    zIndex: 20, border: '1px solid var(--white)'
+                                }}
+                            >
+                                <Icon name="X" size={14} />
                             </button>
-                        </>
-                    ) : (
-                        <button 
-                            onClick={() => setShowBeatLocker(true)}
-                            style={{
-                                flex: 1,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 10,
-                                padding: 8,
-                                color: 'var(--white)'
-                            }}
-                        >
-                            <Icon name="Headphones" size={18} />
-                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>
-                                🎧 LOAD BEAT TO LOOP
-                            </span>
-                        </button>
+                        </div>
                     )}
                 </div>
             </header>
             
-            <div className="scrollable" style={{ flex: 1, paddingBottom: 40 }}>
+            <div className="scrollable" style={{ flex: 1, paddingBottom: 80 }}>
+                {/* 1. Cover Art */}
                 <div style={{ padding: 16, borderBottom: '1px solid var(--black)' }}>
                     {coverImage ? (
                         <div style={{ position: 'relative' }}>
@@ -1045,22 +1182,44 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                     )}
                 </div>
 
-                <div style={{ padding: '10px 16px', display: 'flex', gap: 6, overflowX: 'auto', borderBottom: '1px solid var(--black)', background: 'rgba(255,255,255,0.6)' }}>
+                {/* 2. Add Block Controls (Moved from Footer to here) */}
+                <div style={{
+                    display: 'flex', 
+                    gap: 8, 
+                    padding: '12px 16px',
+                    background: 'var(--paper)',
+                    borderBottom: '2px solid var(--black)',
+                    overflowX: 'auto'
+                }}>
                     {[
-                        { id: 'next', label: '✦ NEXT BARS', highlight: true },
-                        { id: 'hook', label: 'HOOK' },
-                        { id: 'bridge', label: 'BRIDGE' },
-                        { id: 'freestyle', label: 'FREESTYLE' }
+                        { type: 'text', icon: 'FileText', label: 'VERSE' }, 
+                        { type: 'heading', icon: 'Type', label: 'TITLE' }, 
+                        { type: 'image', icon: 'Image', label: 'IMG' },
+                        { type: 'divider', icon: 'Minus', label: 'BREAK' }
                     ].map(item => (
-                        <button key={item.id} onClick={() => handleAI(item.id)} disabled={aiLoading} style={{
-                            padding: '6px 10px', border: '1px solid var(--black)',
-                            fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', whiteSpace: 'nowrap',
-                            background: item.highlight ? 'var(--electric)' : 'var(--white)',
-                            opacity: aiLoading ? 0.5 : 1
-                        }}>{aiLoading ? '...' : item.label}</button>
+                        <button key={item.type} onClick={() => addBlock(item.type)} style={{
+                            flex: 1,
+                            minWidth: 80,
+                            padding: '10px 12px', 
+                            background: 'var(--white)',
+                            border: '1px solid var(--black)',
+                            display: 'flex', 
+                            flexDirection: 'column',
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            gap: 6, 
+                            fontSize: 9, 
+                            fontWeight: 700, 
+                            letterSpacing: '0.1em',
+                            boxShadow: '2px 2px 0 rgba(0,0,0,0.1)'
+                        }}>
+                            <Icon name={item.icon} size={16} />
+                            {item.label}
+                        </button>
                     ))}
                 </div>
 
+                {/* 3. Blocks List */}
                 {blocks.map((block, i) => (
                     <div key={block.id} style={{ borderBottom: '1px solid var(--light-gray)', position: 'relative' }}>
                         <button onClick={() => deleteBlock(i)} style={{
@@ -1070,9 +1229,15 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                         }}><Icon name="X" size={12} /></button>
                         
                         {block.type === 'text' ? (
-                            <textarea value={block.content} onChange={(e) => { updateBlock(i, e.target.value); e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                                placeholder="WRITE YOUR VERSE..." className="font-mono"
-                                style={{ width: '100%', minHeight: 100, padding: 16, fontSize: 14, lineHeight: 1.6, resize: 'none', background: 'var(--white)' }} />
+                            <div style={{ padding: 16, background: 'var(--white)' }}>
+                                <RhymeTextarea
+                                    value={block.content}
+                                    onChange={(e) => updateBlock(i, e.target.value)}
+                                    placeholder="WRITE YOUR VERSE..."
+                                    className="font-mono rhyme-editor-active"
+                                    style={{ width: '100%', minHeight: 100, fontSize: 14, lineHeight: 1.6 }}
+                                />
+                            </div>
                         ) : block.type === 'heading' ? (
                             <input value={block.content} onChange={(e) => updateBlock(i, e.target.value)} placeholder="SECTION TITLE"
                                 className="font-display" style={{ width: '100%', padding: 16, fontSize: 18, fontWeight: 900, textTransform: 'uppercase', background: 'var(--white)' }} />
@@ -1108,23 +1273,37 @@ const TrackEditor = ({ song, onClose, onSave }) => {
                 )}
             </div>
             
+            {/* 4. AI Toolbar (Sticky Bottom) - Replaces the old footer */}
             <div style={{
                 position: 'sticky', bottom: 0, left: 0, right: 0,
-                display: 'flex', gap: 4, background: 'var(--brand-green)', padding: 8,
-                borderTop: '2px solid var(--black)',
-                paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
-                justifyContent: 'center'
+                display: 'flex', 
+                gap: 0, 
+                background: 'var(--black)', 
+                padding: '0',
+                borderTop: '2px solid var(--electric)',
+                paddingBottom: 'max(0px, env(safe-area-inset-bottom))'
             }}>
                 {[
-                    { type: 'text', icon: 'FileText', label: 'VERSE' }, 
-                    { type: 'heading', icon: 'Type', label: 'TITLE' }, 
-                    { type: 'image', icon: 'Image', label: 'IMG' },
-                    { type: 'divider', icon: 'Minus', label: 'BREAK' }
-                ].map(item => (
-                    <button key={item.type} onClick={() => addBlock(item.type)} style={{
-                        padding: '12px 14px', background: 'var(--white)',
-                        display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, letterSpacing: '0.1em'
-                    }}><Icon name={item.icon} size={14} />{item.label}</button>
+                    { id: 'next', label: '✦ NEXT BARS' },
+                    { id: 'hook', label: 'HOOK' },
+                    { id: 'bridge', label: 'BRIDGE' },
+                    { id: 'freestyle', label: 'FREESTYLE' }
+                ].map((item, i) => (
+                    <button key={item.id} onClick={() => handleAI(item.id)} disabled={aiLoading} style={{
+                        flex: 1,
+                        padding: '16px 4px', 
+                        border: 'none',
+                        borderRight: i < 3 ? '1px solid #333' : 'none',
+                        fontSize: 10, 
+                        fontWeight: 900, 
+                        letterSpacing: '0.1em', 
+                        whiteSpace: 'nowrap',
+                        background: 'transparent',
+                        color: aiLoading ? '#666' : 'var(--electric)',
+                        opacity: aiLoading ? 0.5 : 1
+                    }}>
+                        {aiLoading ? '...' : item.label}
+                    </button>
                 ))}
             </div>
         </div>

@@ -358,6 +358,234 @@ const ToastWithIcon = ({ message, type = 'info' }) => {
     );
 };
 
+// ============================================================================
+// RADIO BEAT PLAYER (Vintage Style)
+// ============================================================================
+
+const RadioWidget = ({ isPlaying, onClick }) => {
+    // We inject the SVG with conditional classes/styles based on isPlaying
+    const animationState = isPlaying ? 'running' : 'paused';
+    const needleState = isPlaying ? 'running' : 'paused';
+    
+    // We also might want to reduce the opacity/intensity when paused
+    const containerStyle = {
+        width: '100%',
+        height: '100%',
+        cursor: 'pointer',
+        transition: 'transform 0.2s ease',
+        transform: isPlaying ? 'scale(1.02)' : 'scale(1)',
+        filter: isPlaying ? 'drop-shadow(0 0 15px rgba(234, 179, 8, 0.3))' : 'grayscale(30%)'
+    };
+
+    // Helper to inject animation state into styles
+    const svgStyle = {
+        '--anim-state': animationState
+    };
+
+    return (
+        <div onClick={onClick} style={containerStyle}>
+            <svg width="100%" height="100%" viewBox="0 0 800 500" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block' }}>
+                <style>
+                    {`
+                    /* CSS Animations embedded directly in the SVG */
+                    
+                    /* Tuning Needle Scanning */
+                    @keyframes scan {
+                      0% { transform: translateX(-160px); }
+                      50% { transform: translateX(140px); }
+                      100% { transform: translateX(-160px); }
+                    }
+                    
+                    /* Magic Eye Pulsing */
+                    @keyframes magicEyePulse {
+                      0% { transform: scale(0.8); opacity: 0.4; }
+                      50% { transform: scale(1.1); opacity: 0.9; }
+                      100% { transform: scale(0.8); opacity: 0.4; }
+                    }
+                    
+                    /* Dial Light Flicker */
+                    @keyframes flicker {
+                      0% { opacity: 0.9; }
+                      25% { opacity: 1; }
+                      50% { opacity: 0.85; }
+                      75% { opacity: 0.95; }
+                      100% { opacity: 0.9; }
+                    }
+
+                    /* Speaker Vibration (Subtle Bass) */
+                    @keyframes rumble {
+                      0% { transform: scale(1); }
+                      25% { transform: scale(1.002); }
+                      50% { transform: scale(1); }
+                      75% { transform: scale(1.002); }
+                      100% { transform: scale(1); }
+                    }
+
+                    .needle {
+                      animation: scan 8s ease-in-out infinite;
+                      animation-play-state: ${needleState};
+                    }
+
+                    .magic-eye-glow {
+                      animation: magicEyePulse 3s infinite ease-in-out;
+                      transform-origin: center; 
+                      animation-play-state: ${animationState};
+                    }
+
+                    .dial-light {
+                      animation: flicker 0.2s infinite alternate;
+                      animation-play-state: ${animationState};
+                    }
+
+                    .speaker-grille {
+                      animation: rumble 0.1s infinite linear;
+                      transform-origin: center;
+                      animation-play-state: ${animationState};
+                    }
+                    `}
+                </style>
+
+                <defs>
+                    {/* Wood Grain Gradient */}
+                    <linearGradient id="woodGrain" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" style={{stopColor:"#1a1a1a", stopOpacity:1}} />
+                    <stop offset="10%" style={{stopColor:"#333333", stopOpacity:1}} />
+                    <stop offset="25%" style={{stopColor:"#111111", stopOpacity:1}} />
+                    <stop offset="40%" style={{stopColor:"#2a2a2a", stopOpacity:1}} />
+                    <stop offset="55%" style={{stopColor:"#0d0d0d", stopOpacity:1}} />
+                    <stop offset="70%" style={{stopColor:"#333333", stopOpacity:1}} />
+                    <stop offset="85%" style={{stopColor:"#1a1a1a", stopOpacity:1}} />
+                    <stop offset="100%" style={{stopColor:"#000000", stopOpacity:1}} />
+                    </linearGradient>
+                    
+                    {/* Speaker Cloth Pattern */}
+                    <pattern id="speakerCloth" x="0" y="0" width="8" height="8" patternUnits="userSpaceOnUse">
+                    <rect width="8" height="8" fill="#444"/>
+                    <line x1="0" y1="0" x2="8" y2="8" stroke="#555" strokeWidth="1"/>
+                    <line x1="8" y1="0" x2="0" y2="8" stroke="#555" strokeWidth="1"/>
+                    </pattern>
+                    
+                    {/* Bakelite Knob Gradient */}
+                    <radialGradient id="bakeliteKnob" cx="30%" cy="30%" r="70%">
+                    <stop offset="0%" style={{stopColor:"#666", stopOpacity:1}} />
+                    <stop offset="50%" style={{stopColor:"#111", stopOpacity:1}} />
+                    <stop offset="100%" style={{stopColor:"#000", stopOpacity:1}} />
+                    </radialGradient>
+
+                    {/* Dial Glow */}
+                    <linearGradient id="dialGlow" x1="50%" y1="100%" x2="50%" y2="0%">
+                        <stop offset="0%" style={{stopColor:"#fff", stopOpacity:0.9}}/>
+                        <stop offset="100%" style={{stopColor:"#ccc", stopOpacity:0.5}}/>
+                    </linearGradient>
+
+                    {/* Glass Reflection */}
+                    <linearGradient id="glassReflect" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style={{stopColor:"#fff", stopOpacity:0.5}}/>
+                        <stop offset="40%" style={{stopColor:"#fff", stopOpacity:0}}/>
+                        <stop offset="60%" style={{stopColor:"#fff", stopOpacity:0}}/>
+                        <stop offset="100%" style={{stopColor:"#fff", stopOpacity:0.3}}/>
+                    </linearGradient>
+                </defs>
+
+                {/* Main Radio Cabinet Body */}
+                <path d="M 120 450 L 140 480 L 200 480 L 180 450 Z" fill="#111"/>
+                <path d="M 600 450 L 620 480 L 680 480 L 660 450 Z" fill="#111"/>
+
+                <ellipse cx="400" cy="480" rx="300" ry="15" fill="#000" opacity="0.3"/>
+
+                <rect x="100" y="50" width="600" height="400" rx="30" ry="30" fill="url(#woodGrain)" stroke="#000" strokeWidth="2"/>
+                
+                <rect x="120" y="70" width="560" height="360" rx="10" ry="10" fill="none" stroke="#555" strokeWidth="4"/>
+                
+                <path className="speaker-grille" d="M 150 180 L 650 180 L 630 400 L 170 400 Z" fill="url(#speakerCloth)" stroke="#222" strokeWidth="2"/>
+                
+                <g transform="translate(400, 290)">
+                    <rect x="-10" y="-110" width="20" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="-60" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="-110" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="-160" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="50" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="100" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                    <rect x="150" y="-110" width="10" height="220" fill="url(#woodGrain)" stroke="#000"/>
+                </g>
+
+                <g transform="translate(200, 85)">
+                    <rect x="0" y="0" width="400" height="80" rx="5" ry="5" fill="#222" stroke="#444" strokeWidth="3"/>
+                    <rect className="dial-light" x="10" y="10" width="380" height="60" fill="url(#dialGlow)"/>
+                    
+                    <g stroke="#222" strokeWidth="1.5">
+                        <line x1="30" y1="40" x2="30" y2="60"/>
+                        <line x1="70" y1="45" x2="70" y2="60"/>
+                        <line x1="110" y1="40" x2="110" y2="60"/>
+                        <line x1="150" y1="45" x2="150" y2="60"/>
+                        <line x1="190" y1="35" x2="190" y2="60"/>
+                        <line x1="230" y1="45" x2="230" y2="60"/>
+                        <line x1="270" y1="40" x2="270" y2="60"/>
+                        <line x1="310" y1="45" x2="310" y2="60"/>
+                        <line x1="350" y1="40" x2="350" y2="60"/>
+                    </g>
+                    <text x="30" y="30" fontFamily="Courier New, monospace" fontWeight="bold" fontSize="14" fill="#000" textAnchor="middle">55</text>
+                    <text x="110" y="30" fontFamily="Courier New, monospace" fontWeight="bold" fontSize="14" fill="#000" textAnchor="middle">70</text>
+                    <text x="190" y="25" fontFamily="Courier New, monospace" fontWeight="bold" fontSize="16" fill="#000" textAnchor="middle">100</text>
+                    <text x="270" y="30" fontFamily="Courier New, monospace" fontWeight="bold" fontSize="14" fill="#000" textAnchor="middle">130</text>
+                    <text x="350" y="30" fontFamily="Courier New, monospace" fontWeight="bold" fontSize="14" fill="#000" textAnchor="middle">160</text>
+                    <text x="200" y="55" fontFamily="Serif" fontStyle="italic" fontSize="10" fill="#444" textAnchor="middle">KILOCYCLES</text>
+
+                    <g className="needle">
+                        <line x1="210" y1="10" x2="210" y2="70" stroke="#333" strokeWidth="3"/>
+                        <line x1="210" y1="10" x2="210" y2="70" stroke="#000" strokeWidth="1"/>
+                    </g>
+
+                    <rect x="10" y="10" width="380" height="60" fill="url(#glassReflect)" pointerEvents="none"/>
+                </g>
+
+                <g transform="translate(160, 360)">
+                    <circle cx="0" cy="0" r="35" fill="url(#bakeliteKnob)" stroke="#000" strokeWidth="1"/>
+                    <line x1="0" y1="-35" x2="0" y2="-25" stroke="#333" strokeWidth="4"/>
+                    <line x1="0" y1="35" x2="0" y2="25" stroke="#333" strokeWidth="4"/>
+                    <line x1="-35" y1="0" x2="-25" y2="0" stroke="#333" strokeWidth="4"/>
+                    <line x1="35" y1="0" x2="25" y2="0" stroke="#333" strokeWidth="4"/>
+                    <circle cx="0" cy="0" r="15" fill="#222" stroke="#111"/>
+                    <text x="0" y="55" fontFamily="Serif" fontSize="12" fill="#888" textAnchor="middle">VOLUME</text>
+                </g>
+
+                <g transform="translate(640, 360)">
+                    <circle cx="0" cy="0" r="35" fill="url(#bakeliteKnob)" stroke="#000" strokeWidth="1"/>
+                    <line x1="0" y1="-35" x2="0" y2="-25" stroke="#333" strokeWidth="4"/>
+                    <line x1="0" y1="35" x2="0" y2="25" stroke="#333" strokeWidth="4"/>
+                    <line x1="-35" y1="0" x2="-25" y2="0" stroke="#333" strokeWidth="4"/>
+                    <line x1="35" y1="0" x2="25" y2="0" stroke="#333" strokeWidth="4"/>
+                    <circle cx="0" cy="0" r="15" fill="#222" stroke="#111"/>
+                    <text x="0" y="55" fontFamily="Serif" fontSize="12" fill="#888" textAnchor="middle">TUNING</text>
+                </g>
+                
+                <g transform="translate(260, 420)">
+                    <circle cx="0" cy="0" r="15" fill="url(#bakeliteKnob)" stroke="#000" strokeWidth="1"/>
+                    <text x="0" y="30" fontFamily="Serif" fontSize="10" fill="#666" textAnchor="middle">TONE</text>
+                </g>
+
+                <g transform="translate(540, 420)">
+                    <circle cx="0" cy="0" r="15" fill="url(#bakeliteKnob)" stroke="#000" strokeWidth="1"/>
+                    <text x="0" y="30" fontFamily="Serif" fontSize="10" fill="#666" textAnchor="middle">BAND</text>
+                </g>
+
+                <g transform="translate(400, 140)">
+                    <circle cx="0" cy="0" r="15" fill="#222" stroke="#444" strokeWidth="2"/>
+                    <g className="magic-eye-glow">
+                        <path d="M 0 0 L -10 -10 A 14 14 0 0 1 10 -10 Z" fill="#66ff66" opacity="0.6"/>
+                    </g>
+                    <text x="30" y="5" fontFamily="Serif" fontSize="10" fill="#444">MAGIC EYE</text>
+                </g>
+
+                <circle cx="120" cy="70" r="4" fill="#333" stroke="#111"/>
+                <circle cx="680" cy="70" r="4" fill="#333" stroke="#111"/>
+                <circle cx="120" cy="430" r="4" fill="#333" stroke="#111"/>
+                <circle cx="680" cy="430" r="4" fill="#333" stroke="#111"/>
+            </svg>
+        </div>
+    );
+};
+
 // Export components
 window.SvgIcon = SvgIcon;
 window.NewspaperModal = NewspaperModal;
@@ -365,3 +593,4 @@ window.ConfirmDialog = ConfirmDialog;
 window.AlertDialog = AlertDialog;
 window.LevelUpModal = LevelUpModal;
 window.ToastWithIcon = ToastWithIcon;
+window.RadioWidget = RadioWidget;
