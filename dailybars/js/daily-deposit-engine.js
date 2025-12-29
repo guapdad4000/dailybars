@@ -156,7 +156,7 @@ const DailyDepositEngine = {
     // Community Syndicate Logic (Supabase-powered)
     // ========================================================================
     
-    async submitToSyndicate(promptText, author) {
+    async submitToSyndicate(promptText, author, type = 'PROMPT') {
         try {
             const client = this.getSupabase();
             const { data, error } = await client
@@ -164,7 +164,8 @@ const DailyDepositEngine = {
                 .insert({
                     prompt_text: promptText,
                     author: author || 'Anonymous',
-                    likes: 0
+                    likes: 0,
+                    submission_type: type
                 })
                 .select()
                 .single();

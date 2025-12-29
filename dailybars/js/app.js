@@ -899,6 +899,7 @@ const BottomBar = ({ currentView, streak }) => {
 
     const [showBackup, setShowBackup] = useState(false);
     const [backupData, setBackupData] = useState('');
+    const [textExportData, setTextExportData] = useState('');
 
     const handleBackup = async () => {
         try {
@@ -907,29 +908,32 @@ const BottomBar = ({ currentView, streak }) => {
             
             const bars = await api.get('bars', { limit: 1000 });
             const songs = await api.get('songs', { limit: 1000 });
-            const users = await api.get('users', { limit: 1000 });
             
-            // Also grab syndicate data if it exists
-            const feelings = await api.get('prompts_feelings', { limit: 100 });
-            const settings = await api.get('prompts_settings', { limit: 100 });
-            const objects = await api.get('prompts_objects', { limit: 100 });
-            const smells = await api.get('prompts_smells', { limit: 100 });
-            const vocab = await api.get('prompts_vocab', { limit: 100 });
-
+            // Generate basic text export
+            const textContent = `DAILY BARS ARCHIVE - ${new Date().toLocaleDateString()}\n\n` + 
+                bars.data.map(b => `[${formatDate(b.created_at)}]\n${b.text}\n${b.tags ? b.tags.map(t => '#' + t).join(' ') : ''}`).join('\n\n---\n\n');
+            
+            // Full JSON backup
             const fullBackup = {
-                bars, songs, users,
-                prompts_feelings: feelings,
-                prompts_settings: settings,
-                prompts_objects: objects,
-                prompts_smells: smells,
-                prompts_vocab: vocab,
+                bars, songs, 
                 date: new Date().toISOString()
             };
             
             setBackupData(JSON.stringify(fullBackup, null, 2));
+            setTextExportData(textContent);
         } catch (err) {
             setBackupData('ERROR GENERATING BACKUP: ' + err.message);
         }
+    };
+
+    const downloadTxt = () => {
+        const blob = new Blob([textExportData], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `dailybars-archive-${new Date().toISOString().slice(0,10)}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -976,11 +980,31 @@ const BottomBar = ({ currentView, streak }) => {
                     color: 'white'
                 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <h2 style={{ fontSize: 14 }}>YOUR DATA BACKUP</h2>
+                        <h2 style={{ fontSize: 14 }}>YOUR DATA ARCHIVE</h2>
                         <button onClick={() => setShowBackup(false)} style={{ color: 'white' }}>CLOSE</button>
                     </div>
+                    <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                        <button 
+                            onClick={downloadTxt}
+                            style={{
+                                flex: 1, padding: 12, background: 'var(--white)', color: 'var(--black)',
+                                fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
+                            }}
+                        >
+                            DOWNLOAD .TXT
+                        </button>
+                        <button 
+                            onClick={() => { navigator.clipboard.writeText(backupData); alert('JSON COPIED!'); }}
+                            style={{
+                                flex: 1, padding: 12, border: '1px solid var(--white)', color: 'var(--white)',
+                                fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
+                            }}
+                        >
+                            COPY JSON BACKUP
+                        </button>
+                    </div>
                     <div style={{ fontSize: 10, marginBottom: 10, color: '#aaa' }}>
-                        COPY EVERYTHING IN THE BOX BELOW. THIS IS YOUR DATA.
+                        RAW BACKUP DATA (FOR RESTORE):
                     </div>
                     <textarea 
                         readOnly
@@ -995,18 +1019,6 @@ const BottomBar = ({ currentView, streak }) => {
                             padding: 10
                         }}
                     />
-                    <button 
-                        onClick={() => { navigator.clipboard.writeText(backupData); alert('COPIED!'); }}
-                        style={{
-                            marginTop: 10,
-                            padding: 15,
-                            background: 'var(--electric)',
-                            color: 'black',
-                            fontWeight: 'bold'
-                        }}
-                    >
-                        COPY TO CLIPBOARD
-                    </button>
                 </div>
             )}
         </>
@@ -1018,6 +1030,9 @@ const BottomBar = ({ currentView, streak }) => {
 // ============================================================================
 
 const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse }) => {
+    // Determine active index safely
+    const activeIndex = Math.max(0, views.findIndex(v => v.id === currentView));
+
     return (
         <header style={{
             position: 'sticky',
@@ -1137,7 +1152,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                             className={isTyping ? 'animate-rock' : ''}
                             style={{ 
                                 transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
-                                transform: `translateX(${30 + (views.findIndex(v => v.id === currentView) * 40) - 30}px)`,
+                                transform: `translateX(${30 + (activeIndex * 40) - 30}px)`,
                                 transformOrigin: 'center bottom'
                             }}
                         >
@@ -1274,6 +1289,7 @@ const SocialExportModal = ({ bar, onClose }) => {
                 }}>
                     <img 
                         src={LOGO_SOLID} 
+                        crossOrigin="anonymous"
                         alt="Daily Bars" 
                         style={{ width: 140, height: 'auto' }} 
                     />
@@ -1299,6 +1315,7 @@ const SocialExportModal = ({ bar, onClose }) => {
                     {bar.imageUrl && (
                         <img 
                             src={bar.imageUrl} 
+                            crossOrigin="anonymous"
                             alt="" 
                             style={{
                                 width: '100%',
@@ -1420,18 +1437,34 @@ const SocialExportModal = ({ bar, onClose }) => {
 // IDEA CARD
 // ============================================================================
 
-const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }) => {
+const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, onAddToCrate, onSendToFreeGame }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(bar.text);
     const [showExport, setShowExport] = useState(false);
+    const [showFreeGameConfirm, setShowFreeGameConfirm] = useState(false);
     const textRef = useRef(null);
     const toast = useToast();
     const imageOnRight = index % 2 === 0;
     
     const handleTextClick = () => {
         setIsEditing(true);
-        setTimeout(() => textRef.current?.focus(), 50);
+        // Delay focus to allow render
+        setTimeout(() => {
+            if (textRef.current) {
+                textRef.current.style.height = 'auto';
+                textRef.current.style.height = textRef.current.scrollHeight + 'px';
+                textRef.current.focus();
+            }
+        }, 50);
     };
+    
+    // Auto-resize effect when entering edit mode
+    useEffect(() => {
+        if (isEditing && textRef.current) {
+            textRef.current.style.height = 'auto';
+            textRef.current.style.height = textRef.current.scrollHeight + 'px';
+        }
+    }, [isEditing]);
     
     const handleTextBlur = () => {
         setIsEditing(false);
@@ -1507,7 +1540,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
-                        marginBottom: 8
+                        marginBottom: 6 // Reduced margin
                     }}>
                         <div style={{
                             fontSize: 9,
@@ -1537,7 +1570,11 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                         <textarea
                             ref={textRef}
                             value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
+                            onChange={(e) => {
+                                setEditText(e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
                             onBlur={handleTextBlur}
                             onKeyDown={handleKeyDown}
                             style={{
@@ -1547,7 +1584,8 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                                 resize: 'none',
                                 background: 'var(--electric)',
                                 padding: 8,
-                                margin: -8
+                                margin: -8,
+                                overflow: 'hidden'
                             }}
                         />
                     ) : (
@@ -1576,8 +1614,8 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
-                        marginTop: 8,
-                        paddingTop: 8,
+                        marginTop: 4, // Reduced margin
+                        paddingTop: 6, // Reduced padding
                         borderTop: '1px solid var(--light-gray)'
                     }}>
                         <div style={{ display: 'flex', gap: 4 }}>
@@ -1703,8 +1741,8 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginTop: 12,
-                paddingTop: 12,
+                marginTop: 4,
+                paddingTop: 6,
                 borderTop: '1px solid var(--light-gray)'
             }}>
                 <div style={{ display: 'flex', gap: 12 }}>
@@ -1720,6 +1758,20 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
                     >
                         <Icon name="Share2" size={12} /> POST THAT
                     </button>
+                    <button 
+                        onClick={() => onAddToCrate && onAddToCrate(bar)}
+                        style={{ color: 'var(--crates-blue)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, letterSpacing: '0.1em' }}
+                    >
+                        <Icon name="Disc" size={12} /> CRATE
+                    </button>
+                    {onSendToFreeGame && (
+                        <button 
+                            onClick={() => setShowFreeGameConfirm(true)}
+                            style={{ color: 'var(--brand-green)', display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, letterSpacing: '0.1em' }}
+                        >
+                            <Icon name="Globe" size={12} /> FREE GAME
+                        </button>
+                    )}
                 </div>
                 <button onClick={() => onDelete(bar.id)} style={{ color: 'var(--gray)' }}>
                     <Icon name="Trash2" size={14} />
@@ -1727,6 +1779,29 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete }
             </div>
             
             {showExport && <SocialExportModal bar={bar} onClose={() => setShowExport(false)} />}
+            
+            {showFreeGameConfirm && (
+                <div style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 1000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+                }}>
+                    <div style={{ background: 'var(--white)', padding: 20, border: '4px solid var(--black)', maxWidth: 300, textAlign: 'center' }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 900, marginBottom: 12 }}>CONFIRM FREE GAME?</h3>
+                        <p style={{ fontSize: 11, lineHeight: 1.5, marginBottom: 20 }}>
+                            This will post your bar to the public Free Game feed for anyone to use.
+                            You will still keep this copy in your personal feed.
+                        </p>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                            <button onClick={() => setShowFreeGameConfirm(false)} style={{
+                                flex: 1, padding: 12, border: '2px solid var(--black)', fontSize: 10, fontWeight: 700
+                            }}>CANCEL</button>
+                            <button onClick={() => { onSendToFreeGame(bar); setShowFreeGameConfirm(false); }} style={{
+                                flex: 1, padding: 12, background: 'var(--brand-green)', color: 'white', fontSize: 10, fontWeight: 700
+                            }}>SEND IT</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </article>
     );
 };
@@ -2269,6 +2344,126 @@ const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt }) => {
 };
 
 // ============================================================================
+// ADD TO CRATE MODAL
+// ============================================================================
+
+const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
+    const [selectedSongId, setSelectedSongId] = useState(null);
+
+    const handleConfirm = () => {
+        if (!selectedSongId) return;
+        if (selectedSongId === 'new') {
+            onCreateNew();
+        } else {
+            onSave(selectedSongId, bar);
+        }
+        onClose();
+    };
+
+    return (
+        <div className="animate-fade-in" style={{
+            position: 'fixed', inset: 0,
+            background: 'rgba(0,0,0,0.8)',
+            zIndex: 500,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 20
+        }}>
+            <div className="animate-scale-in" style={{
+                background: 'var(--white)',
+                width: '100%', maxWidth: 320,
+                border: '4px solid var(--black)',
+                boxShadow: '10px 10px 0 var(--black)'
+            }}>
+                <div style={{
+                    padding: 16,
+                    background: 'var(--black)',
+                    color: 'var(--white)',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                }}>
+                    <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em' }}>ADD TO CRATE</span>
+                    <button onClick={onClose} style={{ color: 'var(--white)' }}>
+                        <Icon name="X" size={18} />
+                    </button>
+                </div>
+                
+                <div style={{ padding: 16, maxHeight: '50vh', overflowY: 'auto' }}>
+                    <div style={{ fontSize: 10, color: 'var(--gray)', marginBottom: 12, letterSpacing: '0.1em' }}>
+                        SELECT A TRACK TO INSERT THIS BAR:
+                    </div>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <button 
+                            onClick={() => setSelectedSongId('new')}
+                            style={{
+                                padding: 12,
+                                border: `2px solid ${selectedSongId === 'new' ? 'var(--electric)' : 'var(--black)'}`,
+                                background: selectedSongId === 'new' ? 'rgba(234, 179, 8, 0.1)' : 'transparent',
+                                display: 'flex', alignItems: 'center', gap: 10,
+                                textAlign: 'left'
+                            }}
+                        >
+                            <div style={{
+                                width: 24, height: 24, background: 'var(--black)', color: 'var(--white)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            }}>
+                                <Icon name="Plus" size={14} />
+                            </div>
+                            <span style={{ fontSize: 11, fontWeight: 700 }}>START NEW TRACK</span>
+                        </button>
+                    
+                        {songs.map(song => (
+                            <button 
+                                key={song.id}
+                                onClick={() => setSelectedSongId(song.id)}
+                                style={{
+                                    padding: 12,
+                                    border: `2px solid ${selectedSongId === song.id ? 'var(--electric)' : 'var(--light-gray)'}`,
+                                    background: selectedSongId === song.id ? 'rgba(234, 179, 8, 0.1)' : 'transparent',
+                                    display: 'flex', alignItems: 'center', gap: 10,
+                                    textAlign: 'left'
+                                }}
+                            >
+                                <div style={{
+                                    width: 24, height: 24, background: 'var(--light-gray)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <Icon name="Music" size={12} color="var(--gray)" />
+                                </div>
+                                <div style={{ flex: 1, overflow: 'hidden' }}>
+                                    <div style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {song.title}
+                                    </div>
+                                    <div style={{ fontSize: 9, color: 'var(--gray)' }}>
+                                        {formatDate(song.updated_at)}
+                                    </div>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                
+                <div style={{ padding: 16, borderTop: '1px solid var(--light-gray)' }}>
+                    <button 
+                        onClick={handleConfirm}
+                        disabled={!selectedSongId}
+                        style={{
+                            width: '100%',
+                            padding: 14,
+                            background: selectedSongId ? 'var(--black)' : 'var(--light-gray)',
+                            color: 'var(--white)',
+                            fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                            opacity: selectedSongId ? 1 : 0.5
+                        }}
+                    >
+                        CONFIRM INSERT
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // VIEWS - Will continue in app-views.js for size management
 // ============================================================================
 
@@ -2299,6 +2494,7 @@ window.DailyBarsApp = {
     BottomBar,
     Header,
     SocialExportModal,
+    AddToCrateModal,
     IdeaCard,
     RhymePopup,
     QuickInput,

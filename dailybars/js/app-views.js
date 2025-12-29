@@ -21,7 +21,7 @@ const {
 // FEED VIEW
 // ============================================================================
 
-const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt }) => {
+const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt, onAddToCrate, onSendToFreeGame }) => {
     const [previewImage, setPreviewImage] = useState(null);
     
     return (
@@ -42,6 +42,8 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
                         onTextEdit={onEditBar}
                         onFavorite={onFavorite}
                         onDelete={onDeleteBar}
+                        onAddToCrate={onAddToCrate}
+                        onSendToFreeGame={onSendToFreeGame}
                     />
                 ))
             ) : (
@@ -1757,13 +1759,291 @@ const LoginScreen = ({ onLogin }) => {
 };
 
 // ============================================================================
+// XP STORE VIEW
+// ============================================================================
+
+const XPStoreView = ({ user, onClose }) => {
+    const xp = user.xp || 0;
+    const level = user.level || 1;
+    const nextLevelXp = level * 100;
+    const progress = (xp % 100) / 100 * 100;
+
+    const artifacts = [
+        { id: 1, name: "E-40'S GLASSES", level: 5, description: "Unlocks Slang Dictionary", icon: "Glasses" },
+        { id: 2, name: "SLICK RICK'S EYE PATCH", level: 10, description: "Unlocks Storytelling Mode", icon: "Eye" },
+        { id: 3, name: "GHOSTFACE'S CHAIN", level: 20, description: "Unlocks Golden Era Theme", icon: "Award" },
+        { id: 4, name: "KANYE'S PINK POLO", level: 50, description: "Unlocks Soul Chop Beats", icon: "Shirt" }
+    ];
+
+    return (
+        <div className="animate-slide-up" style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'var(--paper)', display: 'flex', flexDirection: 'column'
+        }}>
+            {/* Header */}
+            <div style={{
+                padding: 16, background: 'var(--black)', color: 'var(--white)',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+            }}>
+                <div>
+                    <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.8 }}>STUDENT STATUS</div>
+                    <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.1em' }}>LEVEL {level}</div>
+                </div>
+                <button onClick={onClose} style={{ color: 'var(--white)' }}><Icon name="X" size={24} /></button>
+            </div>
+
+            {/* XP Progress */}
+            <div style={{ padding: 20, background: 'var(--white)', borderBottom: '2px solid var(--black)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 10, fontWeight: 700 }}>
+                    <span>XP: {xp}</span>
+                    <span>NEXT LEVEL: {nextLevelXp}</span>
+                </div>
+                <div style={{ height: 12, background: 'var(--light-gray)', border: '1px solid var(--black)', position: 'relative' }}>
+                    <div style={{
+                        position: 'absolute', left: 0, top: 0, bottom: 0, width: `${progress}%`,
+                        background: 'var(--electric)', transition: 'width 0.5s ease'
+                    }} />
+                </div>
+            </div>
+
+            {/* Store Shelf */}
+            <div className="scrollable" style={{ flex: 1, padding: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', marginBottom: 16, textAlign: 'center' }}>
+                    THE TROPHY ROOM
+                </div>
+                
+                <div style={{ display: 'flex', gap: 16, overflowX: 'auto', paddingBottom: 20 }}>
+                    {artifacts.map(item => {
+                        const isLocked = level < item.level;
+                        return (
+                            <div key={item.id} style={{
+                                minWidth: 200,
+                                background: isLocked ? '#E5E5E5' : 'var(--white)',
+                                border: '2px solid var(--black)',
+                                padding: 16,
+                                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                                opacity: isLocked ? 0.7 : 1
+                            }}>
+                                <div style={{
+                                    width: 80, height: 80, 
+                                    background: isLocked ? '#999' : 'var(--electric)',
+                                    borderRadius: '50%', border: '2px solid var(--black)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    marginBottom: 16
+                                }}>
+                                    {isLocked ? <Icon name="Lock" size={32} /> : <Icon name={item.icon} size={32} />}
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 900, textAlign: 'center', marginBottom: 8 }}>{item.name}</div>
+                                <div style={{ fontSize: 9, textAlign: 'center', color: 'var(--gray)', marginBottom: 12 }}>{item.description}</div>
+                                <div style={{ 
+                                    fontSize: 9, fontWeight: 700, padding: '4px 8px', 
+                                    background: 'var(--black)', color: 'var(--white)' 
+                                }}>
+                                    LVL {item.level} REQ
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
+// SYNDICATE VIEW
+// ============================================================================
+
+const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
+    const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars)
+    const [loading, setLoading] = useState(false);
+    const [feed, setFeed] = useState([]);
+    const [promptText, setPromptText] = useState('');
+    const [submitting, setSubmission] = useState(false);
+    const toast = useToast();
+
+    // Load initial data
+    useEffect(() => {
+        loadFeed();
+    }, [tab]);
+
+    const loadFeed = async () => {
+        setLoading(true);
+        const data = await window.DailyDepositEngine.getSyndicateFeed();
+        
+        // Filter based on tab
+        const filtered = data.filter(post => {
+            if (tab === 'vault') return post.submission_type === 'PROMPT' || !post.submission_type; // Legacy assumes PROMPT
+            if (tab === 'free_game') return post.submission_type === 'VERSE';
+            return true;
+        });
+        
+        setFeed(filtered);
+        setLoading(false);
+    };
+
+    const handleSubmitPrompt = async (e) => {
+        e.preventDefault();
+        if (!promptText.trim()) return;
+        
+        setSubmission(true);
+        try {
+            await window.DailyDepositEngine.submitToSyndicate(promptText, user.username, 'PROMPT');
+            toast?.addToast('PROMPT SUBMITTED +50 XP', 'success');
+            if (onAction) onAction(50, 'PROMPT SUBMITTED');
+            setPromptText('');
+            loadFeed();
+        } catch (err) {
+            toast?.addToast('SUBMISSION FAILED', 'error');
+        }
+        setSubmission(false);
+    };
+
+    return (
+        <div style={{ paddingBottom: 40 }}>
+            {/* Tab Switcher */}
+            <div style={{ 
+                display: 'flex', 
+                borderBottom: '2px solid var(--black)',
+                background: 'var(--white)',
+                position: 'sticky', top: 0, zIndex: 10
+            }}>
+                <button 
+                    onClick={() => setTab('vault')}
+                    style={{
+                        flex: 1, padding: 16,
+                        background: tab === 'vault' ? 'var(--black)' : 'transparent',
+                        color: tab === 'vault' ? 'var(--electric)' : 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em'
+                    }}
+                >
+                    THE VAULT
+                </button>
+                <button 
+                    onClick={() => setTab('free_game')}
+                    style={{
+                        flex: 1, padding: 16,
+                        background: tab === 'free_game' ? 'var(--black)' : 'transparent',
+                        color: tab === 'free_game' ? 'var(--white)' : 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em'
+                    }}
+                >
+                    FREE GAME
+                </button>
+                <button 
+                    onClick={onOpenStore}
+                    style={{
+                        padding: '16px 20px',
+                        background: 'var(--electric)',
+                        color: 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                        borderLeft: '2px solid var(--black)'
+                    }}
+                >
+                    <Icon name="Award" size={16} />
+                </button>
+            </div>
+
+            {/* VAULT CONTENT */}
+            {tab === 'vault' && (
+                <div className="animate-slide-in">
+                    {/* Daily Drop Section */}
+                    <div style={{ padding: 20, textAlign: 'center', background: 'var(--paper)' }}>
+                        <div style={{ marginBottom: 16 }}>
+                            <DailyDropWidget onUsePrompt={(p) => console.log(p)} />
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em' }}>
+                            ROLL THE DICE FOR DAILY INSPIRATION
+                        </div>
+                    </div>
+
+                    {/* Submit Prompt Form */}
+                    <div style={{ padding: 20, borderTop: '1px solid var(--light-gray)' }}>
+                        <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
+                        <textarea
+                            value={promptText}
+                            onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
+                            placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
+                            style={{
+                                width: '100%', minHeight: 100,
+                                padding: 12, border: '2px solid var(--black)',
+                                background: 'var(--white)',
+                                fontFamily: 'var(--font-mono)', fontSize: 12
+                            }}
+                        />
+                        <button 
+                            onClick={handleSubmitPrompt}
+                            disabled={submitting || !promptText.trim()}
+                            style={{
+                                width: '100%', marginTop: 12, padding: 14,
+                                background: 'var(--electric)', color: 'var(--black)',
+                                fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                                border: '2px solid var(--black)',
+                                opacity: submitting ? 0.5 : 1
+                            }}
+                        >
+                            {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* FREE GAME CONTENT */}
+            {tab === 'free_game' && (
+                <div className="animate-slide-in">
+                    <div style={{ padding: 16, background: '#1F2937', color: 'white', fontSize: 10, textAlign: 'center', letterSpacing: '0.1em' }}>
+                        PUBLIC DOMAIN BARS • FREE TO USE
+                    </div>
+                    
+                    {loading ? (
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray)', fontSize: 10 }}>LOADING FEED...</div>
+                    ) : feed.length === 0 ? (
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray)', fontSize: 10 }}>NO FREE GAME YET</div>
+                    ) : (
+                        feed.map((post) => (
+                            <div key={post.id} style={{ 
+                                padding: 20, 
+                                borderBottom: '1px solid var(--light-gray)',
+                                background: 'var(--white)' 
+                            }}>
+                                <div style={{ fontSize: 9, color: 'var(--gray)', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                                    <span>@{post.author || 'ANONYMOUS'}</span>
+                                    <span>{new Date(post.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <div className="font-mono" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+                                    {post.prompt_text}
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(post.prompt_text);
+                                        toast?.addToast('COPIED TO CLIPBOARD', 'success');
+                                    }}
+                                    style={{
+                                        fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+                                        padding: '6px 12px', border: '1px solid var(--black)',
+                                        display: 'flex', alignItems: 'center', gap: 6
+                                    }}
+                                >
+                                    <Icon name="Copy" size={10} /> STEAL THIS
+                                </button>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ============================================================================
 // MAIN APP
 // ============================================================================
 
 const App = () => {
     const [user, setUser] = useState(null);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-    const [view, setView] = useState('feed');
+    // Initialize view from storage or default to feed
+    const [view, setView] = useState(() => localStorage.getItem('dailybars_view') || 'feed');
     const [bars, setBars] = useState([]);
     const [songs, setSongs] = useState([]);
     const [loadingBars, setLoadingBars] = useState(true);
@@ -1774,7 +2054,41 @@ const App = () => {
     const [streak, setStreak] = useState(0);
     const [isInputExpanded, setIsInputExpanded] = useState(false);
     const [dailyPrompt, setDailyPrompt] = useState(null);
+    const [crateModalBar, setCrateModalBar] = useState(null);
+    const [showXPStore, setShowXPStore] = useState(false);
     const typingTimeoutRef = useRef(null);
+
+    // XP SYSTEM LOGIC
+    const addExperience = async (amount, reason) => {
+        if (!user || !user.id) return;
+        
+        try {
+            const currentXp = user.xp || 0;
+            const currentLevel = user.level || 1;
+            const newXp = currentXp + amount;
+            const newLevel = Math.floor(newXp / 100) + 1;
+            
+            // Optimistic update
+            const updatedUser = { ...user, xp: newXp, level: newLevel };
+            setUser(updatedUser);
+            localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session')), user: updatedUser }));
+            
+            // API Update
+            await api.update('users', user.id, { xp: newXp, level: newLevel });
+            
+            // Notifications
+            // toast?.addToast(`+${amount} XP: ${reason}`, 'success'); // Need to expose toast here or use simple alert
+            console.log(`⭐ +${amount} XP: ${reason}`);
+            
+            if (newLevel > currentLevel) {
+                // Level Up!
+                haptic('success');
+                setTimeout(() => alert(`LEVEL UP! YOU ARE NOW LEVEL ${newLevel}`), 500); // Simple alert for now
+            }
+        } catch (err) {
+            console.error('XP Update failed:', err);
+        }
+    };
 
     const updateStreak = useCallback(() => {
         if (!user) return;
@@ -1795,6 +2109,9 @@ const App = () => {
             localStorage.setItem(`streakCount_${user.username}`, currentStreak.toString());
             localStorage.setItem(`lastPostDate_${user.username}`, today);
             setStreak(currentStreak);
+            
+            // Award XP for daily activity (once per day)
+            addExperience(10, 'DAILY CHECK-IN');
         }
     }, [user]);
 
@@ -2013,8 +2330,16 @@ const App = () => {
     const currentView = views[currentIndex];
     
     const swipeHandlers = useSwipe(
-        () => setView(views[(currentIndex + 1) % views.length].id),
-        () => setView(views[(currentIndex - 1 + views.length) % views.length].id)
+        () => {
+            const nextView = views[(currentIndex + 1) % views.length].id;
+            setView(nextView);
+            localStorage.setItem('dailybars_view', nextView);
+        },
+        () => {
+            const prevView = views[(currentIndex - 1 + views.length) % views.length].id;
+            setView(prevView);
+            localStorage.setItem('dailybars_view', prevView);
+        }
     );
     
     // Initial data load when user changes
@@ -2042,6 +2367,7 @@ const App = () => {
             });
             setBars(prev => [newBar, ...prev]);
             updateStreak();
+            addExperience(5, 'BAR WRITTEN');
         } catch (err) { console.error(err); }
     };
     
@@ -2060,10 +2386,10 @@ const App = () => {
         catch (err) { console.error(err); }
     };
     
-    const createSong = async () => {
+    const createSong = async (initialTitle = 'UNTITLED') => {
         try {
             const newSong = await api.create('songs', { 
-                title: 'UNTITLED', 
+                title: initialTitle, 
                 blocks: [], 
                 status: 'draft', 
                 isFavorite: false, 
@@ -2073,7 +2399,8 @@ const App = () => {
             setSongs(prev => [newSong, ...prev]);
             setEditingSong(newSong);
             updateStreak();
-        } catch (err) { console.error(err); }
+            return newSong;
+        } catch (err) { console.error(err); return null; }
     };
     
     const saveSong = async (songData) => {
@@ -2090,6 +2417,43 @@ const App = () => {
         } catch (err) { throw err; }
     };
     
+    const handleAddToCrate = async (songId, bar) => {
+        try {
+            const song = songs.find(s => s.id === songId);
+            if (!song) return;
+            
+            const newBlock = { 
+                id: generateId(), 
+                type: 'text', 
+                content: bar.text 
+            };
+            
+            const updatedBlocks = [...(song.blocks || []), newBlock];
+            
+            const updatedSong = await api.update('songs', songId, { 
+                blocks: updatedBlocks,
+                username: user.username 
+            });
+            
+            setSongs(prev => prev.map(s => s.id === songId ? updatedSong : s));
+            
+            // Show toast via ToastProvider logic if accessible, or just console
+            console.log('Added to crate!');
+        } catch (err) {
+            console.error('Failed to add to crate:', err);
+        }
+    };
+    
+    const handleSendToFreeGame = async (bar) => {
+        try {
+            await window.DailyDepositEngine.submitToSyndicate(bar.text, user.username, 'VERSE');
+            console.log('Sent to free game'); 
+            addExperience(25, 'CONTRIBUTED TO FREE GAME');
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     if (isCheckingAuth) return <div style={{ background: 'var(--paper)', minHeight: '100vh' }} />;
     
     if (!user) {
@@ -2129,7 +2493,10 @@ const App = () => {
                     subtitle={currentView.subtitle}
                     currentView={view}
                     views={views}
-                    onViewChange={setView}
+                    onViewChange={(newView) => {
+                        setView(newView);
+                        localStorage.setItem('dailybars_view', newView);
+                    }}
                     isTyping={isTyping}
                     onDailyDropUse={handleUsePrompt}
                 />
@@ -2146,13 +2513,41 @@ const App = () => {
                             onTyping={handleTyping}
                             onInputExpandChange={setIsInputExpanded}
                             dailyPrompt={dailyPrompt}
+                            onAddToCrate={(bar) => setCrateModalBar(bar)}
+                            onSendToFreeGame={handleSendToFreeGame}
                         />
                     )}
-                    {view === 'syndicate' && <SyndicateView user={user} onTyping={handleTyping} />}
+                    {view === 'syndicate' && (
+                        <SyndicateView 
+                            user={user} 
+                            onTyping={handleTyping} 
+                            onOpenStore={() => setShowXPStore(true)}
+                            onAction={addExperience}
+                        />
+                    )}
                     {view === 'archive' && <ArchiveView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
-                    {view === 'crates' && <CratesView songs={songs} onCreateSong={createSong} onEditSong={setEditingSong} />}
+                    {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                 </main>
+
+                {showXPStore && (
+                    <XPStoreView user={user} onClose={() => setShowXPStore(false)} />
+                )}
+
+                {crateModalBar && (
+                    <AddToCrateModal 
+                        bar={crateModalBar}
+                        songs={songs}
+                        onClose={() => setCrateModalBar(null)}
+                        onSave={handleAddToCrate}
+                        onCreateNew={async () => {
+                            const newSong = await createSong(`NEW TRACK - ${formatDate(new Date())}`);
+                            if (newSong) {
+                                handleAddToCrate(newSong.id, crateModalBar);
+                            }
+                        }}
+                    />
+                )}
 
                 <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
                     <button onClick={handleLogout} style={{
