@@ -114,9 +114,22 @@ const ArchiveView = ({ bars, onSelect }) => {
 // ============================================================================
 
 const CratesView = ({ songs, onCreateSong, onEditSong }) => {
+    const [isWide, setIsWide] = useState(window.innerWidth > 768);
+
+    useEffect(() => {
+        const handleResize = () => setIsWide(window.innerWidth > 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
+
     return (
         <div style={{
-            background: 'var(--paper)',
+            background: `url(${backgroundUrl})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed', // Parallax effect
             minHeight: '100%',
             paddingBottom: 80,
             display: 'flex',
@@ -130,9 +143,10 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 fontWeight: 700,
                 textAlign: 'center',
                 width: '100%',
-                borderBottom: '1px solid var(--light-gray)',
+                borderBottom: '1px solid rgba(0,0,0,0.1)',
                 marginBottom: 40,
-                background: 'var(--paper)',
+                background: 'rgba(244, 244, 240, 0.8)', // Semi-transparent paper
+                backdropFilter: 'blur(5px)',
                 zIndex: 20
             }}>
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
@@ -1900,11 +1914,11 @@ const SafeComponent = () => {
         }
     };
 
-    const LAYER_ORDER = ['wall', 'backOfSafe', 'gearLarge', 'gearMedium', 'gearSmall', 'hinges', 'knob'];
+    const LAYER_ORDER = ['backOfSafe', 'gearLarge', 'gearMedium', 'gearSmall', 'hinges', 'knob'];
 
     // Gear Ratios (Controls speed and direction)
     const RATIOS = {
-        wall: 0, backOfSafe: 0, hinges: 0,
+        backOfSafe: 0, hinges: 0,
         gearLarge: 1, gearMedium: -1.5, gearSmall: 2.5, knob: 0.5
     };
 
@@ -1986,8 +2000,18 @@ const SafeComponent = () => {
             position: 'fixed', inset: 0, width: '100%', height: '100%',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
-            backgroundColor: 'white'
+            backgroundColor: '#1a1a1a' // Dark background for the safe
         }}>
+            {/* Wall Background - Separated to cover full screen */}
+            <div style={{
+                position: 'absolute', inset: 0,
+                backgroundImage: `url(${ASSETS.wall})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                filter: 'brightness(0.7)' // Slightly darken wall to make safe pop
+            }} />
+
+            {/* Safe Mechanism - Scaled Container */}
             <div style={{ 
                 position: 'relative', 
                 display: 'flex', 
@@ -2222,22 +2246,27 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
 
             {/* FREE GAME CONTENT */}
             {tab === 'free_game' && (
-                <div className="animate-slide-in">
-                    <div style={{ padding: 16, background: '#1F2937', color: 'white', fontSize: 10, textAlign: 'center', letterSpacing: '0.1em' }}>
+                <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
+                    <SafeComponent />
+                    
+                    <div style={{ padding: 16, background: 'rgba(31, 41, 55, 0.9)', color: 'white', fontSize: 10, textAlign: 'center', letterSpacing: '0.1em', position: 'relative', zIndex: 1, backdropFilter: 'blur(4px)' }}>
                         PUBLIC DOMAIN BARS • FREE TO USE
                     </div>
                     
                     {loading ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray)', fontSize: 10 }}>LOADING FEED...</div>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>LOADING FEED...</div>
                     ) : feed.length === 0 ? (
-                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--gray)', fontSize: 10 }}>NO FREE GAME YET</div>
+                        <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>NO FREE GAME YET</div>
                     ) : (
-                        feed.map((post) => (
-                            <div key={post.id} style={{ 
-                                padding: 20, 
-                                borderBottom: '1px solid var(--light-gray)',
-                                background: 'var(--white)' 
-                            }}>
+                        <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                            {feed.map((post) => (
+                                <div key={post.id} style={{ 
+                                    padding: 20, 
+                                    marginBottom: 12,
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    background: 'rgba(255,255,255,0.9)',
+                                    boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
+                                }}>
                                 <div style={{ fontSize: 9, color: 'var(--gray)', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
                                     <span>@{post.author || 'ANONYMOUS'}</span>
                                     <span>{new Date(post.created_at).toLocaleDateString()}</span>
@@ -2253,13 +2282,16 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                                     style={{
                                         fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
                                         padding: '6px 12px', border: '1px solid var(--black)',
-                                        display: 'flex', alignItems: 'center', gap: 6
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        background: 'var(--white)',
+                                        cursor: 'pointer'
                                     }}
                                 >
                                     <Icon name="Copy" size={10} /> STEAL THIS
                                 </button>
                             </div>
-                        ))
+                        ))}
+                        </div>
                     )}
                 </div>
             )}
