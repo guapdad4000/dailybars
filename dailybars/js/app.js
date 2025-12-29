@@ -1153,37 +1153,37 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                         
                         {/* The Animated Train Car */}
                         <g 
-                            className={isTyping ? 'animate-rock' : ''}
                             style={{ 
                                 transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
                                 transform: `translateX(${30 + (activeIndex * 40) - 30}px)`,
-                                transformOrigin: 'center bottom'
                             }}
                         >
-                            <rect x="6" y="13" width="48" height="16" rx="1" fill="#D4D4D8" stroke="var(--black)" strokeWidth="2"/>
-                            <rect x="6" y="13" width="48" height="3" fill="#FCD34D" stroke="var(--black)" strokeWidth="1"/>
-                            <line x1="15" y1="16" x2="15" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
-                            <line x1="24" y1="16" x2="24" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
-                            <line x1="33" y1="16" x2="33" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
-                            <line x1="42" y1="16" x2="42" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
-                            <rect x="8" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
-                            <rect x="23" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
-                            <rect x="38" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
-                            <rect x="9.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <rect x="17" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <rect x="24.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <rect x="32" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <rect x="39.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <rect x="47" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                            <circle cx="30" cy="25" r="3.5" fill="#DC2626" stroke="var(--black)" strokeWidth="1.2"/>
-                            <text x="30" y="25" dy="1.2" textAnchor="middle" fill="var(--white)" fontSize="6" fontFamily="'Helvetica', 'Arial', sans-serif" fontWeight="bold">R</text>
-                            <circle cx="15" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
-                            <circle cx="15" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
-                            <circle cx="30" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
-                            <circle cx="30" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
-                            <circle cx="45" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
-                            <circle cx="45" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
-                            <rect x="10" y="28" width="40" height="1" fill="var(--black)" opacity="0.3"/>
+                            <g className={isTyping ? 'animate-rock' : ''}>
+                                <rect x="6" y="13" width="48" height="16" rx="1" fill="#D4D4D8" stroke="var(--black)" strokeWidth="2"/>
+                                <rect x="6" y="13" width="48" height="3" fill="#FCD34D" stroke="var(--black)" strokeWidth="1"/>
+                                <line x1="15" y1="16" x2="15" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
+                                <line x1="24" y1="16" x2="24" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
+                                <line x1="33" y1="16" x2="33" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
+                                <line x1="42" y1="16" x2="42" y2="29" stroke="#A1A1AA" strokeWidth="0.5" opacity="0.6"/>
+                                <rect x="8" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
+                                <rect x="23" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
+                                <rect x="38" y="16" width="8" height="13" fill="#A1A1AA" stroke="var(--black)" strokeWidth="1"/>
+                                <rect x="9.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <rect x="17" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <rect x="24.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <rect x="32" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <rect x="39.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <rect x="47" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
+                                <circle cx="30" cy="25" r="3.5" fill="#DC2626" stroke="var(--black)" strokeWidth="1.2"/>
+                                <text x="30" y="25" dy="1.2" textAnchor="middle" fill="var(--white)" fontSize="6" fontFamily="'Helvetica', 'Arial', sans-serif" fontWeight="bold">R</text>
+                                <circle cx="15" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
+                                <circle cx="15" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
+                                <circle cx="30" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
+                                <circle cx="30" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
+                                <circle cx="45" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
+                                <circle cx="45" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
+                                <rect x="10" y="28" width="40" height="1" fill="var(--black)" opacity="0.3"/>
+                            </g>
                         </g>
                     </svg>
                 </div>
