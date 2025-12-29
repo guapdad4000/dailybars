@@ -677,7 +677,11 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
             
             {/* Modal */}
             {isOpen && (
-                <div className="daily-drop-modal animate-fade-in" onClick={handleClose}>
+                <div 
+                    className="daily-drop-modal animate-fade-in" 
+                    onClick={handleClose}
+                    style={{ zIndex: 9999 }} // Ensure it's above everything including the Safe background
+                >
                     <div 
                         className="daily-drop-card animate-scale-in" 
                         onClick={(e) => e.stopPropagation()}

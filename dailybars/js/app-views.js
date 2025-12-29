@@ -2126,68 +2126,8 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                 <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
                     <SafeComponent />
                     
-                    {/* Daily Drop Section - Added semi-transparent bg */}
-                    <div style={{ padding: 20, textAlign: 'center', position: 'relative', zIndex: 1 }}>
-                        <div style={{ 
-                            marginBottom: 16, 
-                            background: 'rgba(244, 244, 240, 0.9)', 
-                            borderRadius: 12, 
-                            padding: 16,
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                        }}>
-                            <DailyDropWidget onUsePrompt={(p) => console.log(p)} />
-                        </div>
-                        <div style={{ 
-                            fontSize: 10, 
-                            color: 'var(--gray)', 
-                            letterSpacing: '0.1em',
-                            background: 'rgba(255,255,255,0.8)',
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            display: 'inline-block'
-                        }}>
-                            ROLL THE DICE FOR DAILY INSPIRATION
-                        </div>
-                    </div>
-
-                    {/* Submit Prompt Form */}
-                    <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
-                        <div style={{
-                            background: 'rgba(255,255,255,0.95)',
-                            padding: 20,
-                            border: '2px solid var(--black)',
-                            boxShadow: '8px 8px 0 rgba(0,0,0,0.2)'
-                        }}>
-                            <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
-                            <textarea
-                                value={promptText}
-                                onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
-                                placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
-                                style={{
-                                    width: '100%', minHeight: 100,
-                                    padding: 12, border: '2px solid var(--black)',
-                                    background: 'var(--white)',
-                                    fontFamily: 'var(--font-mono)', fontSize: 12
-                                }}
-                            />
-                            <button 
-                                onClick={handleSubmitPrompt}
-                                disabled={submitting || !promptText.trim()}
-                                style={{
-                                    width: '100%', marginTop: 12, padding: 14,
-                                    background: 'var(--electric)', color: 'var(--black)',
-                                    fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
-                                    border: '2px solid var(--black)',
-                                    opacity: submitting ? 0.5 : 1
-                                }}
-                            >
-                                {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* VAULT FEED */}
-                    <div style={{ padding: '0 20px 40px', position: 'relative', zIndex: 1 }}>
+                    {/* VAULT FEED - REORDERED: Now First */}
+                    <div style={{ padding: '20px 20px 0', position: 'relative', zIndex: 1 }}>
                         <div style={{ 
                             fontSize: 10, fontWeight: 900, letterSpacing: '0.1em', 
                             textAlign: 'center', marginBottom: 16,
@@ -2209,7 +2149,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                                 <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.5 }}>VAULT IS EMPTY</div>
                             </div>
                         ) : (
-                            <div style={{ display: 'grid', gap: 8 }}>
+                            <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
                                 {feed.map((p, i) => (
                                     <div key={p.id || i} className="animate-slide-up" style={{
                                         background: 'rgba(255,255,255,0.95)',
@@ -2240,6 +2180,42 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                                 ))}
                             </div>
                         )}
+                    </div>
+
+                    {/* Submit Prompt Form - REORDERED: Now Second */}
+                    <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.95)',
+                            padding: 20,
+                            border: '2px solid var(--black)',
+                            boxShadow: '8px 8px 0 rgba(0,0,0,0.2)'
+                        }}>
+                            <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
+                            <textarea
+                                value={promptText}
+                                onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
+                                placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
+                                style={{
+                                    width: '100%', minHeight: 80,
+                                    padding: 12, border: '2px solid var(--black)',
+                                    background: 'var(--white)',
+                                    fontFamily: 'var(--font-mono)', fontSize: 12
+                                }}
+                            />
+                            <button 
+                                onClick={handleSubmitPrompt}
+                                disabled={submitting || !promptText.trim()}
+                                style={{
+                                    width: '100%', marginTop: 12, padding: 14,
+                                    background: 'var(--electric)', color: 'var(--black)',
+                                    fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                                    border: '2px solid var(--black)',
+                                    opacity: submitting ? 0.5 : 1
+                                }}
+                            >
+                                {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
