@@ -1851,6 +1851,174 @@ const XPStoreView = ({ user, onClose }) => {
 };
 
 // ============================================================================
+// SAFE COMPONENT (VAULT BACKGROUND)
+// ============================================================================
+
+const SafeComponent = () => {
+    // --- ASSETS ---
+    const ASSETS = {
+        wall: "https://i.postimg.cc/mZKX1D3G/safe-wall.png",
+        backOfSafe: "https://i.postimg.cc/qBWb6Rcf/back-of-safe.png",
+        gearLarge: "https://i.postimg.cc/h4NyQjLk/large-gear.png",
+        gearMedium: "https://i.postimg.cc/qBND7n3Y/medium-gear.png",
+        gearSmall: "https://i.postimg.cc/SQn1K8MP/small-gear.png",
+        hinges: "https://i.postimg.cc/h4NyQjLY/hinges-and-blots.png",
+        knob: "https://i.postimg.cc/xjBxNCv6/center-knob.png"
+    };
+
+    // --- CONFIGURATIONS ---
+    const CONFIGS = {
+        MOBILE: {
+            wall: { x: 26, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 48, y: -31, scale: 0.3, rotate: true },
+            gearMedium: { x: 102, y: -4, scale: 0.2, rotate: true },
+            gearSmall: { x: 73, y: 28, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        },
+        TABLET: {
+            wall: { x: 50, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 193, y: -46, scale: 0.21, rotate: true },
+            gearMedium: { x: 215, y: 50, scale: 0.2, rotate: true },
+            gearSmall: { x: 117, y: 28, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        },
+        DESKTOP: {
+            wall: { x: 50, y: 0, scale: 3, rotate: false },
+            backOfSafe: { x: 0, y: 0, scale: 1.93, rotate: false },
+            gearLarge: { x: 300, y: -46, scale: 0.21, rotate: true },
+            gearMedium: { x: 300, y: 114, scale: 0.2, rotate: true },
+            gearSmall: { x: 169, y: 41, scale: 0.19, rotate: true },
+            hinges: { x: 0, y: 0, scale: 1.17, rotate: false },
+            knob: { x: 0, y: 0, scale: 0.38, rotate: true }
+        }
+    };
+
+    const LAYER_ORDER = ['wall', 'backOfSafe', 'gearLarge', 'gearMedium', 'gearSmall', 'hinges', 'knob'];
+
+    // Gear Ratios (Controls speed and direction)
+    const RATIOS = {
+        wall: 0, backOfSafe: 0, hinges: 0,
+        gearLarge: 1, gearMedium: -1.5, gearSmall: 2.5, knob: 0.5
+    };
+
+    const configRef = useRef(CONFIGS.MOBILE);
+    const layerRefs = useRef({});
+    const rotationRef = useRef(0);
+    const isScrollingRef = useRef(false);
+
+    // --- 1. RESPONSIVE HANDLER ---
+    useEffect(() => {
+        const handleResize = () => {
+            const width = window.innerWidth;
+            if (width >= 1200) {
+                configRef.current = CONFIGS.DESKTOP;
+            } else if (width >= 768) {
+                configRef.current = CONFIGS.TABLET;
+            } else {
+                configRef.current = CONFIGS.MOBILE;
+            }
+            updateVisuals(rotationRef.current);
+        };
+
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    // --- 2. SCROLL DETECTION ---
+    useEffect(() => {
+        let scrollTimeout;
+        const onScroll = () => {
+            isScrollingRef.current = true;
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                isScrollingRef.current = false;
+            }, 150);
+        };
+
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => {
+            window.removeEventListener('scroll', onScroll);
+            clearTimeout(scrollTimeout);
+        };
+    }, []);
+
+    // --- 3. ANIMATION LOOP ---
+    useEffect(() => {
+        let animationFrameId;
+        const SPEED = 0.2; 
+
+        const animate = () => {
+            if (!isScrollingRef.current) {
+                rotationRef.current += SPEED;
+                updateVisuals(rotationRef.current);
+            }
+            animationFrameId = requestAnimationFrame(animate);
+        };
+
+        animationFrameId = requestAnimationFrame(animate);
+        return () => cancelAnimationFrame(animationFrameId);
+    }, []);
+
+    // --- 4. RENDERER ---
+    const updateVisuals = (deg) => {
+        LAYER_ORDER.forEach(layerName => {
+            const el = layerRefs.current[layerName];
+            const cfg = configRef.current[layerName];
+            
+            if (el && cfg) {
+                const ratio = RATIOS[layerName] || 0;
+                const rotateVal = cfg.rotate ? deg * ratio : 0;
+                el.style.transform = `translate(${cfg.x}px, ${cfg.y}px) scale(${cfg.scale}) rotate(${rotateVal}deg) translate3d(0,0,0)`;
+            }
+        });
+    };
+
+    return (
+        <div style={{
+            position: 'fixed', inset: 0, width: '100%', height: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            pointerEvents: 'none', zIndex: 0, overflow: 'hidden',
+            backgroundColor: 'white'
+        }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {LAYER_ORDER.map(layerName => (
+                    <div
+                        key={layerName}
+                        ref={el => layerRefs.current[layerName] = el}
+                        style={{
+                            position: layerName === 'wall' ? 'relative' : 'absolute',
+                            top: layerName === 'wall' ? 'auto' : 0,
+                            left: layerName === 'wall' ? 'auto' : 0,
+                            right: layerName === 'wall' ? 'auto' : 0,
+                            bottom: layerName === 'wall' ? 'auto' : 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            willChange: 'transform',
+                            transform: `translate(${configRef.current[layerName].x}px, ${configRef.current[layerName].y}px) scale(${configRef.current[layerName].scale})`
+                        }}
+                    >
+                        <img 
+                            src={ASSETS[layerName]} 
+                            alt={layerName} 
+                            style={{
+                                objectFit: 'contain',
+                                display: layerName === 'wall' ? 'block' : 'block',
+                                width: layerName === 'wall' ? 'auto' : '100%',
+                                height: layerName === 'wall' ? 'auto' : '100%'
+                            }}
+                        />
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // SYNDICATE VIEW
 // ============================================================================
 
@@ -1946,44 +2114,67 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
 
             {/* VAULT CONTENT */}
             {tab === 'vault' && (
-                <div className="animate-slide-in">
-                    {/* Daily Drop Section */}
-                    <div style={{ padding: 20, textAlign: 'center', background: 'var(--paper)' }}>
-                        <div style={{ marginBottom: 16 }}>
+                <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
+                    <SafeComponent />
+                    
+                    {/* Daily Drop Section - Added semi-transparent bg */}
+                    <div style={{ padding: 20, textAlign: 'center', position: 'relative', zIndex: 1 }}>
+                        <div style={{ 
+                            marginBottom: 16, 
+                            background: 'rgba(244, 244, 240, 0.9)', 
+                            borderRadius: 12, 
+                            padding: 16,
+                            boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                        }}>
                             <DailyDropWidget onUsePrompt={(p) => console.log(p)} />
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em' }}>
+                        <div style={{ 
+                            fontSize: 10, 
+                            color: 'var(--gray)', 
+                            letterSpacing: '0.1em',
+                            background: 'rgba(255,255,255,0.8)',
+                            padding: '4px 8px',
+                            borderRadius: 4,
+                            display: 'inline-block'
+                        }}>
                             ROLL THE DICE FOR DAILY INSPIRATION
                         </div>
                     </div>
 
                     {/* Submit Prompt Form */}
-                    <div style={{ padding: 20, borderTop: '1px solid var(--light-gray)' }}>
-                        <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
-                        <textarea
-                            value={promptText}
-                            onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
-                            placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
-                            style={{
-                                width: '100%', minHeight: 100,
-                                padding: 12, border: '2px solid var(--black)',
-                                background: 'var(--white)',
-                                fontFamily: 'var(--font-mono)', fontSize: 12
-                            }}
-                        />
-                        <button 
-                            onClick={handleSubmitPrompt}
-                            disabled={submitting || !promptText.trim()}
-                            style={{
-                                width: '100%', marginTop: 12, padding: 14,
-                                background: 'var(--electric)', color: 'var(--black)',
-                                fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
-                                border: '2px solid var(--black)',
-                                opacity: submitting ? 0.5 : 1
-                            }}
-                        >
-                            {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
-                        </button>
+                    <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.95)',
+                            padding: 20,
+                            border: '2px solid var(--black)',
+                            boxShadow: '8px 8px 0 rgba(0,0,0,0.2)'
+                        }}>
+                            <h3 className="font-display" style={{ fontSize: 14, marginBottom: 12 }}>SUBMIT A PROMPT</h3>
+                            <textarea
+                                value={promptText}
+                                onChange={(e) => { setPromptText(e.target.value); onTyping?.(); }}
+                                placeholder="SUGGEST A TOPIC, WORD, OR SCENARIO..."
+                                style={{
+                                    width: '100%', minHeight: 100,
+                                    padding: 12, border: '2px solid var(--black)',
+                                    background: 'var(--white)',
+                                    fontFamily: 'var(--font-mono)', fontSize: 12
+                                }}
+                            />
+                            <button 
+                                onClick={handleSubmitPrompt}
+                                disabled={submitting || !promptText.trim()}
+                                style={{
+                                    width: '100%', marginTop: 12, padding: 14,
+                                    background: 'var(--electric)', color: 'var(--black)',
+                                    fontSize: 11, fontWeight: 900, letterSpacing: '0.1em',
+                                    border: '2px solid var(--black)',
+                                    opacity: submitting ? 0.5 : 1
+                                }}
+                            >
+                                {submitting ? 'SENDING...' : 'SEND TO SYNDICATE'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
