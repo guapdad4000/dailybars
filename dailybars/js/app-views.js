@@ -2185,6 +2185,62 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                             </button>
                         </div>
                     </div>
+
+                    {/* VAULT FEED */}
+                    <div style={{ padding: '0 20px 40px', position: 'relative', zIndex: 1 }}>
+                        <div style={{ 
+                            fontSize: 10, fontWeight: 900, letterSpacing: '0.1em', 
+                            textAlign: 'center', marginBottom: 16,
+                            color: 'var(--black)',
+                            background: 'rgba(255,255,255,0.8)',
+                            padding: '8px',
+                            borderRadius: 4,
+                            display: 'inline-block'
+                        }}>
+                            COMMUNITY DROPS
+                        </div>
+
+                        {loading ? (
+                            <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, letterSpacing: '0.1em' }}>LOADING VAULT...</div>
+                            </div>
+                        ) : feed.length === 0 ? (
+                            <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.5 }}>VAULT IS EMPTY</div>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'grid', gap: 8 }}>
+                                {feed.map((p, i) => (
+                                    <div key={p.id || i} className="animate-slide-up" style={{
+                                        background: 'rgba(255,255,255,0.95)',
+                                        padding: 16,
+                                        border: '1px solid var(--black)',
+                                        boxShadow: '4px 4px 0 rgba(0,0,0,0.1)'
+                                    }}>
+                                        <div style={{ 
+                                            fontFamily: "'Space Mono', monospace", 
+                                            fontSize: 12, 
+                                            lineHeight: 1.5,
+                                            marginBottom: 12
+                                        }}>
+                                            {p.prompt_text}
+                                        </div>
+                                        <div style={{ 
+                                            display: 'flex', 
+                                            justifyContent: 'space-between', 
+                                            fontSize: 9, 
+                                            color: 'var(--gray)',
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase'
+                                        }}>
+                                            <span>@{p.author}</span>
+                                            <span>💎 {p.likes || 0}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 
