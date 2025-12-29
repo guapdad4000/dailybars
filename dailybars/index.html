@@ -112,6 +112,7 @@
     <!-- Application Scripts -->
     <script src="js/daily-deposit-engine.js"></script>
     <script src="js/restore-data.js"></script>
+    <script type="text/babel" src="js/ui-components.js"></script>
     <script type="text/babel" src="js/app.js"></script>
     <script type="text/babel" src="js/app-views.js"></script>
 
@@ -125,10 +126,10 @@
                     const registrations = await navigator.serviceWorker.getRegistrations();
                     
                     // Register with cache-busting
-                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=15', {
+                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=16', {
                         updateViaCache: 'none' // Never use cached SW
                     });
-                    console.log('✅ Service Worker v15 registered:', registration.scope);
+                    console.log('✅ Service Worker v16 registered:', registration.scope);
                     
                     // Force check for updates
                     registration.update();

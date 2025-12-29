@@ -1780,12 +1780,12 @@ const LoginScreen = ({ onLogin }) => {
                 
                 <div style={{ marginTop: 40, fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em' }}>
                     <div style={{ marginBottom: 8 }}>RESTRICTED ACCESS // OAKLAND CA</div>
-                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16 }}>
-                        <span>🔒 SECURE</span>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 16, alignItems: 'center' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><SvgIcon name="lock" size={12} color="var(--gray)" /> SECURE</span>
                         <span>•</span>
-                        <span>📱 MOBILE-FIRST</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><SvgIcon name="bolt" size={12} color="var(--gray)" /> MOBILE-FIRST</span>
                         <span>•</span>
-                        <span>🎤 ARTIST-BUILT</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><SvgIcon name="mic" size={12} color="var(--gray)" /> ARTIST-BUILT</span>
                     </div>
                 </div>
             </div>
@@ -1802,6 +1802,7 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
     const [loading, setLoading] = useState(true);
     const [userUnlocks, setUserUnlocks] = useState(new Set());
     const [allTrophies, setAllTrophies] = useState([]);
+    const [confirmUnlock, setConfirmUnlock] = useState(null); // Trophy to confirm unlock
     const toast = useToast();
 
     // --- CONFIGURATION ---
@@ -1897,37 +1898,38 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
         const currentXP = user.xp || 0;
         
         if (currentXP >= trophy.xp_cost) {
-            // Confirm purchase
-            if (!confirm(`Spend ${trophy.xp_cost} XP to unlock "${trophy.name}"?\n\nYou have: ${currentXP} XP\nAfter: ${currentXP - trophy.xp_cost} XP`)) {
-                return;
-            }
-            
-            try {
-                // 1. Spend the XP first
-                if (onSpendXP) {
-                    await onSpendXP(trophy.xp_cost);
-                }
-                
-                // 2. Record the trophy unlock
-                await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
-                
-                // 3. Optimistic UI update
-                const newUnlocks = new Set(userUnlocks);
-                newUnlocks.add(trophy.id);
-                setUserUnlocks(newUnlocks);
-                setTiles(processTrophies(allTrophies, newUnlocks));
-                
-                haptic('success');
-                toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}! (-${trophy.xp_cost} XP)`, 'success');
-            } catch (e) {
-                console.error('Trophy unlock error:', e);
-                toast?.addToast("UNLOCK FAILED - XP REFUNDED", "error");
-            }
+            // Show in-app confirm dialog
+            setConfirmUnlock(trophy);
         } else {
             haptic('heavy');
             const needed = trophy.xp_cost - currentXP;
             toast?.addToast(`NEED ${needed} MORE XP! (${currentXP}/${trophy.xp_cost})`, 'error');
         }
+    };
+    
+    const executeUnlock = async (trophy) => {
+        try {
+            // 1. Spend the XP first
+            if (onSpendXP) {
+                await onSpendXP(trophy.xp_cost);
+            }
+            
+            // 2. Record the trophy unlock
+            await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
+            
+            // 3. Optimistic UI update
+            const newUnlocks = new Set(userUnlocks);
+            newUnlocks.add(trophy.id);
+            setUserUnlocks(newUnlocks);
+            setTiles(processTrophies(allTrophies, newUnlocks));
+            
+            haptic('success');
+            toast?.addToast(`UNLOCKED: ${trophy.name.toUpperCase()}! (-${trophy.xp_cost} XP)`, 'success');
+        } catch (e) {
+            console.error('Trophy unlock error:', e);
+            toast?.addToast("UNLOCK FAILED - XP REFUNDED", "error");
+        }
+        setConfirmUnlock(null);
     };
 
     // --- SUB-COMPONENTS ---
@@ -2157,11 +2159,143 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
                     position: 'fixed', bottom: 24, right: 24,
                     padding: 12, background: '#EAB308', color: 'black',
                     borderRadius: '50%', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
-                    zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: 'none', cursor: 'pointer'
                 }}
             >
-                <Icon name="ArrowUp" size={24} />
+                <SvgIcon name="arrowUp" size={24} color="black" />
             </button>
+            
+            {/* Confirm Unlock Dialog */}
+            {confirmUnlock && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 9999,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 16
+                }}>
+                    <div 
+                        onClick={() => setConfirmUnlock(null)}
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'rgba(0,0,0,0.85)',
+                            backdropFilter: 'blur(4px)'
+                        }}
+                    />
+                    <div style={{
+                        position: 'relative',
+                        width: '100%',
+                        maxWidth: 340,
+                        backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        borderRadius: 4,
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                        border: '2px solid var(--black)'
+                    }}>
+                        {/* Header */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '16px 20px 12px',
+                            borderBottom: '2px solid var(--black)'
+                        }}>
+                            <h2 style={{
+                                margin: 0,
+                                fontSize: 14,
+                                fontWeight: 900,
+                                letterSpacing: '0.15em',
+                                color: 'var(--black)'
+                            }}>
+                                UNLOCK TROPHY
+                            </h2>
+                            <button 
+                                onClick={() => setConfirmUnlock(null)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}
+                            >
+                                <SvgIcon name="x" size={20} color="var(--black)" />
+                            </button>
+                        </div>
+                        {/* Body */}
+                        <div style={{ padding: 20, textAlign: 'center' }}>
+                            <div style={{ marginBottom: 16 }}>
+                                <SvgIcon name="trophy" size={48} color="var(--black)" />
+                            </div>
+                            <div style={{ 
+                                fontSize: 16, 
+                                fontWeight: 700, 
+                                marginBottom: 8,
+                                color: 'var(--black)'
+                            }}>
+                                {confirmUnlock.name}
+                            </div>
+                            <div style={{ 
+                                fontSize: 12, 
+                                color: 'var(--gray)',
+                                marginBottom: 16
+                            }}>
+                                Spend {confirmUnlock.xp_cost} XP to unlock this trophy?
+                            </div>
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                padding: '12px 16px',
+                                background: 'rgba(0,0,0,0.05)',
+                                borderRadius: 4,
+                                fontSize: 12,
+                                fontWeight: 600
+                            }}>
+                                <span>YOUR XP: {user.xp || 0}</span>
+                                <span>AFTER: {(user.xp || 0) - confirmUnlock.xp_cost}</span>
+                            </div>
+                        </div>
+                        {/* Actions */}
+                        <div style={{
+                            display: 'flex',
+                            gap: 12,
+                            padding: '12px 20px 20px'
+                        }}>
+                            <button
+                                onClick={() => setConfirmUnlock(null)}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px 16px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.1em',
+                                    border: '2px solid var(--black)',
+                                    background: 'transparent',
+                                    color: 'var(--black)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                CANCEL
+                            </button>
+                            <button
+                                onClick={() => executeUnlock(confirmUnlock)}
+                                style={{
+                                    flex: 1,
+                                    padding: '12px 16px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.1em',
+                                    border: 'none',
+                                    background: 'var(--black)',
+                                    color: 'var(--white)',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                UNLOCK
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <style>{`
                 .trophy-item:hover .trophy-tooltip { opacity: 1 !important; }
@@ -2629,6 +2763,7 @@ const App = () => {
     const [dailyPrompt, setDailyPrompt] = useState(null);
     const [crateModalBar, setCrateModalBar] = useState(null);
     const [showXPStore, setShowXPStore] = useState(false);
+    const [levelUpModal, setLevelUpModal] = useState(null); // Level number to show
     const typingTimeoutRef = useRef(null);
 
     // XP SYSTEM LOGIC
@@ -2678,9 +2813,9 @@ const App = () => {
             haptic('light');
             
             if (newLevel > currentLevel) {
-                // Level Up!
+                // Level Up! Show in-app modal
                 haptic('success');
-                setTimeout(() => alert(`LEVEL UP! YOU ARE NOW LEVEL ${newLevel}`), 500);
+                setTimeout(() => setLevelUpModal(newLevel), 500);
             }
         } catch (err) {
             console.error('❌ XP Update failed:', err);
@@ -3187,6 +3322,108 @@ const App = () => {
                 </div>
 
                 <BottomBar currentView={view} streak={streak} user={user} />
+                
+                {/* Level Up Modal */}
+                {levelUpModal && (
+                    <div style={{
+                        position: 'fixed',
+                        inset: 0,
+                        zIndex: 9999,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 16
+                    }}>
+                        <div 
+                            onClick={() => setLevelUpModal(null)}
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                background: 'rgba(0,0,0,0.85)',
+                                backdropFilter: 'blur(4px)'
+                            }}
+                        />
+                        <div style={{
+                            position: 'relative',
+                            width: '100%',
+                            maxWidth: 320,
+                            backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            borderRadius: 4,
+                            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                            border: '2px solid var(--black)',
+                            textAlign: 'center'
+                        }}>
+                            {/* Header */}
+                            <div style={{
+                                padding: '16px 20px 12px',
+                                borderBottom: '2px solid var(--black)'
+                            }}>
+                                <h2 style={{
+                                    margin: 0,
+                                    fontSize: 14,
+                                    fontWeight: 900,
+                                    letterSpacing: '0.15em',
+                                    color: 'var(--black)'
+                                }}>
+                                    LEVEL UP!
+                                </h2>
+                            </div>
+                            {/* Body */}
+                            <div style={{ padding: '30px 20px' }}>
+                                <div style={{ 
+                                    width: 80, 
+                                    height: 80, 
+                                    margin: '0 auto 20px',
+                                    background: 'var(--black)',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                }}>
+                                    <SvgIcon name="star" size={40} color="var(--white)" />
+                                </div>
+                                <div style={{ 
+                                    fontSize: 56, 
+                                    fontWeight: 900, 
+                                    fontFamily: 'var(--font-display)',
+                                    color: 'var(--black)',
+                                    lineHeight: 1
+                                }}>
+                                    {levelUpModal}
+                                </div>
+                                <div style={{ 
+                                    fontSize: 12, 
+                                    letterSpacing: '0.2em',
+                                    marginTop: 8,
+                                    color: 'var(--gray)'
+                                }}>
+                                    NEW LEVEL ACHIEVED
+                                </div>
+                            </div>
+                            {/* Action */}
+                            <div style={{ padding: '0 20px 20px' }}>
+                                <button
+                                    onClick={() => setLevelUpModal(null)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '14px 16px',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        letterSpacing: '0.1em',
+                                        border: 'none',
+                                        background: 'var(--black)',
+                                        color: 'var(--white)',
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    KEEP GRINDING
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </ToastProvider>
     );
