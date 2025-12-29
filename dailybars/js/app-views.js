@@ -1860,13 +1860,13 @@ const SafeComponent = () => {
 
     // --- ASSETS ---
     const ASSETS = {
-        wall: "https://i.postimg.cc/mZKX1D3G/safe-wall.png",
-        backOfSafe: "https://i.postimg.cc/qBWb6Rcf/back-of-safe.png",
-        gearLarge: "https://i.postimg.cc/h4NyQjLk/large-gear.png",
-        gearMedium: "https://i.postimg.cc/qBND7n3Y/medium-gear.png",
-        gearSmall: "https://i.postimg.cc/SQn1K8MP/small-gear.png",
-        hinges: "https://i.postimg.cc/h4NyQjLY/hinges-and-blots.png",
-        knob: "https://i.postimg.cc/xjBxNCv6/center-knob.png"
+        wall: "images/safe/safe-wall.png",
+        backOfSafe: "images/safe/back-of-safe.png",
+        gearLarge: "images/safe/large-gear.png",
+        gearMedium: "images/safe/medium-gear.png",
+        gearSmall: "images/safe/small-gear.png",
+        hinges: "images/safe/hinges-and-bolts.png",
+        knob: "images/safe/center-knob.png"
     };
 
     // --- CONFIGURATIONS ---
