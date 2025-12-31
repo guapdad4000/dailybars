@@ -2705,12 +2705,20 @@ const SafeComponent = () => {
 // ============================================================================
 
 const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
-    const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars)
+    const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars) or 'courses'
     const [loading, setLoading] = useState(false);
     const [feed, setFeed] = useState([]);
     const [promptText, setPromptText] = useState('');
     const [submitting, setSubmission] = useState(false);
+    const [courses, setCourses] = useState([]);
+    const [courseHtml, setCourseHtml] = useState('');
+    const [courseTitle, setCourseTitle] = useState('');
+    const [previewCourse, setPreviewCourse] = useState(null);
     const toast = useToast();
+
+    const courseStorageKey = useMemo(() => (
+        user?.username ? `syndicate_courses_${user.username}` : 'syndicate_courses_guest'
+    ), [user?.username]);
 
     // Load initial data
     useEffect(() => {
@@ -2718,6 +2726,12 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
     }, [tab]);
 
     const loadFeed = async () => {
+        if (tab === 'courses') {
+            setFeed([]);
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         const data = await window.DailyDepositEngine.getSyndicateFeed();
         
@@ -2731,6 +2745,37 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
         setFeed(filtered);
         setLoading(false);
     };
+
+    const loadCoursesFromStorage = useCallback(() => {
+        try {
+            const raw = localStorage.getItem(courseStorageKey);
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+        } catch (error) {
+            console.error('❌ Failed to load courses:', error);
+            return [];
+        }
+    }, [courseStorageKey]);
+
+    const persistCourses = useCallback((nextCourses) => {
+        setCourses(nextCourses);
+        try {
+            localStorage.setItem(courseStorageKey, JSON.stringify(nextCourses));
+        } catch (error) {
+            console.error('❌ Failed to save courses:', error);
+        }
+    }, [courseStorageKey]);
+
+    useEffect(() => {
+        if (tab === 'courses') {
+            setCourses(loadCoursesFromStorage());
+        }
+    }, [tab, loadCoursesFromStorage]);
+
+    useEffect(() => {
+        setCourses(loadCoursesFromStorage());
+    }, [courseStorageKey, loadCoursesFromStorage]);
 
     const handleSubmitPrompt = async (e) => {
         e.preventDefault();
@@ -2749,6 +2794,77 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
         setSubmission(false);
     };
 
+    const handleSaveCourse = (e) => {
+        e.preventDefault();
+        if (!courseHtml.trim()) return;
+
+        const newCourse = {
+            id: Date.now(),
+            title: courseTitle.trim() || 'Untitled Course',
+            html: courseHtml,
+            savedAt: new Date().toISOString()
+        };
+
+        const nextCourses = [newCourse, ...courses];
+        persistCourses(nextCourses);
+        setCourseHtml('');
+        setCourseTitle('');
+        toast?.addToast('COURSE DRAFT SAVED', 'success');
+    };
+
+    const handleOpenCourse = (course) => {
+        try {
+            const blob = new Blob([course.html], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            setPreviewCourse(course);
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+        } catch (error) {
+            console.error('❌ Failed to open course HTML:', error);
+            toast?.addToast('COULD NOT OPEN COURSE', 'error');
+        }
+    };
+
+    const handleLoadCourseToEditor = useCallback((course) => {
+        setCourseTitle(course.title || '');
+        setCourseHtml(course.html || '');
+        setPreviewCourse(course);
+        toast?.addToast('COURSE LOADED TO EDITOR', 'info');
+    }, [toast]);
+
+    const handleDeleteCourse = useCallback((courseId) => {
+        const nextCourses = courses.filter(c => c.id !== courseId);
+        persistCourses(nextCourses);
+        if (previewCourse?.id === courseId) {
+            setPreviewCourse(null);
+        }
+        toast?.addToast('COURSE REMOVED', 'success');
+    }, [courses, persistCourses, previewCourse?.id, toast]);
+
+    const handleCopyCourseHtml = useCallback(async (course) => {
+        try {
+            await navigator?.clipboard?.writeText(course.html);
+            toast?.addToast('HTML COPIED', 'success');
+            setPreviewCourse(course);
+        } catch (error) {
+            console.error('❌ Failed to copy course HTML:', error);
+            toast?.addToast('COPY FAILED', 'error');
+        }
+    }, [toast]);
+
+    const renderCoursePreview = (course) => (
+        <div
+            style={{ background: 'var(--white)', border: '1px solid var(--black)', padding: 10, maxHeight: 240, overflow: 'auto' }}
+        >
+            <iframe
+                title={`course-${course.id}-preview`}
+                sandbox="allow-forms allow-same-origin"
+                style={{ width: '100%', height: 200, border: 'none' }}
+                srcDoc={course.html}
+            />
+        </div>
+    );
+
     return (
         <div style={{ paddingBottom: 40 }}>
             {/* Tab Switcher */}
@@ -2758,7 +2874,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                 background: 'var(--white)',
                 position: 'sticky', top: 0, zIndex: 10
             }}>
-                <button 
+                <button
                     onClick={() => setTab('vault')}
                     style={{
                         flex: 1, padding: 16,
@@ -2769,7 +2885,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                 >
                     THE VAULT
                 </button>
-                <button 
+                <button
                     onClick={() => setTab('free_game')}
                     style={{
                         flex: 1, padding: 16,
@@ -2780,7 +2896,18 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                 >
                     FREE GAME
                 </button>
-                <button 
+                <button
+                    onClick={() => setTab('courses')}
+                    style={{
+                        flex: 1, padding: 16,
+                        background: tab === 'courses' ? 'var(--black)' : 'transparent',
+                        color: tab === 'courses' ? 'var(--white)' : 'var(--black)',
+                        fontSize: 11, fontWeight: 900, letterSpacing: '0.1em'
+                    }}
+                >
+                    COURSES
+                </button>
+                <button
                     onClick={onOpenStore}
                     style={{
                         padding: '16px 20px',
@@ -2942,6 +3069,78 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                         ))}
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* COURSES CONTENT */}
+            {tab === 'courses' && (
+                <div className="animate-slide-in" style={{ position: 'relative', minHeight: '80vh' }}>
+                    <SafeComponent />
+
+                    <div style={{
+                        padding: 16,
+                        background: 'rgba(255, 255, 255, 0.9)',
+                        borderBottom: '2px solid var(--black)',
+                        textAlign: 'center',
+                        fontSize: 10,
+                        letterSpacing: '0.1em',
+                        fontWeight: 900,
+                        position: 'sticky', top: 0, zIndex: 2
+                    }}>
+                        COURSES ARE CURATED & PAYWALLED • DAILY BARS HOSTS THE HTML SO THEY WORK IN-APP & ON WEB
+                    </div>
+
+                    <div style={{ padding: 20, position: 'relative', zIndex: 1 }}>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.95)',
+                            border: '2px solid var(--black)',
+                            boxShadow: '8px 8px 0 rgba(0,0,0,0.15)',
+                            padding: 20,
+                            marginBottom: 16
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <h3 className="font-display" style={{ fontSize: 14 }}>COURSES COMING SOON</h3>
+                                <span style={{ fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                                    Uploaded by Daily Bars only
+                                </span>
+                            </div>
+
+                            <p style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>
+                                We are building full web-page courses powered by pure HTML so they feel the same in the app or in a browser. Uploading is creator-only, and access will be handled through RevenueCat when the paywall launches.
+                            </p>
+                            <p style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--gray)' }}>
+                                When courses drop, you&apos;ll unlock them here after purchasing. No user uploads are allowed in this section.
+                            </p>
+                            <button
+                                onClick={onOpenStore}
+                                style={{
+                                    width: '100%',
+                                    marginTop: 12,
+                                    padding: 14,
+                                    background: 'var(--electric)',
+                                    color: 'var(--black)',
+                                    fontSize: 11,
+                                    fontWeight: 900,
+                                    letterSpacing: '0.1em',
+                                    border: '2px solid var(--black)'
+                                }}
+                            >
+                                VIEW ACCESS OPTIONS
+                            </button>
+                        </div>
+
+                        <div style={{
+                            background: 'rgba(255,255,255,0.95)',
+                            border: '2px solid var(--black)',
+                            boxShadow: '8px 8px 0 rgba(0,0,0,0.15)',
+                            padding: 20
+                        }}>
+                            <h4 className="font-display" style={{ fontSize: 13, marginBottom: 10 }}>YOUR COURSES</h4>
+                            <p style={{ fontSize: 11, lineHeight: 1.6 }}>
+                                Courses will appear here automatically once they are published and unlocked through the RevenueCat paywall. For now, sit tight — we&apos;re preparing the first drop.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
