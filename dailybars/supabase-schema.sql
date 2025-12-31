@@ -54,6 +54,10 @@ CREATE TABLE IF NOT EXISTS songs (
     is_favorite BOOLEAN DEFAULT FALSE,
     cover_image TEXT,
     beat_url TEXT,
+    studio TEXT DEFAULT '',
+    producer TEXT DEFAULT '',
+    "key" TEXT DEFAULT '',
+    bpm INTEGER,
     username TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

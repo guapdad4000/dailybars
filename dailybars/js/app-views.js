@@ -126,6 +126,29 @@ const ArchiveView = ({ bars, onSelect }) => {
 
 const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     const [isWide, setIsWide] = useState(window.innerWidth > 768);
+    const featuredArtists = [
+        {
+            name: 'GUAPDAD 4000',
+            role: 'Executive Producer',
+            avatar: 'images/icon-180.png',
+            stats: '8 placements • 2M spins',
+            badge: 'Bay Royalty'
+        },
+        {
+            name: 'DJ MUSTARD',
+            role: 'Beat Architect',
+            avatar: 'images/trophy/DJ_Mustard_“4Hunnid”_Hat_trophy.png',
+            stats: '6 crates • 128 bpm master',
+            badge: 'Heat Curator'
+        },
+        {
+            name: 'MISSY ELLIOTT',
+            role: 'Vibe Director',
+            avatar: 'images/trophy/Missy_Elliott_Black_Trash_Bag_Suit_(Rain_Video)_trophy.png',
+            stats: '11 concept flips',
+            badge: 'Innovation Lab'
+        }
+    ];
 
     useEffect(() => {
         const handleResize = () => setIsWide(window.innerWidth > 768);
@@ -172,7 +195,46 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
 
-            <button 
+            <div style={{ width: '100%', padding: '0 16px', marginBottom: 28, position: 'relative', zIndex: 15 }}>
+                <div className="font-display" style={{ fontSize: 12, letterSpacing: '0.08em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div style={{ width: 32, height: 3, background: 'var(--black)' }}></div>
+                    FEATURED ARTISTS
+                    <div style={{ width: 32, height: 3, background: 'var(--black)' }}></div>
+                </div>
+                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
+                    {featuredArtists.map((artist) => (
+                        <div
+                            key={artist.name}
+                            style={{
+                                minWidth: 220,
+                                background: 'rgba(255,255,255,0.8)',
+                                border: '2px solid var(--black)',
+                                boxShadow: '6px 6px 0 var(--black)',
+                                padding: 12,
+                                display: 'grid',
+                                gridTemplateColumns: '60px 1fr',
+                                gap: 10,
+                                alignItems: 'center',
+                                backdropFilter: 'blur(4px)'
+                            }}
+                        >
+                            <div style={{ width: 60, height: 60, border: '2px solid var(--black)', overflow: 'hidden', background: 'var(--paper)' }}>
+                                <img src={artist.avatar} alt={artist.name} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(20%) contrast(1.05)' }} />
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div className="font-display" style={{ fontSize: 13, letterSpacing: '0.05em' }}>{artist.name}</div>
+                                <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>{artist.role}</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    <span className="artist-pill">{artist.badge}</span>
+                                    <span className="artist-pill" style={{ background: 'var(--black)', color: 'var(--white)' }}>{artist.stats}</span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <button
                 onClick={onCreateSong}
                 className="animate-slide-in"
                 style={{
@@ -211,10 +273,10 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 </span>
             </button>
 
-            <div style={{ 
-                width: '100%', 
-                display: 'flex', 
-                flexDirection: 'column', 
+            <div style={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 paddingTop: 20,
                 position: 'relative', // Ensure above background
@@ -222,7 +284,9 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
             }}>
                 {songs.length === 0 ? (
                     <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.8, color: 'var(--black)', background: 'rgba(255,255,255,0.7)', borderRadius: 12, backdropFilter: 'blur(4px)', width: '80%' }}>
-                        <div style={{ fontSize: 40, marginBottom: 10 }}>🗞️</div>
+                        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+                            <div style={{ width: 60, height: 60, border: '2px solid var(--black)', backgroundImage: 'url(images/newspaper-sprites.png)', backgroundSize: '200% 200%', backgroundPosition: '0% 0%' }}></div>
+                        </div>
                         <div className="font-mono" style={{ fontSize: 12, fontWeight: 700 }}>NO NEWS IS GOOD NEWS</div>
                         <div className="font-mono" style={{ fontSize: 10, marginTop: 4 }}>START A TRACK ABOVE</div>
                     </div>
@@ -313,7 +377,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                         }}>
                                             {snippet ? "LATEST DEVELOPMENTS IN THE LAB" : "BREAKING NEWS"}
                                         </div>
-                                        
+
                                         <div style={{
                                             fontFamily: "'Times New Roman', Georgia, serif",
                                             fontSize: 11,
@@ -324,11 +388,18 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                         }}>
                                             {snippet || "No content available for this edition. Tap to write..."}
                                         </div>
+
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                                            <span className="crate-meta-pill"><Icon name="Building2" size={12} /> {song.studio || 'No studio logged'}</span>
+                                            <span className="crate-meta-pill"><Icon name="BadgeCheck" size={12} /> {song.producer || 'Producer TBD'}</span>
+                                            <span className="crate-meta-pill"><Icon name="Music" size={12} /> {song.key || 'Key open'}</span>
+                                            <span className="crate-meta-pill"><Icon name="Activity" size={12} /> {song.bpm ? `${song.bpm} BPM` : 'BPM free'}</span>
+                                        </div>
                                     </div>
 
                                     {hasImage && (
                                         <div style={{ width: '35%', flexShrink: 0 }}>
-                                            <img 
+                                            <img
                                                 src={song.coverImage} 
                                                 alt="" 
                                                 style={{ 
@@ -739,7 +810,12 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [coverImage, setCoverImage] = useState(song?.coverImage || null);
     const [saving, setSaving] = useState(false);
     const [aiLoading, setAiLoading] = useState(false);
-    
+
+    const [studio, setStudio] = useState(song?.studio || '');
+    const [producer, setProducer] = useState(song?.producer || '');
+    const [songKey, setSongKey] = useState(song?.key || '');
+    const [bpm, setBpm] = useState(song?.bpm ? String(song?.bpm) : '');
+
     const [beatUrl, setBeatUrl] = useState(song?.beatUrl || '');
     const [videoUrl, setVideoUrl] = useState(song?.videoUrl || '');
     const [beatPlaying, setBeatPlaying] = useState(false);
@@ -805,7 +881,19 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const handleSave = async () => {
         setSaving(true);
         try {
-            await onSave({ ...song, title, blocks, status, coverImage, beatUrl, videoUrl });
+            await onSave({
+                ...song,
+                title,
+                blocks,
+                status,
+                coverImage,
+                beatUrl,
+                videoUrl,
+                studio,
+                producer,
+                key: songKey,
+                bpm: bpm ? parseInt(bpm, 10) : null
+            });
             toast?.addToast('SAVED', 'success');
         } catch { toast?.addToast('SAVE FAILED', 'error'); }
         setSaving(false);
@@ -1207,10 +1295,62 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     )}
                 </div>
 
+                {/* 1.5 Session Details */}
+                <div style={{ padding: 16, borderBottom: '1px solid var(--black)', background: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(244,244,240,0.9))' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                        <div style={{ width: 32, height: 32, border: '2px solid var(--black)', backgroundImage: 'url(images/paper-texture.jpg)', backgroundSize: 'cover', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '4px 4px 0 var(--black)' }}>
+                            <Icon name="NotebookText" size={18} />
+                        </div>
+                        <div>
+                            <div className="font-display" style={{ fontSize: 14, letterSpacing: '0.1em' }}>SESSION DETAILS</div>
+                            <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>Dial in the credits and cadence</div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+                        <div className="session-input">
+                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>STUDIO</label>
+                            <input
+                                value={studio}
+                                onChange={(e) => setStudio(e.target.value)}
+                                placeholder="E.g. OAKLAND HQ"
+                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                            />
+                        </div>
+                        <div className="session-input">
+                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>PRODUCER</label>
+                            <input
+                                value={producer}
+                                onChange={(e) => setProducer(e.target.value)}
+                                placeholder="E.g. GUAPDAD"
+                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                            />
+                        </div>
+                        <div className="session-input">
+                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>KEY</label>
+                            <input
+                                value={songKey}
+                                onChange={(e) => setSongKey(e.target.value)}
+                                placeholder="E.g. B MINOR"
+                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                            />
+                        </div>
+                        <div className="session-input">
+                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>BPM</label>
+                            <input
+                                type="number"
+                                value={bpm}
+                                onChange={(e) => setBpm(e.target.value)}
+                                placeholder="E.g. 92"
+                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 {/* 2. Add Block Controls (Moved from Footer to here) */}
                 <div style={{
-                    display: 'flex', 
-                    gap: 8, 
+                    display: 'flex',
+                    gap: 8,
                     padding: '12px 16px',
                     background: 'var(--paper)',
                     borderBottom: '2px solid var(--black)',
@@ -3586,10 +3726,14 @@ const App = () => {
             const newSong = await api.create('songs', {
                 title: initialTitle,
                 blocks: [],
-                status: 'draft', 
-                isFavorite: false, 
+                status: 'draft',
+                isFavorite: false,
                 coverImage: null,
-                username: user.username
+                username: user.username,
+                studio: '',
+                producer: '',
+                key: '',
+                bpm: null
             });
             setSongs(prev => [newSong, ...prev]);
             setEditingSong(newSong);
@@ -3600,12 +3744,16 @@ const App = () => {
     
     const saveSong = async (songData) => {
         try {
-            const updated = await api.update('songs', songData.id, { 
-                title: songData.title, 
-                blocks: songData.blocks, 
-                status: songData.status, 
+            const updated = await api.update('songs', songData.id, {
+                title: songData.title,
+                blocks: songData.blocks,
+                status: songData.status,
                 coverImage: songData.coverImage,
-                username: user.username 
+                username: user.username,
+                studio: songData.studio || '',
+                producer: songData.producer || '',
+                key: songData.key || '',
+                bpm: songData.bpm ?? null
             });
             setSongs(prev => prev.map(s => s.id === songData.id ? updated : s));
             updateStreak();
