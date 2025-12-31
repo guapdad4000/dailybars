@@ -1,0 +1,16 @@
+{
+  "name": "dailybars",
+  "version": "1.0.0",
+  "description": "> *A unique mobile experience blending brutalist design with Bay Area flavor*",
+  "main": "service-worker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@revenuecat/purchases-js": "^7.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
