@@ -469,13 +469,19 @@ const getRhymeColor = (groupIndex) => {
 // Textarea with rhyme highlighting overlay
 // ROBUST IMPLEMENTATION: Uses contenteditable div with proper selection/cursor handling
 // This approach ensures full keyboard/mobile editing while maintaining rhyme highlights
-const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef }) => {
+const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef, onWordDoubleTap }) => {
     const internalRef = useRef(null);
     const overlayRef = useRef(null);
     const containerRef = useRef(null);
     const ref = textareaRef || internalRef;
     const isComposing = useRef(false); // Track IME composition
     const lastScrollTop = useRef(0);
+    
+    // Double-tap detection for mobile
+    const lastTapTime = useRef(0);
+    const lastTapPosition = useRef({ x: 0, y: 0 });
+    const doubleTapThreshold = 350; // ms between taps
+    const tapDistanceThreshold = 30; // pixels - taps must be close together
     
     // Sync function to ensure overlay matches textarea exactly
     const syncOverlay = useCallback(() => {
@@ -543,6 +549,91 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
         }
         syncOverlay();
     }, [value, ref, syncOverlay]);
+    
+    // Get the word at cursor position
+    const getWordAtCursor = useCallback(() => {
+        const textarea = ref.current;
+        if (!textarea) return null;
+        
+        const start = textarea.selectionStart;
+        const fullText = textarea.value;
+        
+        if (!fullText || start === undefined) return null;
+        
+        // Find word boundaries around cursor
+        let wordStart = start;
+        let wordEnd = start;
+        
+        // Scan backward to find word start
+        while (wordStart > 0 && /[\w']/.test(fullText[wordStart - 1])) {
+            wordStart--;
+        }
+        
+        // Scan forward to find word end
+        while (wordEnd < fullText.length && /[\w']/.test(fullText[wordEnd])) {
+            wordEnd++;
+        }
+        
+        const word = fullText.substring(wordStart, wordEnd).trim();
+        return word.length >= 2 ? word : null;
+    }, [ref]);
+    
+    // Handle double-tap for mobile (using touchend)
+    const handleTouchEnd = useCallback((e) => {
+        if (!onWordDoubleTap) return;
+        
+        const now = Date.now();
+        const touch = e.changedTouches?.[0];
+        if (!touch) return;
+        
+        const currentPos = { x: touch.clientX, y: touch.clientY };
+        const timeDiff = now - lastTapTime.current;
+        const distance = Math.sqrt(
+            Math.pow(currentPos.x - lastTapPosition.current.x, 2) + 
+            Math.pow(currentPos.y - lastTapPosition.current.y, 2)
+        );
+        
+        // Check if this is a double-tap (fast enough and close enough)
+        if (timeDiff < doubleTapThreshold && distance < tapDistanceThreshold) {
+            // It's a double-tap! Get the word at cursor
+            // Small delay to let selection settle
+            setTimeout(() => {
+                const word = getWordAtCursor();
+                if (word) {
+                    const rect = ref.current?.getBoundingClientRect();
+                    onWordDoubleTap({
+                        word,
+                        position: { 
+                            x: currentPos.x, 
+                            y: currentPos.y 
+                        }
+                    });
+                    haptic('light');
+                }
+            }, 10);
+            
+            // Reset to prevent triple-tap triggering
+            lastTapTime.current = 0;
+        } else {
+            // First tap or too slow/far - record for next tap
+            lastTapTime.current = now;
+            lastTapPosition.current = currentPos;
+        }
+    }, [onWordDoubleTap, getWordAtCursor, ref]);
+    
+    // Handle double-click for desktop
+    const handleDoubleClick = useCallback((e) => {
+        if (!onWordDoubleTap) return;
+        
+        const word = getWordAtCursor();
+        if (word) {
+            onWordDoubleTap({
+                word,
+                position: { x: e.clientX, y: e.clientY }
+            });
+            haptic('light');
+        }
+    }, [onWordDoubleTap, getWordAtCursor]);
     
     // Analyze rhymes
     const { endingToColor } = useMemo(() => analyzeRhymes(value || ''), [value]);
@@ -663,6 +754,8 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                 onScroll={handleScroll}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
+                onTouchEnd={handleTouchEnd}
+                onDoubleClick={handleDoubleClick}
                 placeholder="" // We render placeholder in overlay
                 autoFocus={autoFocus}
                 autoComplete="off"
@@ -2609,37 +2702,16 @@ const QuickInput = ({
         }
     };
     
-    const lastTapRef = useRef(0);
-    const handleTextDoubleTap = (e) => {
-        const now = Date.now();
-        if (now - lastTapRef.current < 300) {
-            const textarea = textareaRef.current;
-            if (textarea) {
-                const start = textarea.selectionStart;
-                const end = textarea.selectionEnd;
-                const fullText = textarea.value;
-                
-                let wordStart = start;
-                let wordEnd = end;
-                
-                while (wordStart > 0 && /\w/.test(fullText[wordStart - 1])) wordStart--;
-                while (wordEnd < fullText.length && /\w/.test(fullText[wordEnd])) wordEnd++;
-                
-                const selectedWord = fullText.substring(wordStart, wordEnd).trim();
-                
-                if (selectedWord.length >= 2) {
-                    const rect = textarea.getBoundingClientRect();
-                    setRhymePopup({
-                        show: true,
-                        word: selectedWord,
-                        position: { x: e.clientX || rect.left + 20, y: e.clientY || rect.top + 40 }
-                    });
-                    haptic('light');
-                }
-            }
+    // Handle double-tap from RhymeTextarea - now works on mobile!
+    const handleWordDoubleTap = useCallback(({ word, position }) => {
+        if (word && word.length >= 2) {
+            setRhymePopup({
+                show: true,
+                word: word,
+                position: position
+            });
         }
-        lastTapRef.current = now;
-    };
+    }, []);
     
     const handleRhymeSelect = (rhyme) => {
         setText(prev => prev + (prev.endsWith(' ') || prev === '' ? '' : ' ') + rhyme);
@@ -2826,6 +2898,7 @@ const QuickInput = ({
                     autoFocus
                     className="font-serif rhyme-editor-active"
                     style={{ width: '100%', minHeight: 80, fontSize: 18, lineHeight: 1.5 }}
+                    onWordDoubleTap={handleWordDoubleTap}
                 />
                 <div style={{ fontSize: 9, color: 'var(--gray)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Icon name="Info" size={10} /> RHYMES AUTO-HIGHLIGHTED • DOUBLE-TAP FOR SUGGESTIONS
