@@ -92,6 +92,10 @@ window.RESTORE_TO_SUPABASE = async (backupData) => {
                     is_favorite: song.isFavorite || song.is_favorite || false,
                     cover_image: song.coverImage || song.cover_image || null,
                     beat_url: song.beatUrl || song.beat_url || null,
+                    studio: song.studio || '',
+                    producer: song.producer || '',
+                    key: song.key || song.song_key || '',
+                    bpm: song.bpm ?? null,
                     username: song.username || 'guap'
                 };
                 

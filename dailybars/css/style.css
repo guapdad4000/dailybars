@@ -185,6 +185,31 @@ button:active { transform: scale(0.98); }
 
 .card-image:hover { filter: grayscale(0%) contrast(1); }
 
+.artist-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--black);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    background: var(--paper);
+    text-transform: uppercase;
+    box-shadow: 3px 3px 0 var(--black);
+}
+
+.crate-meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 1px solid var(--black);
+    background: rgba(255,255,255,0.85);
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    box-shadow: 2px 2px 0 rgba(0,0,0,0.2);
+}
+
 /* ============================================================================
    INLINE EDIT
    ============================================================================ */
