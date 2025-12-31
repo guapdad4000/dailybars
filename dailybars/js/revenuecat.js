@@ -3,6 +3,7 @@
 (function attachRevenueCat(window) {
     const API_KEY = 'test_jNdhQHLICLEbpZWbOOgbTkLQTlQ';
     const PRO_ENTITLEMENT = 'daily raps Pro';
+    const DEFAULT_OFFERING = 'dailybars_pro';
 
     let configuredUserId = null;
     let currentCustomerInfo = null;
@@ -116,7 +117,7 @@
 
         if (typeof rc.presentPaywall === 'function') {
             const { controller } = await rc.presentPaywall({
-                offeringIdentifier: opts.offeringIdentifier,
+                offeringIdentifier: opts.offeringIdentifier || DEFAULT_OFFERING,
             });
             if (controller) {
                 controller.onPurchaseCompleted(async () => {
@@ -143,6 +144,7 @@
 
     window.RevenueCat = {
         PRO_ENTITLEMENT,
+        DEFAULT_OFFERING,
         configure,
         ensureConfigured,
         getCustomerInfo,
