@@ -23,16 +23,19 @@ const {
 // FEED VIEW
 // ============================================================================
 
-const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt, onAddToCrate, onSendToFreeGame }) => {
+const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt, onAddToCrate, onSendToFreeGame, canUseAI, onAIUse, onPremiumRequired }) => {
     const [previewImage, setPreviewImage] = useState(null);
     
     return (
         <div>
-            <QuickInput 
-                onSave={onAddBar} 
-                onTyping={onTyping} 
-                onExpandChange={onInputExpandChange} 
-                initialPrompt={dailyPrompt} 
+            <QuickInput
+                onSave={onAddBar}
+                onTyping={onTyping}
+                onExpandChange={onInputExpandChange}
+                initialPrompt={dailyPrompt}
+                canUseAI={canUseAI}
+                onAIUse={onAIUse}
+                onPremiumRequired={onPremiumRequired}
                 style={{ background: 'var(--white)' }}
             />
             
@@ -729,7 +732,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
 // TRACK EDITOR
 // ============================================================================
 
-const TrackEditor = ({ song, onClose, onSave }) => {
+const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPremiumRequired }) => {
     const [title, setTitle] = useState(song?.title || 'UNTITLED');
     const [blocks, setBlocks] = useState(song?.blocks || []);
     const [status, setStatus] = useState(song?.status || 'draft');
@@ -752,6 +755,12 @@ const TrackEditor = ({ song, onClose, onSave }) => {
     const deleteBlock = (idx) => { setBlocks(blocks.filter((_, i) => i !== idx)); };
     
     const handleAI = async (mode) => {
+        if (canUseAI && !canUseAI()) {
+            toast?.addToast('PREMIUM REQUIRED', 'error');
+            onPremiumRequired?.('AI tools are limited to premium after 3 runs.');
+            return;
+        }
+        onAIUse?.();
         setAiLoading(true);
         const context = blocks.filter(b => b.type === 'text').map(b => b.content).join('\n');
         
@@ -803,15 +812,30 @@ const TrackEditor = ({ song, onClose, onSave }) => {
     };
     
     const handleBeatUpload = async (e) => {
+        if (!isPremium) {
+            toast?.addToast('PREMIUM REQUIRED', 'error');
+            onPremiumRequired?.('Uploading beats to save with your track is a premium perk.');
+            return;
+        }
         const file = e.target.files?.[0];
         if (file && file.type.startsWith('audio/')) {
-            const url = URL.createObjectURL(file);
-            setBeatUrl(url);
-            // If we have a beat, we might want to clear video or keep it? 
-            // Usually beat locker handles audio. Let's keep it simple.
-            setShowBeatLocker(false);
-            haptic('success');
-            toast?.addToast('BEAT LOADED!', 'success');
+            const readAsDataUrl = () => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
+            try {
+                const dataUrl = await readAsDataUrl();
+                setBeatUrl(dataUrl);
+                setShowBeatLocker(false);
+                haptic('success');
+                toast?.addToast('BEAT SAVED!', 'success');
+            } catch (err) {
+                console.error('Failed to read beat file', err);
+                toast?.addToast('UPLOAD FAILED', 'error');
+            }
         } else {
             toast?.addToast('AUDIO FILES ONLY', 'error');
         }
@@ -2946,7 +2970,76 @@ const App = () => {
     const [crateModalBar, setCrateModalBar] = useState(null);
     const [showXPStore, setShowXPStore] = useState(false);
     const [levelUpModal, setLevelUpModal] = useState(null); // Level number to show
+    const [hasPremium, setHasPremium] = useState(false);
+    const [showPremiumPrompt, setShowPremiumPrompt] = useState(false);
+    const [premiumMessage, setPremiumMessage] = useState('');
+    const [customerInfo, setCustomerInfo] = useState(null);
+    const [revenueCatError, setRevenueCatError] = useState('');
+    const [aiUsageCount, setAiUsageCount] = useState(0);
     const typingTimeoutRef = useRef(null);
+
+    const premiumKey = useMemo(() => user?.username ? `dailybars_premium_${user.username}` : 'dailybars_premium_guest', [user?.username]);
+    const aiUsageKey = useMemo(() => user?.username ? `ai_usage_${user.username}` : 'ai_usage_guest', [user?.username]);
+    const userKey = useMemo(() => user?.id || user?.username || 'guest', [user?.id, user?.username]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const initRevenueCat = async () => {
+            if (!window.RevenueCat) {
+                setRevenueCatError('RevenueCat SDK not loaded');
+                return;
+            }
+            try {
+                setRevenueCatError('');
+                const info = await window.RevenueCat.ensureConfigured(user?.id || user?.username);
+                if (cancelled) return;
+                setCustomerInfo(info || null);
+            } catch (err) {
+                if (cancelled) return;
+                console.error('RevenueCat init failed', err);
+                setRevenueCatError(err.message || 'RevenueCat unavailable');
+            }
+        };
+        initRevenueCat();
+        return () => { cancelled = true; };
+    }, [user]);
+
+    const syncRevenueCatToSupabase = useCallback(async (info) => {
+        if (!info || typeof supabase === 'undefined') return;
+        try {
+            const payload = {
+                user_key: userKey,
+                user_id: user?.id || null,
+                username: user?.username || null,
+                app_user_id: info?.appUserID || info?.originalAppUserId || userKey,
+                entitlement_pro_active: window.RevenueCat?.hasPro(info) || false,
+                entitlements: info?.entitlements || null,
+                customer_info: info,
+                environment: info?.managementURL ? 'production' : null,
+                last_synced: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            const { error } = await supabase
+                .from('revenuecat_customers')
+                .upsert(payload, { onConflict: 'user_key' });
+            if (error) {
+                console.warn('RevenueCat sync to Supabase failed', error.message);
+            }
+        } catch (err) {
+            console.warn('RevenueCat sync to Supabase error', err);
+        }
+    }, [user?.id, user?.username, userKey]);
+
+    useEffect(() => {
+        if (!customerInfo) return;
+        syncRevenueCatToSupabase(customerInfo);
+    }, [customerInfo, syncRevenueCatToSupabase]);
+
+    useEffect(() => {
+        if (!window.RevenueCat) return undefined;
+        const unsubscribe = window.RevenueCat.addCustomerInfoListener((info) => setCustomerInfo(info || null));
+        return () => unsubscribe?.();
+    }, []);
 
     // XP SYSTEM LOGIC
     const addExperience = async (amount, reason) => {
@@ -3003,6 +3096,168 @@ const App = () => {
             console.error('❌ XP Update failed:', err);
         }
     };
+
+    useEffect(() => {
+        const stored = premiumKey ? localStorage.getItem(premiumKey) : null;
+        const rcPro = window.RevenueCat?.hasPro(customerInfo);
+        const isPremiumUser = user?.username?.toLowerCase() === 'guap' || user?.isPremium || stored === 'true' || rcPro;
+        setHasPremium(!!isPremiumUser);
+        if (rcPro && premiumKey) {
+            localStorage.setItem(premiumKey, 'true');
+        }
+    }, [premiumKey, user, customerInfo]);
+
+    useEffect(() => {
+        const storedUses = parseInt(localStorage.getItem(aiUsageKey) || '0');
+        setAiUsageCount(Number.isFinite(storedUses) ? storedUses : 0);
+    }, [aiUsageKey]);
+
+    const requestPremium = (message = 'Unlock premium to keep grinding.') => {
+        setPremiumMessage(message);
+        setShowPremiumPrompt(true);
+    };
+
+    const refreshRevenueCat = useCallback(async () => {
+        if (!window.RevenueCat) return null;
+        try {
+            const info = await window.RevenueCat.getCustomerInfo();
+            setCustomerInfo(info || null);
+            const rcPro = window.RevenueCat.hasPro(info);
+            if (rcPro && premiumKey) {
+                localStorage.setItem(premiumKey, 'true');
+                setHasPremium(true);
+            }
+            return info;
+        } catch (err) {
+            console.error('Failed to refresh RevenueCat info', err);
+            setRevenueCatError(err.message || 'RevenueCat unavailable');
+            return null;
+        }
+    }, [premiumKey]);
+
+    const openRevenueCatPaywall = useCallback(async () => {
+        if (!window.RevenueCat) {
+            setRevenueCatError('RevenueCat SDK not loaded');
+            return;
+        }
+        try {
+            setRevenueCatError('');
+            await window.RevenueCat.showPaywall({ appUserID: user?.id || user?.username });
+            const latest = await refreshRevenueCat();
+            if (latest && window.RevenueCat.hasPro(latest)) {
+                setShowPremiumPrompt(false);
+            }
+        } catch (err) {
+            console.error('RevenueCat paywall failed', err);
+            setRevenueCatError(err.message || 'Purchase failed');
+        }
+    }, [refreshRevenueCat, user]);
+
+    const restoreRevenueCatPurchases = useCallback(async () => {
+        if (!window.RevenueCat) {
+            setRevenueCatError('RevenueCat SDK not loaded');
+            return;
+        }
+        try {
+            setRevenueCatError('');
+            await window.RevenueCat.restorePurchases();
+            const latest = await refreshRevenueCat();
+            if (latest && window.RevenueCat.hasPro(latest)) {
+                setShowPremiumPrompt(false);
+            }
+        } catch (err) {
+            console.error('RevenueCat restore failed', err);
+            setRevenueCatError(err.message || 'Restore failed');
+        }
+    }, [refreshRevenueCat]);
+
+    const openRevenueCatCustomerCenter = useCallback(async () => {
+        if (!window.RevenueCat?.presentCustomerCenter) {
+            setRevenueCatError('Customer Center not available in this SDK version');
+            return;
+        }
+        try {
+            setRevenueCatError('');
+            await window.RevenueCat.presentCustomerCenter('manage-subscriptions');
+        } catch (err) {
+            console.error('Customer Center failed', err);
+            setRevenueCatError(err.message || 'Customer Center unavailable');
+        }
+    }, []);
+
+    const canUseAI = useCallback(() => hasPremium || aiUsageCount < 3, [hasPremium, aiUsageCount]);
+
+    const noteAIUse = useCallback(() => {
+        const next = aiUsageCount + 1;
+        setAiUsageCount(next);
+        localStorage.setItem(aiUsageKey, next.toString());
+    }, [aiUsageCount, aiUsageKey]);
+
+    const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
+        if (typeof supabase === 'undefined') return;
+        try {
+            const payload = {
+                user_key: userKey,
+                user_id: user?.id || null,
+                username: user?.username || null,
+                ai_uses: usageCount,
+                last_ai_use: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            const { error } = await supabase
+                .from('premium_usage')
+                .upsert(payload, { onConflict: 'user_key' });
+            if (error) {
+                console.warn('Premium usage sync failed', error.message);
+            }
+        } catch (err) {
+            console.warn('Premium usage sync error', err);
+        }
+    }, [user?.id, user?.username, userKey]);
+
+    useEffect(() => {
+        syncPremiumUsageToSupabase(aiUsageCount);
+    }, [aiUsageCount, syncPremiumUsageToSupabase]);
+
+    const premiumOverlay = showPremiumPrompt ? (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+            <div style={{ background: 'var(--white)', border: '3px solid var(--black)', boxShadow: '8px 8px 0 var(--black)', maxWidth: 340, width: '100%', padding: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <h3 style={{ margin: 0, fontSize: 14, letterSpacing: '0.1em' }}>PREMIUM REQUIRED</h3>
+                    <button onClick={() => setShowPremiumPrompt(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}>
+                        <Icon name="X" size={18} />
+                    </button>
+                </div>
+                <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--black)', marginBottom: 12 }}>
+                    {premiumMessage || 'Unlock premium to remove limits.'}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--gray)', marginBottom: 12 }}>
+                    Unlimited AI runs, more than 3 crates, and persistent beat uploads come with premium access.
+                </div>
+                {revenueCatError ? (
+                    <div style={{ fontSize: 11, padding: 10, marginBottom: 8, background: 'rgba(255,0,0,0.08)', border: '1px solid #b91c1c', color: '#7f1d1d' }}>
+                        {revenueCatError}
+                    </div>
+                ) : null}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                    <button onClick={openRevenueCatPaywall} style={{ width: '100%', padding: 12, background: 'var(--black)', color: 'var(--white)', fontWeight: 800, letterSpacing: '0.1em', border: '2px solid var(--black)' }}>
+                        UPGRADE WITH REVENUECAT
+                    </button>
+                    <button onClick={restoreRevenueCatPurchases} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px dashed var(--black)' }}>
+                        RESTORE PURCHASES
+                    </button>
+                    {window.RevenueCat?.presentCustomerCenter ? (
+                        <button onClick={openRevenueCatCustomerCenter} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
+                            OPEN CUSTOMER CENTER
+                        </button>
+                    ) : null}
+                </div>
+                <button onClick={() => setShowPremiumPrompt(false)} style={{ width: '100%', padding: 10, background: 'transparent', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '1px solid var(--black)' }}>
+                    CLOSE
+                </button>
+            </div>
+        </div>
+    ) : null;
 
     const updateStreak = useCallback(() => {
         if (!user) return;
@@ -3323,9 +3578,13 @@ const App = () => {
     
     const createSong = async (initialTitle = 'UNTITLED') => {
         try {
-            const newSong = await api.create('songs', { 
-                title: initialTitle, 
-                blocks: [], 
+            if (!hasPremium && songs.length >= 3) {
+                requestPremium('Premium unlocks unlimited crates and beat uploads.');
+                return null;
+            }
+            const newSong = await api.create('songs', {
+                title: initialTitle,
+                blocks: [],
                 status: 'draft', 
                 isFavorite: false, 
                 coverImage: null,
@@ -3412,7 +3671,16 @@ const App = () => {
     if (editingSong) {
         return (
             <ToastProvider>
-                <TrackEditor song={editingSong} onClose={() => setEditingSong(null)} onSave={saveSong} />
+                <TrackEditor
+                    song={editingSong}
+                    onClose={() => setEditingSong(null)}
+                    onSave={saveSong}
+                    isPremium={hasPremium}
+                    canUseAI={canUseAI}
+                    onAIUse={noteAIUse}
+                    onPremiumRequired={() => requestPremium('Unlock premium to edit with AI and upload beats that persist.')}
+                />
+                {premiumOverlay}
             </ToastProvider>
         );
     }
@@ -3442,16 +3710,19 @@ const App = () => {
                             bars={bars} 
                             onAddBar={addBar} 
                             onDeleteBar={deleteBar}
-                            onFavorite={toggleFavorite} 
-                            onEditBar={editBar} 
-                            loading={loadingBars} 
-                            onTyping={handleTyping}
-                            onInputExpandChange={setIsInputExpanded}
-                            dailyPrompt={dailyPrompt}
-                            onAddToCrate={(bar) => setCrateModalBar(bar)}
-                            onSendToFreeGame={handleSendToFreeGame}
-                        />
-                    )}
+                        onFavorite={toggleFavorite}
+                        onEditBar={editBar}
+                        loading={loadingBars}
+                        onTyping={handleTyping}
+                        onInputExpandChange={setIsInputExpanded}
+                        dailyPrompt={dailyPrompt}
+                        onAddToCrate={(bar) => setCrateModalBar(bar)}
+                        onSendToFreeGame={handleSendToFreeGame}
+                        canUseAI={canUseAI}
+                        onAIUse={noteAIUse}
+                        onPremiumRequired={() => requestPremium('AI tools are capped at 3 runs without premium.')}
+                    />
+                )}
                     {view === 'syndicate' && (
                         <SyndicateView 
                             user={user} 
@@ -3482,7 +3753,7 @@ const App = () => {
             )}
 
                 {crateModalBar && (
-                    <AddToCrateModal 
+                    <AddToCrateModal
                         bar={crateModalBar}
                         songs={songs}
                         onClose={() => setCrateModalBar(null)}
@@ -3495,6 +3766,8 @@ const App = () => {
                         }}
                     />
                 )}
+
+                {premiumOverlay}
 
                 <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
                     <button onClick={handleLogout} style={{
