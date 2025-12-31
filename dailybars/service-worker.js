@@ -1,21 +1,26 @@
 // ============================================================================
-// DAILY BARS SERVICE WORKER - v22
-// NETWORK-FIRST strategy - NOW WITH SUPABASE 🔥
+// DAILY BARS SERVICE WORKER - v24
+// NETWORK-FIRST strategy - NOW WITH SUPABASE + APP STORE READY 🔥
 // ============================================================================
 
-const CACHE_NAME = 'daily-bars-v23';
-const CACHE_VERSION = 23;
+const CACHE_NAME = 'daily-bars-v24';
+const CACHE_VERSION = 24;
 
 const urlsToCache = [
   '/',
   '/index.html',
+  '/privacy.html',
   '/manifest.json',
   '/css/style.css',
   '/js/app.js',
   '/js/app-views.js',
+  '/js/ui-components.js',
   '/js/daily-deposit-engine.js',
+  '/js/restore-data.js',
   '/images/smooth-paper-texture.jpg',
-  '/images/newspaper-sprites.png'
+  '/images/newspaper-sprites.png',
+  '/images/icon-192.png',
+  '/images/icon-512.png'
 ];
 
 // External CDN resources (cache these too)

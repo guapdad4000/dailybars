@@ -1,2 +1,7 @@
-# Netlify redirects - SPA fallback
+# Netlify redirects - Daily Raps
+
+# Privacy policy (required for App Store)
+/privacy    /privacy.html   200
+
+# SPA fallback - must be last
 /*    /index.html   200

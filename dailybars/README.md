@@ -3,6 +3,8 @@
 
 > *A unique mobile experience blending brutalist design with Bay Area flavor*
 
+**Version 3.0.0** | **App Store Ready** 🍎
+
 ---
 
 ## THE AESTHETIC
@@ -23,7 +25,32 @@ The result is something truly unique - underground venue meets music journalism 
 
 ---
 
-## 🆕 LATEST UPDATES (v2.9)
+## 🆕 LATEST UPDATES (v3.0)
+
+### 📱 APP STORE READY (v3.0) - NATIVE iOS APP
+**Daily Raps is now ready for the Apple App Store!**
+
+- ✅ **Capacitor Integration**: Native iOS wrapper configured
+- ✅ **App Store Metadata**: Description, keywords, categories ready
+- ✅ **Privacy Policy**: `/privacy.html` - Required for App Store
+- ✅ **Bundle ID**: `com.guapdad4000.dailyraps`
+- ✅ **Version 3.0.0**: Official release version
+- ✅ **Service Worker v24**: Fresh cache for native app compatibility
+- ✅ **Safe Area Support**: iPhone notch/Dynamic Island handled
+- ✅ **RevenueCat Integration**: In-app purchases ready
+
+**To Build for App Store:**
+```bash
+npm install
+npx cap add ios
+npx cap sync ios
+npx cap open ios
+# Then archive and submit in Xcode
+```
+
+See `APP_STORE_SUBMISSION.md` for complete guide.
+
+---
 
 ### 🔥 SUPABASE MIGRATION (v2.9) - FRESH DATABASE
 **We off that old API! Now running on Supabase PostgreSQL.**
@@ -378,6 +405,8 @@ id, title, blocks[], status, isFavorite, coverImage, beatUrl, username
 - RESTful API
 - **PWA**: Service Worker + Web App Manifest
 - **Offline Support**: Cache API for offline functionality
+- **RevenueCat**: In-app purchases and subscriptions
+- **Capacitor**: Native iOS/Android wrapper
 
 ---
 
@@ -386,8 +415,12 @@ id, title, blocks[], status, isFavorite, coverImage, beatUrl, username
 ```
 index.html              (entry point - lean ~65 lines)
 manifest.json           (PWA configuration)
-service-worker.js       (offline caching v4)
+service-worker.js       (offline caching v24)
+capacitor.config.json   (native app configuration)
+package.json            (npm dependencies)
 README.md               (this file)
+APP_STORE_SUBMISSION.md (App Store guide)
+privacy.html            (privacy policy)
 IMPROVEMENTS.md         (future roadmap)
 PHASE_2.md              (development notes)
 PWA-INSTALL-GUIDE.md    (installation docs)
@@ -404,9 +437,11 @@ js/
 images/
   ├── icon-192.png              (PWA icon - small)
   ├── icon-512.png              (PWA icon - large)
+  ├── icon-1024.png             (App Store icon)
   ├── newspaper-sprites.png     (6-frame paper textures)
   ├── paper-texture.jpg         (legacy texture)
-  └── smooth-paper-texture.jpg  (main texture)
+  ├── smooth-paper-texture.jpg  (main texture)
+  └── screenshots/              (App Store screenshots)
 ```
 
 ---
@@ -432,6 +467,7 @@ images/
 | Path | Description |
 |------|-------------|
 | `/` | Main app (index.html) |
+| `/privacy` | Privacy policy |
 | `/manifest.json` | PWA configuration |
 | `/service-worker.js` | Offline cache worker |
 | `/css/style.css` | Main stylesheet |
@@ -466,17 +502,40 @@ images/
 
 ---
 
+## 📱 APP STORE BUILD
+
+```bash
+# Install dependencies
+npm install
+
+# Add iOS platform
+npx cap add ios
+
+# Sync web files to iOS
+npx cap sync ios
+
+# Open in Xcode
+npx cap open ios
+
+# Build → Archive → Submit
+```
+
+See `APP_STORE_SUBMISSION.md` for complete guide.
+
+---
+
 ## NEXT STEPS
 
 - [x] PWA support (installable app)
 - [x] Daily Drop inspiration widget
 - [x] Code refactor (CSS/JS separation)
+- [x] App Store preparation (Capacitor)
+- [x] RevenueCat integration
 - [ ] Cloud audio storage (reduce Base64 size)
 - [ ] BPM detection for Beat Locker
 - [ ] Auto-transcription for voice memos
 - [ ] Share directly to IG/X from POST THAT
 - [ ] Collaborative tracks (multi-user songs)
-- [ ] Full native iOS app (Capacitor wrapper)
 
 ---
 
