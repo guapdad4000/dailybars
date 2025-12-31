@@ -2380,7 +2380,16 @@ const RhymePopup = ({ word, position, onSelect, onClose }) => {
 // QUICK INPUT
 // ============================================================================
 
-const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt, style }) => {
+const QuickInput = ({
+    onSave,
+    onTyping,
+    onExpandChange,
+    initialPrompt,
+    style,
+    canUseAI,
+    onAIUse,
+    onPremiumRequired
+}) => {
     const [expanded, setExpanded] = useState(false);
     const [text, setText] = useState('');
     const [tags, setTags] = useState([]);
@@ -2452,6 +2461,12 @@ const QuickInput = ({ onSave, onTyping, onExpandChange, initialPrompt, style }) 
     };
     
     const handleAI = async (mode) => {
+        if (canUseAI && !canUseAI()) {
+            toast?.addToast('PREMIUM REQUIRED', 'error');
+            onPremiumRequired?.();
+            return;
+        }
+        onAIUse?.();
         setAiLoading(true);
         const prompts = {
             freestyle: `Freestyle 4-6 bars about: ${text || 'success and the Bay Area lifestyle'}`,
