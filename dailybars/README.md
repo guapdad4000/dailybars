@@ -15,6 +15,14 @@ The result is something truly unique - underground venue meets music journalism 
 
 ---
 
+## RevenueCat QA Notes
+
+- **Offering Identifier:** `dailybars_pro` (used for paywall and Customer Center entry points)
+- **Entitlement:** `daily raps Pro`
+- **Flow:** Premium overlay and settings controls call the RevenueCat paywall/Customer Center so purchases or restores update the customer's entitlements and unlock premium features.
+
+---
+
 ## 🆕 LATEST UPDATES (v2.9)
 
 ### 🔥 SUPABASE MIGRATION (v2.9) - FRESH DATABASE

@@ -2976,6 +2976,7 @@ const App = () => {
     const [customerInfo, setCustomerInfo] = useState(null);
     const [revenueCatError, setRevenueCatError] = useState('');
     const [aiUsageCount, setAiUsageCount] = useState(0);
+    const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
 
     const premiumKey = useMemo(() => user?.username ? `dailybars_premium_${user.username}` : 'dailybars_premium_guest', [user?.username]);
