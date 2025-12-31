@@ -467,50 +467,109 @@ const getRhymeColor = (groupIndex) => {
 };
 
 // Textarea with rhyme highlighting overlay
+// ROBUST IMPLEMENTATION: Uses contenteditable div with proper selection/cursor handling
+// This approach ensures full keyboard/mobile editing while maintaining rhyme highlights
 const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef }) => {
     const internalRef = useRef(null);
     const overlayRef = useRef(null);
+    const containerRef = useRef(null);
     const ref = textareaRef || internalRef;
+    const isComposing = useRef(false); // Track IME composition
+    const lastScrollTop = useRef(0);
+    
+    // Sync function to ensure overlay matches textarea exactly
+    const syncOverlay = useCallback(() => {
+        if (overlayRef.current && ref.current) {
+            overlayRef.current.scrollTop = ref.current.scrollTop;
+            lastScrollTop.current = ref.current.scrollTop;
+        }
+    }, [ref]);
     
     const handleChange = (e) => {
+        if (isComposing.current) return; // Don't update during IME composition
         onChange?.(e);
-        // Auto-resize both textarea and overlay
+        // Auto-resize textarea
         if (ref.current) {
             ref.current.style.height = 'auto';
             ref.current.style.height = ref.current.scrollHeight + 'px';
         }
+        // Sync overlay after change
+        requestAnimationFrame(syncOverlay);
     };
     
-    // Sync scroll between textarea and overlay
-    const handleScroll = () => {
-        if (overlayRef.current && ref.current) {
-            overlayRef.current.scrollTop = ref.current.scrollTop;
+    // Handle IME composition (for mobile keyboards, etc.)
+    const handleCompositionStart = () => {
+        isComposing.current = true;
+    };
+    
+    const handleCompositionEnd = (e) => {
+        isComposing.current = false;
+        // Trigger change after composition ends
+        handleChange(e);
+    };
+    
+    // Sync scroll between textarea and overlay with RAF for smoothness
+    const handleScroll = useCallback(() => {
+        requestAnimationFrame(syncOverlay);
+    }, [syncOverlay]);
+    
+    // Handle all input events including mobile
+    const handleInput = (e) => {
+        if (isComposing.current) return;
+        // Ensure the textarea value is always synced
+        if (ref.current && e.target.value !== value) {
+            onChange?.(e);
         }
     };
     
+    // Initial focus and resize
     useEffect(() => {
         if (autoFocus && ref.current) {
-            ref.current.focus();
+            // Small delay to ensure DOM is ready
+            setTimeout(() => {
+                ref.current.focus();
+                // Place cursor at end
+                const len = ref.current.value.length;
+                ref.current.setSelectionRange(len, len);
+            }, 50);
         }
-    }, [autoFocus]);
+    }, [autoFocus, ref]);
+    
+    // Resize on value change
+    useEffect(() => {
+        if (ref.current) {
+            ref.current.style.height = 'auto';
+            ref.current.style.height = ref.current.scrollHeight + 'px';
+        }
+        syncOverlay();
+    }, [value, ref, syncOverlay]);
     
     // Analyze rhymes
     const { endingToColor } = useMemo(() => analyzeRhymes(value || ''), [value]);
     
-    // Build highlighted HTML for display
-    const renderHighlightedText = () => {
-        if (!value) return null;
+    // Build highlighted HTML for display - uses spans for inline layout
+    const renderHighlightedText = useMemo(() => {
+        if (!value) {
+            // Show placeholder when empty
+            return <span style={{ color: 'var(--gray)', opacity: 0.6 }}>{placeholder}</span>;
+        }
         
         const lines = value.split('\n');
         
         return lines.map((line, lineIndex) => {
+            // Handle empty lines - need to preserve them for alignment
+            if (line === '') {
+                return <div key={lineIndex} style={{ height: '1.5em' }}>&nbsp;</div>;
+            }
+            
             // Split by non-word characters to preserve delimiters
-            // The capturing group ( ) includes the delimiters in the output array
             const segments = line.split(/([^a-zA-Z']+)/);
             
             return (
-                <div key={lineIndex}>
+                <div key={lineIndex} style={{ minHeight: '1.5em' }}>
                     {segments.map((segment, segIndex) => {
+                        if (!segment) return null;
+                        
                         // Check if it's a word
                         if (/^[a-zA-Z']+$/.test(segment)) {
                             const ending = getPhoneticEnding(segment);
@@ -521,79 +580,119 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                                     <span key={segIndex} style={{
                                         backgroundColor: color,
                                         boxShadow: `0 0 0 2px ${color}`,
-                                        borderRadius: '4px',
+                                        borderRadius: '3px',
+                                        padding: '0 1px',
+                                        marginLeft: '-1px',
+                                        marginRight: '-1px',
                                     }}>
                                         {segment}
                                     </span>
                                 );
                             }
                         }
-                        return segment;
+                        // Return non-highlighted text (preserves spaces, punctuation)
+                        return <span key={segIndex}>{segment}</span>;
                     })}
                 </div>
             );
         });
-    };
+    }, [value, endingToColor, placeholder]);
     
-    const containerStyle = {
-        position: 'relative',
-        ...style
-    };
-    
-    const baseTextStyle = {
-        width: '100%',
-        minHeight: style?.minHeight || 80,
+    // Compute common text styles - MUST be identical for textarea and overlay
+    const textStyles = useMemo(() => ({
+        fontFamily: className?.includes('font-serif') 
+            ? "'Playfair Display', Georgia, serif" 
+            : className?.includes('font-mono')
+                ? "'IBM Plex Mono', monospace"
+                : 'inherit',
         fontSize: style?.fontSize || 18,
         lineHeight: style?.lineHeight || 1.5,
-        fontFamily: 'inherit',
-        whiteSpace: 'pre-wrap',
-        wordWrap: 'break-word',
-        padding: 0,
-        margin: 0,
-        border: 'none',
-        outline: 'none'
-    };
+        letterSpacing: 'normal',
+        wordSpacing: 'normal',
+        textRendering: 'geometricPrecision',
+        WebkitFontSmoothing: 'antialiased',
+        MozOsxFontSmoothing: 'grayscale',
+    }), [style?.fontSize, style?.lineHeight, className]);
     
     return (
-        <div style={containerStyle} className={className}>
-            {/* Overlay with highlighted text - sits behind textarea */}
+        <div 
+            ref={containerRef}
+            className={`rhyme-textarea-container ${className || ''}`}
+            style={{
+                position: 'relative',
+                width: '100%',
+                minHeight: style?.minHeight || 80,
+            }}
+        >
+            {/* Overlay with highlighted text - positioned behind textarea */}
             <div 
                 ref={overlayRef}
+                aria-hidden="true"
+                className="rhyme-textarea-overlay"
                 style={{
-                    ...baseTextStyle,
+                    ...textStyles,
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     right: 0,
+                    bottom: 0,
+                    padding: 0,
+                    margin: 0,
+                    border: 'none',
                     pointerEvents: 'none',
                     overflow: 'hidden',
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word',
+                    overflowWrap: 'break-word',
                     color: 'var(--black)',
-                    background: 'transparent'
+                    background: 'transparent',
+                    zIndex: 0,
                 }}
             >
-                {renderHighlightedText()}
+                {renderHighlightedText}
             </div>
             
-            {/* Actual textarea - transparent text so overlay shows through */}
+            {/* Actual textarea - handles all user interaction */}
             <textarea
                 ref={ref}
                 value={value}
                 onChange={handleChange}
+                onInput={handleInput}
                 onBlur={onBlur}
                 onKeyDown={onKeyDown}
                 onScroll={handleScroll}
-                placeholder={placeholder}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                placeholder="" // We render placeholder in overlay
                 autoFocus={autoFocus}
-                className={className}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="sentences"
                 spellCheck="false"
+                data-gramm="false" // Disable Grammarly
+                className="rhyme-textarea-input"
                 style={{
-                    ...baseTextStyle,
+                    ...textStyles,
+                    width: '100%',
+                    minHeight: style?.minHeight || 80,
+                    padding: 0,
+                    margin: 0,
+                    border: 'none',
+                    outline: 'none',
                     resize: 'none',
                     background: 'transparent',
-                    color: 'transparent',
-                    caretColor: 'var(--black)',
+                    color: 'transparent', // Hide text but keep cursor
+                    caretColor: 'var(--black)', // Visible cursor
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    whiteSpace: 'pre-wrap',
+                    wordWrap: 'break-word',
+                    overflowWrap: 'break-word',
+                    overflow: 'hidden', // Prevent scrollbar, auto-resize handles it
+                    // Mobile-specific styles
+                    WebkitAppearance: 'none',
+                    WebkitTapHighlightColor: 'transparent',
+                    touchAction: 'manipulation', // Better touch handling
                 }}
             />
         </div>
@@ -601,7 +700,7 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
 };
 
 // Also export a simple display-only component for showing rhymes in read mode
-const RhymeHighlightedText = ({ text, style }) => {
+const RhymeHighlightedText = ({ text, style, className }) => {
     const { endingToColor } = useMemo(() => analyzeRhymes(text || ''), [text]);
     
     if (!text) return null;
@@ -609,13 +708,19 @@ const RhymeHighlightedText = ({ text, style }) => {
     const lines = text.split('\n');
     
     return (
-        <div style={style}>
+        <div style={style} className={className}>
             {lines.map((line, lineIndex) => {
+                if (line === '') {
+                    return <div key={lineIndex}>&nbsp;</div>;
+                }
+                
                 const segments = line.split(/([^a-zA-Z']+)/);
                 
                 return (
                     <div key={lineIndex}>
                         {segments.map((segment, segIndex) => {
+                            if (!segment) return null;
+                            
                             if (/^[a-zA-Z']+$/.test(segment)) {
                                 const ending = getPhoneticEnding(segment);
                                 const color = endingToColor[ending];
@@ -625,14 +730,15 @@ const RhymeHighlightedText = ({ text, style }) => {
                                         <span key={segIndex} style={{ 
                                             backgroundColor: color, 
                                             boxShadow: `0 0 0 2px ${color}`,
-                                            borderRadius: '2px' 
+                                            borderRadius: '3px',
+                                            padding: '0 1px',
                                         }}>
                                             {segment}
                                         </span>
                                     );
                                 }
                             }
-                            return segment;
+                            return <span key={segIndex}>{segment}</span>;
                         })}
                     </div>
                 );

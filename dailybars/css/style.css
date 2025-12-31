@@ -390,9 +390,101 @@ button:active { transform: scale(0.98); }
 /* ============================================================================
    RHYME HIGHLIGHTING SYSTEM
    Simple color-coded end-of-line rhymes for lyric writing
+   Robust implementation with pixel-perfect overlay alignment
    ============================================================================ */
 
 /* Container for rhyme-enabled textareas */
 .rhyme-editor-active {
     position: relative;
+}
+
+/* Main container - establishes positioning context */
+.rhyme-textarea-container {
+    position: relative;
+    width: 100%;
+}
+
+/* The overlay that shows highlighted text */
+.rhyme-textarea-overlay {
+    /* Text rendering must exactly match textarea */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Ensure exact same text rendering */
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent any text selection on overlay */
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* The actual textarea that handles input */
+.rhyme-textarea-input {
+    /* Text rendering must exactly match overlay */
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    text-rendering: geometricPrecision;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Allow selection and cursor */
+    user-select: text;
+    -webkit-user-select: text;
+    /* Ensure cursor is always visible */
+    caret-color: var(--black) !important;
+}
+
+/* Focus state - subtle highlight */
+.rhyme-textarea-input:focus {
+    outline: none;
+}
+
+/* Focused container gets subtle border */
+.rhyme-textarea-container:focus-within {
+    /* Optional: add subtle focus indicator */
+}
+
+/* Mobile-specific fixes */
+@media (pointer: coarse) {
+    .rhyme-textarea-input {
+        /* Larger touch target */
+        min-height: 100px;
+        /* Prevent zoom on focus in iOS */
+        font-size: 16px !important;
+        /* Better touch scrolling */
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .rhyme-textarea-container {
+        /* Ensure tap works properly */
+        touch-action: manipulation;
+    }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+    .rhyme-textarea-input {
+        /* Prevent iOS zoom on input */
+        font-size: max(16px, 1em);
+        /* Fix iOS textarea quirks */
+        -webkit-appearance: none;
+        border-radius: 0;
+    }
+}
+
+/* Highlighted word styles */
+.rhyme-textarea-overlay span[style*="backgroundColor"] {
+    /* Ensure highlights don't affect line height */
+    display: inline;
+    vertical-align: baseline;
+    line-height: inherit;
+}
+
+/* Placeholder styling in overlay */
+.rhyme-textarea-overlay > span:first-child:only-child {
+    /* Placeholder text style */
+    color: var(--gray);
+    opacity: 0.6;
+    font-style: normal;
 }
