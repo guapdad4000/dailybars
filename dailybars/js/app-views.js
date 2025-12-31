@@ -2976,6 +2976,7 @@ const App = () => {
     const [customerInfo, setCustomerInfo] = useState(null);
     const [revenueCatError, setRevenueCatError] = useState('');
     const [aiUsageCount, setAiUsageCount] = useState(0);
+    const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
 
     const premiumKey = useMemo(() => user?.username ? `dailybars_premium_${user.username}` : 'dailybars_premium_guest', [user?.username]);
@@ -3110,7 +3111,10 @@ const App = () => {
         }
         try {
             setRevenueCatError('');
-            await window.RevenueCat.showPaywall({ appUserID: user?.id || user?.username });
+            await window.RevenueCat.showPaywall({
+                appUserID: user?.id || user?.username,
+                offeringIdentifier: PAYWALL_OFFERING_ID,
+            });
             const latest = await refreshRevenueCat();
             if (latest && window.RevenueCat.hasPro(latest)) {
                 setShowPremiumPrompt(false);
@@ -3119,7 +3123,7 @@ const App = () => {
             console.error('RevenueCat paywall failed', err);
             setRevenueCatError(err.message || 'Purchase failed');
         }
-    }, [refreshRevenueCat, user]);
+    }, [PAYWALL_OFFERING_ID, refreshRevenueCat, user]);
 
     const restoreRevenueCatPurchases = useCallback(async () => {
         if (!window.RevenueCat) {
@@ -3150,8 +3154,35 @@ const App = () => {
         } catch (err) {
             console.error('Customer Center failed', err);
             setRevenueCatError(err.message || 'Customer Center unavailable');
+            throw err;
         }
     }, []);
+
+    const manageSubscriptionOrRestore = useCallback(async () => {
+        if (!window.RevenueCat) {
+            setRevenueCatError('RevenueCat SDK not loaded');
+            return;
+        }
+        try {
+            if (window.RevenueCat?.presentCustomerCenter) {
+                await openRevenueCatCustomerCenter();
+                return;
+            }
+            await restoreRevenueCatPurchases();
+        } catch (err) {
+            console.error('Manage subscription failed', err);
+            if (!window.RevenueCat?.presentCustomerCenter) {
+                setRevenueCatError(err.message || 'Restore failed');
+                return;
+            }
+            try {
+                await restoreRevenueCatPurchases();
+            } catch (fallbackErr) {
+                console.error('Fallback restore failed', fallbackErr);
+                setRevenueCatError(fallbackErr.message || 'Restore failed');
+            }
+        }
+    }, [openRevenueCatCustomerCenter, restoreRevenueCatPurchases]);
 
     const canUseAI = useCallback(() => hasPremium || aiUsageCount < 3, [hasPremium, aiUsageCount]);
 
@@ -3711,7 +3742,16 @@ const App = () => {
 
                 {premiumOverlay}
 
-                <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
+                <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 240 }}>
+                    {revenueCatError ? (
+                        <div style={{ fontSize: 10, padding: 8, background: 'rgba(255,0,0,0.08)', border: '1px solid #b91c1c', color: '#7f1d1d' }}>
+                            {revenueCatError}
+                        </div>
+                    ) : null}
+                    <button onClick={manageSubscriptionOrRestore} style={{
+                        background: 'var(--white)', color: 'var(--black)',
+                        padding: '6px 8px', fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', border: '2px solid var(--black)'
+                    }}>MANAGE / RESTORE SUBSCRIPTION</button>
                     <button onClick={handleLogout} style={{
                         background: 'var(--black)', color: 'var(--white)',
                         padding: '4px 8px', fontSize: 8, fontWeight: 700, letterSpacing: '0.1em'
