@@ -195,45 +195,6 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
 
-            <div style={{ width: '100%', padding: '0 16px', marginBottom: 28, position: 'relative', zIndex: 15 }}>
-                <div className="font-display" style={{ fontSize: 12, letterSpacing: '0.08em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 32, height: 3, background: 'var(--black)' }}></div>
-                    FEATURED ARTISTS
-                    <div style={{ width: 32, height: 3, background: 'var(--black)' }}></div>
-                </div>
-                <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 6 }}>
-                    {featuredArtists.map((artist) => (
-                        <div
-                            key={artist.name}
-                            style={{
-                                minWidth: 220,
-                                background: 'rgba(255,255,255,0.8)',
-                                border: '2px solid var(--black)',
-                                boxShadow: '6px 6px 0 var(--black)',
-                                padding: 12,
-                                display: 'grid',
-                                gridTemplateColumns: '60px 1fr',
-                                gap: 10,
-                                alignItems: 'center',
-                                backdropFilter: 'blur(4px)'
-                            }}
-                        >
-                            <div style={{ width: 60, height: 60, border: '2px solid var(--black)', overflow: 'hidden', background: 'var(--paper)' }}>
-                                <img src={artist.avatar} alt={artist.name} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'grayscale(20%) contrast(1.05)' }} />
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div className="font-display" style={{ fontSize: 13, letterSpacing: '0.05em' }}>{artist.name}</div>
-                                <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>{artist.role}</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                    <span className="artist-pill">{artist.badge}</span>
-                                    <span className="artist-pill" style={{ background: 'var(--black)', color: 'var(--white)' }}>{artist.stats}</span>
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
             <button
                 onClick={onCreateSong}
                 className="animate-slide-in"
