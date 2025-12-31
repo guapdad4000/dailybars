@@ -2981,6 +2981,7 @@ const App = () => {
 
     const premiumKey = useMemo(() => user?.username ? `dailybars_premium_${user.username}` : 'dailybars_premium_guest', [user?.username]);
     const aiUsageKey = useMemo(() => user?.username ? `ai_usage_${user.username}` : 'ai_usage_guest', [user?.username]);
+    const userKey = useMemo(() => user?.id || user?.username || 'guest', [user?.id, user?.username]);
 
     useEffect(() => {
         let cancelled = false;
@@ -3003,6 +3004,37 @@ const App = () => {
         initRevenueCat();
         return () => { cancelled = true; };
     }, [user]);
+
+    const syncRevenueCatToSupabase = useCallback(async (info) => {
+        if (!info || typeof supabase === 'undefined') return;
+        try {
+            const payload = {
+                user_key: userKey,
+                user_id: user?.id || null,
+                username: user?.username || null,
+                app_user_id: info?.appUserID || info?.originalAppUserId || userKey,
+                entitlement_pro_active: window.RevenueCat?.hasPro(info) || false,
+                entitlements: info?.entitlements || null,
+                customer_info: info,
+                environment: info?.managementURL ? 'production' : null,
+                last_synced: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            const { error } = await supabase
+                .from('revenuecat_customers')
+                .upsert(payload, { onConflict: 'user_key' });
+            if (error) {
+                console.warn('RevenueCat sync to Supabase failed', error.message);
+            }
+        } catch (err) {
+            console.warn('RevenueCat sync to Supabase error', err);
+        }
+    }, [user?.id, user?.username, userKey]);
+
+    useEffect(() => {
+        if (!customerInfo) return;
+        syncRevenueCatToSupabase(customerInfo);
+    }, [customerInfo, syncRevenueCatToSupabase]);
 
     useEffect(() => {
         if (!window.RevenueCat) return undefined;
@@ -3111,10 +3143,7 @@ const App = () => {
         }
         try {
             setRevenueCatError('');
-            await window.RevenueCat.showPaywall({
-                appUserID: user?.id || user?.username,
-                offeringIdentifier: PAYWALL_OFFERING_ID,
-            });
+            await window.RevenueCat.showPaywall({ appUserID: user?.id || user?.username });
             const latest = await refreshRevenueCat();
             if (latest && window.RevenueCat.hasPro(latest)) {
                 setShowPremiumPrompt(false);
@@ -3123,7 +3152,7 @@ const App = () => {
             console.error('RevenueCat paywall failed', err);
             setRevenueCatError(err.message || 'Purchase failed');
         }
-    }, [PAYWALL_OFFERING_ID, refreshRevenueCat, user]);
+    }, [refreshRevenueCat, user]);
 
     const restoreRevenueCatPurchases = useCallback(async () => {
         if (!window.RevenueCat) {
@@ -3154,35 +3183,8 @@ const App = () => {
         } catch (err) {
             console.error('Customer Center failed', err);
             setRevenueCatError(err.message || 'Customer Center unavailable');
-            throw err;
         }
     }, []);
-
-    const manageSubscriptionOrRestore = useCallback(async () => {
-        if (!window.RevenueCat) {
-            setRevenueCatError('RevenueCat SDK not loaded');
-            return;
-        }
-        try {
-            if (window.RevenueCat?.presentCustomerCenter) {
-                await openRevenueCatCustomerCenter();
-                return;
-            }
-            await restoreRevenueCatPurchases();
-        } catch (err) {
-            console.error('Manage subscription failed', err);
-            if (!window.RevenueCat?.presentCustomerCenter) {
-                setRevenueCatError(err.message || 'Restore failed');
-                return;
-            }
-            try {
-                await restoreRevenueCatPurchases();
-            } catch (fallbackErr) {
-                console.error('Fallback restore failed', fallbackErr);
-                setRevenueCatError(fallbackErr.message || 'Restore failed');
-            }
-        }
-    }, [openRevenueCatCustomerCenter, restoreRevenueCatPurchases]);
 
     const canUseAI = useCallback(() => hasPremium || aiUsageCount < 3, [hasPremium, aiUsageCount]);
 
@@ -3191,6 +3193,32 @@ const App = () => {
         setAiUsageCount(next);
         localStorage.setItem(aiUsageKey, next.toString());
     }, [aiUsageCount, aiUsageKey]);
+
+    const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
+        if (typeof supabase === 'undefined') return;
+        try {
+            const payload = {
+                user_key: userKey,
+                user_id: user?.id || null,
+                username: user?.username || null,
+                ai_uses: usageCount,
+                last_ai_use: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+            };
+            const { error } = await supabase
+                .from('premium_usage')
+                .upsert(payload, { onConflict: 'user_key' });
+            if (error) {
+                console.warn('Premium usage sync failed', error.message);
+            }
+        } catch (err) {
+            console.warn('Premium usage sync error', err);
+        }
+    }, [user?.id, user?.username, userKey]);
+
+    useEffect(() => {
+        syncPremiumUsageToSupabase(aiUsageCount);
+    }, [aiUsageCount, syncPremiumUsageToSupabase]);
 
     const premiumOverlay = showPremiumPrompt ? (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
@@ -3742,16 +3770,7 @@ const App = () => {
 
                 {premiumOverlay}
 
-                <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 240 }}>
-                    {revenueCatError ? (
-                        <div style={{ fontSize: 10, padding: 8, background: 'rgba(255,0,0,0.08)', border: '1px solid #b91c1c', color: '#7f1d1d' }}>
-                            {revenueCatError}
-                        </div>
-                    ) : null}
-                    <button onClick={manageSubscriptionOrRestore} style={{
-                        background: 'var(--white)', color: 'var(--black)',
-                        padding: '6px 8px', fontSize: 9, fontWeight: 800, letterSpacing: '0.08em', border: '2px solid var(--black)'
-                    }}>MANAGE / RESTORE SUBSCRIPTION</button>
+                <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
                     <button onClick={handleLogout} style={{
                         background: 'var(--black)', color: 'var(--white)',
                         padding: '4px 8px', fontSize: 8, fontWeight: 700, letterSpacing: '0.1em'
