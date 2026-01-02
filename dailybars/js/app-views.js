@@ -966,7 +966,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
 
         try {
-            toast?.addToast('UPLOADING BEAT...', 'info');
+            toast?.addToast('ANALYZING BEAT...', 'info');
+            console.log('🎵 Starting beat upload process...');
             
             // Skip heavy analysis on mobile - just do quick metadata extraction
             // Full analysis can hang on mobile Safari
@@ -976,6 +977,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             if (window.BeatAnalyzer && !isMobile) {
                 try {
                     // Desktop only: full analysis with 10 second timeout
+                    console.log('🎵 Starting desktop beat analysis...');
                     const analysisPromise = window.BeatAnalyzer.fullAnalyze(file);
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Analysis timeout')), 10000)
@@ -1001,6 +1003,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             } else if (window.BeatAnalyzer && isMobile) {
                 // Mobile: just extract ID3 metadata (fast, no Web Audio)
                 try {
+                    console.log('📱 Starting mobile metadata extraction...');
                     const metadataPromise = window.BeatAnalyzer.extractID3Metadata(file);
                     const timeoutPromise = new Promise((_, reject) => 
                         setTimeout(() => reject(new Error('Metadata timeout')), 3000)
@@ -1014,6 +1017,10 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     console.warn('Mobile metadata extraction skipped');
                 }
             }
+            
+            // Update toast to show uploading phase
+            toast?.addToast('UPLOADING...', 'info');
+            console.log('🎵 Analysis complete, starting upload...');
             
             // Prepare metadata for upload (all fields optional)
             const beatMetadata = {
@@ -1037,15 +1044,21 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 embedded_genre: analysisResults?.metadata?.genre || null
             };
             
-            // Upload to Supabase Storage
-            const result = await window.DailyDepositEngine.uploadBeat(
+            // Upload to Supabase Storage with timeout
+            const uploadPromise = window.DailyDepositEngine.uploadBeat(
                 user?.id,
                 file,
                 song?.id,
                 beatMetadata
             );
+            const uploadTimeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Upload timed out. Please try again.')), 60000)
+            );
             
-            if (result.success) {
+            const result = await Promise.race([uploadPromise, uploadTimeoutPromise]);
+            console.log('🎵 Upload result:', result);
+            
+            if (result && result.success) {
                 setBeatUrl(result.url);
                 setShowBeatLocker(false);
                 haptic('success');
@@ -1059,6 +1072,10 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 } else {
                     toast?.addToast('BEAT UPLOADED!', 'success');
                 }
+            } else {
+                // Upload returned but wasn't successful
+                console.error('Upload failed - result:', result);
+                throw new Error(result?.error || 'Upload failed. Storage may not be configured.');
             }
         } catch (err) {
             console.error('Failed to upload beat:', err);
@@ -1067,6 +1084,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             // Fallback to base64 for smaller files if storage fails
             if (file.size < 5 * 1024 * 1024) { // < 5MB
                 try {
+                    console.log('🎵 Attempting base64 fallback...');
                     const dataUrl = await new Promise((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve(reader.result);
@@ -1076,8 +1094,9 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     setBeatUrl(dataUrl);
                     setShowBeatLocker(false);
                     haptic('success');
-                    toast?.addToast('BEAT SAVED (LOCAL)', 'success');
+                    toast?.addToast('BEAT SAVED (LOCAL ONLY)', 'success');
                 } catch (e) {
+                    console.error('Base64 fallback failed:', e);
                     toast?.addToast('UPLOAD FAILED', 'error');
                 }
             }
