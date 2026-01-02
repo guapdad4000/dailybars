@@ -943,11 +943,6 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     };
     
     const handleBeatUpload = async (e) => {
-        if (!isPremium) {
-            toast?.addToast('PREMIUM REQUIRED', 'error');
-            onPremiumRequired?.('Uploading beats to save with your track is a premium perk.');
-            return;
-        }
         const file = e.target.files?.[0];
         if (!file) return;
         
@@ -955,28 +950,59 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         const fileName = file.name?.toLowerCase() || '';
         const audioExtensions = ['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.webm', '.flac', '.aiff', '.mp4'];
         const hasAudioExtension = audioExtensions.some(ext => fileName.endsWith(ext));
-        const isAudioMime = file.type?.startsWith('audio/') || file.type === 'video/mp4'; // m4a sometimes reports as video/mp4
+        const isAudioMime = file.type?.startsWith('audio/') || file.type === 'video/mp4';
         
-        if (isAudioMime || hasAudioExtension) {
-            const readAsDataUrl = () => new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+        if (!isAudioMime && !hasAudioExtension) {
+            toast?.addToast('AUDIO FILES ONLY', 'error');
+            return;
+        }
+        
+        // Check if user can upload (premium/admin)
+        const canUpload = await window.DailyDepositEngine.canUploadBeats(user?.id);
+        if (!canUpload) {
+            toast?.addToast('PREMIUM REQUIRED', 'error');
+            onPremiumRequired?.('Uploading beats to save with your track is a premium perk.');
+            return;
+        }
 
-            try {
-                const dataUrl = await readAsDataUrl();
-                setBeatUrl(dataUrl);
+        try {
+            toast?.addToast('UPLOADING...', 'info');
+            
+            // Upload to Supabase Storage
+            const result = await window.DailyDepositEngine.uploadBeat(
+                user?.id,
+                file,
+                song?.id,
+                { title: file.name.replace(/\.[^.]+$/, '') }
+            );
+            
+            if (result.success) {
+                setBeatUrl(result.url);
                 setShowBeatLocker(false);
                 haptic('success');
-                toast?.addToast('BEAT SAVED!', 'success');
-            } catch (err) {
-                console.error('Failed to read beat file', err);
-                toast?.addToast('UPLOAD FAILED', 'error');
+                toast?.addToast('BEAT UPLOADED!', 'success');
             }
-        } else {
-            toast?.addToast('AUDIO FILES ONLY', 'error');
+        } catch (err) {
+            console.error('Failed to upload beat:', err);
+            toast?.addToast(err.message || 'UPLOAD FAILED', 'error');
+            
+            // Fallback to base64 for smaller files if storage fails
+            if (file.size < 5 * 1024 * 1024) { // < 5MB
+                try {
+                    const dataUrl = await new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(reader.result);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(file);
+                    });
+                    setBeatUrl(dataUrl);
+                    setShowBeatLocker(false);
+                    haptic('success');
+                    toast?.addToast('BEAT SAVED (LOCAL)', 'success');
+                } catch (e) {
+                    toast?.addToast('UPLOAD FAILED', 'error');
+                }
+            }
         }
     };
     

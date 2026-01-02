@@ -495,6 +495,220 @@ const DailyDepositEngine = {
             console.error("❌ Failed to unlock trophy:", error);
             throw error;
         }
+    },
+
+    // ========================================================================
+    // Beat Storage System
+    // ========================================================================
+
+    // Check if user can upload beats (premium or admin)
+    async canUploadBeats(userId) {
+        if (!userId) return false;
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('users')
+                .select('role, subscription_status')
+                .eq('id', userId)
+                .single();
+            
+            if (error) return false;
+            return data.role === 'admin' || ['premium', 'lifetime'].includes(data.subscription_status);
+        } catch (error) {
+            console.error("❌ Failed to check upload permission:", error);
+            return false;
+        }
+    },
+
+    // Check if user is admin
+    async isAdmin(userId) {
+        if (!userId) return false;
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('users')
+                .select('role')
+                .eq('id', userId)
+                .single();
+            
+            if (error) return false;
+            return data.role === 'admin';
+        } catch (error) {
+            return false;
+        }
+    },
+
+    // Get user's storage info
+    async getStorageInfo(userId) {
+        if (!userId) return { used: 0, limit: 0, remaining: 0, unlimited: false };
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('users')
+                .select('storage_used_bytes, storage_limit_bytes, role')
+                .eq('id', userId)
+                .single();
+            
+            if (error) throw error;
+            
+            const isUnlimited = data.role === 'admin';
+            return {
+                used: data.storage_used_bytes || 0,
+                limit: data.storage_limit_bytes || 0,
+                remaining: isUnlimited ? -1 : Math.max(0, (data.storage_limit_bytes || 0) - (data.storage_used_bytes || 0)),
+                unlimited: isUnlimited
+            };
+        } catch (error) {
+            console.error("❌ Failed to get storage info:", error);
+            return { used: 0, limit: 0, remaining: 0, unlimited: false };
+        }
+    },
+
+    // Upload beat to Supabase Storage
+    async uploadBeat(userId, file, songId = null, metadata = {}) {
+        try {
+            const client = this.getSupabase();
+            
+            // Check permission first
+            const canUpload = await this.canUploadBeats(userId);
+            if (!canUpload) {
+                throw new Error('Premium subscription required to upload beats');
+            }
+            
+            // Check storage limit (skip for admins)
+            const storageInfo = await this.getStorageInfo(userId);
+            if (!storageInfo.unlimited && file.size > storageInfo.remaining) {
+                throw new Error(`Storage limit exceeded. ${Math.round(storageInfo.remaining / 1024 / 1024)}MB remaining.`);
+            }
+            
+            // Generate unique filename
+            const ext = file.name.split('.').pop() || 'mp3';
+            const filename = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+            
+            // Upload to storage bucket
+            const { data: uploadData, error: uploadError } = await client
+                .storage
+                .from('beats')
+                .upload(filename, file, {
+                    cacheControl: '3600',
+                    upsert: false,
+                    contentType: file.type || 'audio/mpeg'
+                });
+            
+            if (uploadError) throw uploadError;
+            
+            // Get public URL
+            const { data: urlData } = client
+                .storage
+                .from('beats')
+                .getPublicUrl(filename);
+            
+            // Create record in beats table
+            const { data: beatRecord, error: dbError } = await client
+                .from('beats')
+                .insert({
+                    user_id: userId,
+                    song_id: songId,
+                    filename: filename,
+                    original_filename: file.name,
+                    file_size_bytes: file.size,
+                    mime_type: file.type || 'audio/mpeg',
+                    storage_path: uploadData.path,
+                    public_url: urlData.publicUrl,
+                    title: metadata.title || file.name.replace(/\.[^.]+$/, ''),
+                    artist: metadata.artist,
+                    bpm: metadata.bpm,
+                    key: metadata.key,
+                    tags: metadata.tags
+                })
+                .select()
+                .single();
+            
+            if (dbError) throw dbError;
+            
+            return {
+                success: true,
+                beat: beatRecord,
+                url: urlData.publicUrl
+            };
+        } catch (error) {
+            console.error("❌ Failed to upload beat:", error);
+            throw error;
+        }
+    },
+
+    // Get user's beats
+    async getUserBeats(userId) {
+        if (!userId) return [];
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('beats')
+                .select('*')
+                .eq('user_id', userId)
+                .order('created_at', { ascending: false });
+            
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error("❌ Failed to get user beats:", error);
+            return [];
+        }
+    },
+
+    // Delete a beat
+    async deleteBeat(beatId, userId) {
+        try {
+            const client = this.getSupabase();
+            
+            // Get beat info first
+            const { data: beat, error: fetchError } = await client
+                .from('beats')
+                .select('*')
+                .eq('id', beatId)
+                .eq('user_id', userId)
+                .single();
+            
+            if (fetchError || !beat) throw new Error('Beat not found');
+            
+            // Delete from storage
+            const { error: storageError } = await client
+                .storage
+                .from('beats')
+                .remove([beat.storage_path]);
+            
+            if (storageError) console.warn('Storage delete error:', storageError);
+            
+            // Delete from database (this will trigger storage usage update)
+            const { error: dbError } = await client
+                .from('beats')
+                .delete()
+                .eq('id', beatId);
+            
+            if (dbError) throw dbError;
+            
+            return { success: true };
+        } catch (error) {
+            console.error("❌ Failed to delete beat:", error);
+            throw error;
+        }
+    },
+
+    // Get signed URL for private beat (if bucket is private)
+    async getBeatSignedUrl(beatPath, expiresIn = 3600) {
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .storage
+                .from('beats')
+                .createSignedUrl(beatPath, expiresIn);
+            
+            if (error) throw error;
+            return data.signedUrl;
+        } catch (error) {
+            console.error("❌ Failed to get signed URL:", error);
+            throw error;
+        }
     }
 };
 
