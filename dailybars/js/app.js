@@ -466,63 +466,42 @@ const getRhymeColor = (groupIndex) => {
     return RHYME_COLORS[groupIndex % RHYME_COLORS.length];
 };
 
-// Textarea with rhyme highlighting overlay
-// ROBUST IMPLEMENTATION: Uses contenteditable div with proper selection/cursor handling
-// This approach ensures full keyboard/mobile editing while maintaining rhyme highlights
+// Textarea with rhyme highlighting - VISIBLE TEXT approach
+// Shows actual textarea text (not transparent) with highlight markers shown separately
+// This ensures cursor position is ALWAYS correct since we're not hiding the real text
 const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef, onWordDoubleTap }) => {
     const internalRef = useRef(null);
-    const overlayRef = useRef(null);
     const containerRef = useRef(null);
     const ref = textareaRef || internalRef;
-    const isComposing = useRef(false); // Track IME composition
-    const lastScrollTop = useRef(0);
+    const isComposing = useRef(false);
     
     // Double-tap detection for mobile
     const lastTapTime = useRef(0);
     const lastTapPosition = useRef({ x: 0, y: 0 });
-    const doubleTapThreshold = 350; // ms between taps
-    const tapDistanceThreshold = 30; // pixels - taps must be close together
-    
-    // Sync function to ensure overlay matches textarea exactly
-    const syncOverlay = useCallback(() => {
-        if (overlayRef.current && ref.current) {
-            overlayRef.current.scrollTop = ref.current.scrollTop;
-            lastScrollTop.current = ref.current.scrollTop;
-        }
-    }, [ref]);
+    const doubleTapThreshold = 350;
+    const tapDistanceThreshold = 30;
     
     const handleChange = (e) => {
-        if (isComposing.current) return; // Don't update during IME composition
+        if (isComposing.current) return;
         onChange?.(e);
         // Auto-resize textarea
         if (ref.current) {
             ref.current.style.height = 'auto';
             ref.current.style.height = ref.current.scrollHeight + 'px';
         }
-        // Sync overlay after change
-        requestAnimationFrame(syncOverlay);
     };
     
-    // Handle IME composition (for mobile keyboards, etc.)
     const handleCompositionStart = () => {
         isComposing.current = true;
     };
     
     const handleCompositionEnd = (e) => {
         isComposing.current = false;
-        // Trigger change after composition ends
         handleChange(e);
     };
     
-    // Sync scroll between textarea and overlay with RAF for smoothness
-    const handleScroll = useCallback(() => {
-        requestAnimationFrame(syncOverlay);
-    }, [syncOverlay]);
-    
-    // Handle all input events including mobile
     const handleInput = (e) => {
         if (isComposing.current) return;
-        // Ensure the textarea value is always synced
         if (ref.current && e.target.value !== value) {
             onChange?.(e);
         }
@@ -531,10 +510,8 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
     // Initial focus and resize
     useEffect(() => {
         if (autoFocus && ref.current) {
-            // Small delay to ensure DOM is ready
             setTimeout(() => {
                 ref.current.focus();
-                // Place cursor at end
                 const len = ref.current.value.length;
                 ref.current.setSelectionRange(len, len);
             }, 50);
@@ -547,8 +524,7 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
             ref.current.style.height = 'auto';
             ref.current.style.height = ref.current.scrollHeight + 'px';
         }
-        syncOverlay();
-    }, [value, ref, syncOverlay]);
+    }, [value, ref]);
     
     // Get the word at cursor position
     const getWordAtCursor = useCallback(() => {
@@ -560,25 +536,17 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
         
         if (!fullText || start === undefined) return null;
         
-        // Find word boundaries around cursor
         let wordStart = start;
         let wordEnd = start;
         
-        // Scan backward to find word start
-        while (wordStart > 0 && /[\w']/.test(fullText[wordStart - 1])) {
-            wordStart--;
-        }
-        
-        // Scan forward to find word end
-        while (wordEnd < fullText.length && /[\w']/.test(fullText[wordEnd])) {
-            wordEnd++;
-        }
+        while (wordStart > 0 && /[\w']/.test(fullText[wordStart - 1])) wordStart--;
+        while (wordEnd < fullText.length && /[\w']/.test(fullText[wordEnd])) wordEnd++;
         
         const word = fullText.substring(wordStart, wordEnd).trim();
         return word.length >= 2 ? word : null;
     }, [ref]);
     
-    // Handle double-tap for mobile (using touchend)
+    // Handle double-tap for mobile
     const handleTouchEnd = useCallback((e) => {
         if (!onWordDoubleTap) return;
         
@@ -593,116 +561,97 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
             Math.pow(currentPos.y - lastTapPosition.current.y, 2)
         );
         
-        // Check if this is a double-tap (fast enough and close enough)
         if (timeDiff < doubleTapThreshold && distance < tapDistanceThreshold) {
-            // It's a double-tap! Get the word at cursor
-            // Small delay to let selection settle
             setTimeout(() => {
                 const word = getWordAtCursor();
                 if (word) {
-                    const rect = ref.current?.getBoundingClientRect();
                     onWordDoubleTap({
                         word,
-                        position: { 
-                            x: currentPos.x, 
-                            y: currentPos.y 
-                        }
+                        position: { x: currentPos.x, y: currentPos.y }
                     });
                     haptic('light');
                 }
             }, 10);
-            
-            // Reset to prevent triple-tap triggering
             lastTapTime.current = 0;
         } else {
-            // First tap or too slow/far - record for next tap
             lastTapTime.current = now;
             lastTapPosition.current = currentPos;
         }
-    }, [onWordDoubleTap, getWordAtCursor, ref]);
+    }, [onWordDoubleTap, getWordAtCursor]);
     
     // Handle double-click for desktop
     const handleDoubleClick = useCallback((e) => {
         if (!onWordDoubleTap) return;
-        
         const word = getWordAtCursor();
         if (word) {
-            onWordDoubleTap({
-                word,
-                position: { x: e.clientX, y: e.clientY }
-            });
+            onWordDoubleTap({ word, position: { x: e.clientX, y: e.clientY } });
             haptic('light');
         }
     }, [onWordDoubleTap, getWordAtCursor]);
     
-    // Analyze rhymes
+    // Analyze rhymes for the legend/indicator
     const { endingToColor } = useMemo(() => analyzeRhymes(value || ''), [value]);
     
-    // Build highlighted HTML for display - uses spans for inline layout
-    const renderHighlightedText = useMemo(() => {
-        if (!value) {
-            // Show placeholder when empty
-            return <span style={{ color: 'var(--gray)', opacity: 0.6 }}>{placeholder}</span>;
-        }
+    // Build rhyme legend - small colored dots showing which sounds rhyme
+    const rhymeLegend = useMemo(() => {
+        if (!value || Object.keys(endingToColor).length === 0) return null;
         
-        const lines = value.split('\n');
+        // Get unique rhyming words grouped by color
+        const colorGroups = {};
+        const words = value.match(/[a-zA-Z']+/g) || [];
         
-        return lines.map((line, lineIndex) => {
-            // Handle empty lines - need to preserve them for alignment
-            if (line === '') {
-                return <div key={lineIndex} style={{ height: '1.5em' }}>&nbsp;</div>;
+        words.forEach(word => {
+            const ending = getPhoneticEnding(word);
+            const color = endingToColor[ending];
+            if (color) {
+                if (!colorGroups[color]) colorGroups[color] = new Set();
+                colorGroups[color].add(word.toLowerCase());
             }
-            
-            // Split by non-word characters to preserve delimiters
-            const segments = line.split(/([^a-zA-Z']+)/);
-            
-            return (
-                <div key={lineIndex} style={{ minHeight: '1.5em' }}>
-                    {segments.map((segment, segIndex) => {
-                        if (!segment) return null;
-                        
-                        // Check if it's a word
-                        if (/^[a-zA-Z']+$/.test(segment)) {
-                            const ending = getPhoneticEnding(segment);
-                            const color = endingToColor[ending];
-                            
-                            if (color) {
-                                return (
-                                    <span key={segIndex} style={{
-                                        backgroundColor: color,
-                                        boxShadow: `0 0 0 2px ${color}`,
-                                        borderRadius: '3px',
-                                        padding: '0 1px',
-                                        marginLeft: '-1px',
-                                        marginRight: '-1px',
-                                    }}>
-                                        {segment}
-                                    </span>
-                                );
-                            }
-                        }
-                        // Return non-highlighted text (preserves spaces, punctuation)
-                        return <span key={segIndex}>{segment}</span>;
-                    })}
-                </div>
-            );
         });
-    }, [value, endingToColor, placeholder]);
+        
+        const groups = Object.entries(colorGroups).slice(0, 6); // Max 6 groups shown
+        if (groups.length === 0) return null;
+        
+        return (
+            <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 6,
+                marginTop: 8,
+                paddingTop: 8,
+                borderTop: '1px dashed var(--light-gray)'
+            }}>
+                {groups.map(([color, wordsSet], i) => {
+                    const wordList = Array.from(wordsSet).slice(0, 3);
+                    return (
+                        <div key={i} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '2px 6px',
+                            background: color,
+                            borderRadius: 3,
+                            fontSize: 9,
+                            fontWeight: 600,
+                        }}>
+                            {wordList.join(' · ')}
+                            {wordsSet.size > 3 && <span>+{wordsSet.size - 3}</span>}
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }, [value, endingToColor]);
     
-    // Compute common text styles - MUST be identical for textarea and overlay
+    // Compute text styles
     const textStyles = useMemo(() => ({
         fontFamily: className?.includes('font-serif') 
             ? "'Playfair Display', Georgia, serif" 
             : className?.includes('font-mono')
                 ? "'IBM Plex Mono', monospace"
-                : 'inherit',
+                : "'IBM Plex Mono', monospace",
         fontSize: style?.fontSize || 18,
         lineHeight: style?.lineHeight || 1.5,
-        letterSpacing: 'normal',
-        wordSpacing: 'normal',
-        textRendering: 'geometricPrecision',
-        WebkitFontSmoothing: 'antialiased',
-        MozOsxFontSmoothing: 'grayscale',
     }), [style?.fontSize, style?.lineHeight, className]);
     
     return (
@@ -712,38 +661,9 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
             style={{
                 position: 'relative',
                 width: '100%',
-                minHeight: style?.minHeight || 80,
             }}
         >
-            {/* Overlay with highlighted text - positioned behind textarea */}
-            <div 
-                ref={overlayRef}
-                aria-hidden="true"
-                className="rhyme-textarea-overlay"
-                style={{
-                    ...textStyles,
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    padding: 0,
-                    margin: 0,
-                    border: 'none',
-                    pointerEvents: 'none',
-                    overflow: 'hidden',
-                    whiteSpace: 'pre-wrap',
-                    wordWrap: 'break-word',
-                    overflowWrap: 'break-word',
-                    color: 'var(--black)',
-                    background: 'transparent',
-                    zIndex: 0,
-                }}
-            >
-                {renderHighlightedText}
-            </div>
-            
-            {/* Actual textarea - handles all user interaction */}
+            {/* Single visible textarea - no overlay tricks */}
             <textarea
                 ref={ref}
                 value={value}
@@ -751,18 +671,17 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                 onInput={handleInput}
                 onBlur={onBlur}
                 onKeyDown={onKeyDown}
-                onScroll={handleScroll}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
                 onTouchEnd={handleTouchEnd}
                 onDoubleClick={handleDoubleClick}
-                placeholder="" // We render placeholder in overlay
+                placeholder={placeholder}
                 autoFocus={autoFocus}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="sentences"
                 spellCheck="false"
-                data-gramm="false" // Disable Grammarly
+                data-gramm="false"
                 className="rhyme-textarea-input"
                 style={{
                     ...textStyles,
@@ -774,20 +693,19 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                     outline: 'none',
                     resize: 'none',
                     background: 'transparent',
-                    color: 'transparent', // Hide text but keep cursor
-                    caretColor: 'var(--black)', // Visible cursor
-                    position: 'relative',
-                    zIndex: 1,
+                    color: 'var(--black)', // VISIBLE TEXT - cursor will be correct
+                    caretColor: 'var(--black)',
                     whiteSpace: 'pre-wrap',
                     wordWrap: 'break-word',
                     overflowWrap: 'break-word',
-                    overflow: 'hidden', // Prevent scrollbar, auto-resize handles it
-                    // Mobile-specific styles
+                    overflow: 'hidden',
                     WebkitAppearance: 'none',
                     WebkitTapHighlightColor: 'transparent',
-                    touchAction: 'manipulation', // Better touch handling
                 }}
             />
+            
+            {/* Rhyme legend shown below textarea */}
+            {rhymeLegend}
         </div>
     );
 };

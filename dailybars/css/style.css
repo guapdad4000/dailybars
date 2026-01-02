@@ -389,8 +389,8 @@ button:active { transform: scale(0.98); }
 
 /* ============================================================================
    RHYME HIGHLIGHTING SYSTEM
-   Simple color-coded end-of-line rhymes for lyric writing
-   Robust implementation with pixel-perfect overlay alignment
+   Simple visible textarea with rhyme legend below
+   No overlay tricks - cursor is always correct
    ============================================================================ */
 
 /* Container for rhyme-enabled textareas */
@@ -398,51 +398,36 @@ button:active { transform: scale(0.98); }
     position: relative;
 }
 
-/* Main container - establishes positioning context */
+/* Main container */
 .rhyme-textarea-container {
     position: relative;
     width: 100%;
 }
 
-/* The overlay that shows highlighted text */
-.rhyme-textarea-overlay {
-    /* Text rendering must exactly match textarea */
-    -webkit-text-size-adjust: 100%;
-    -moz-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-    /* Ensure exact same text rendering */
-    text-rendering: geometricPrecision;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    /* Prevent any text selection on overlay */
-    user-select: none;
-    -webkit-user-select: none;
-}
-
-/* The actual textarea that handles input */
+/* The actual textarea - fully visible, no tricks */
 .rhyme-textarea-input {
-    /* Text rendering must exactly match overlay */
     -webkit-text-size-adjust: 100%;
     -moz-text-size-adjust: 100%;
     text-size-adjust: 100%;
-    text-rendering: geometricPrecision;
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* Allow selection and cursor */
     user-select: text;
     -webkit-user-select: text;
-    /* Ensure cursor is always visible */
     caret-color: var(--black) !important;
+    /* Ensure proper line height */
+    line-height: 1.5;
 }
 
-/* Focus state - subtle highlight */
+/* Focus state */
 .rhyme-textarea-input:focus {
     outline: none;
 }
 
-/* Focused container gets subtle border */
-.rhyme-textarea-container:focus-within {
-    /* Optional: add subtle focus indicator */
+/* Placeholder styling */
+.rhyme-textarea-input::placeholder {
+    color: var(--gray);
+    opacity: 0.6;
 }
 
 /* Mobile-specific fixes */
@@ -450,14 +435,17 @@ button:active { transform: scale(0.98); }
     .rhyme-textarea-input {
         /* Larger touch target */
         min-height: 100px;
-        /* Prevent zoom on focus in iOS */
+        /* Prevent zoom on focus in iOS - must be 16px+ */
         font-size: 16px !important;
         /* Better touch scrolling */
         -webkit-overflow-scrolling: touch;
+        /* Disable auto features that interfere */
+        autocomplete: off;
+        autocorrect: off;
+        autocapitalize: sentences;
     }
     
     .rhyme-textarea-container {
-        /* Ensure tap works properly */
         touch-action: manipulation;
     }
 }
@@ -466,25 +454,12 @@ button:active { transform: scale(0.98); }
 @supports (-webkit-touch-callout: none) {
     .rhyme-textarea-input {
         /* Prevent iOS zoom on input */
-        font-size: max(16px, 1em);
+        font-size: max(16px, 1em) !important;
         /* Fix iOS textarea quirks */
         -webkit-appearance: none;
         border-radius: 0;
+        /* Prevent iOS from adding shadows */
+        -webkit-box-shadow: none;
+        box-shadow: none;
     }
-}
-
-/* Highlighted word styles */
-.rhyme-textarea-overlay span[style*="backgroundColor"] {
-    /* Ensure highlights don't affect line height */
-    display: inline;
-    vertical-align: baseline;
-    line-height: inherit;
-}
-
-/* Placeholder styling in overlay */
-.rhyme-textarea-overlay > span:first-child:only-child {
-    /* Placeholder text style */
-    color: var(--gray);
-    opacity: 0.6;
-    font-style: normal;
 }
