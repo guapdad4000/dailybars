@@ -991,6 +991,27 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 setShowBeatLocker(false);
                 haptic('success');
                 toast?.addToast('BEAT UPLOADED!', 'success');
+                
+                // Auto-save the song with the new beat URL
+                try {
+                    await onSave({
+                        ...song,
+                        title,
+                        blocks,
+                        status,
+                        coverImage,
+                        beatUrl: result.url,
+                        videoUrl,
+                        studio,
+                        producer,
+                        key: songKey,
+                        bpm: bpm ? parseInt(bpm, 10) : null,
+                        updated_by: user?.id
+                    });
+                    toast?.addToast('SONG SAVED!', 'success');
+                } catch (saveErr) {
+                    console.error('Failed to save song with beat:', saveErr);
+                }
             } else {
                 throw new Error(result?.error || 'Upload failed. Check storage config.');
             }
@@ -1022,6 +1043,26 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     setShowBeatLocker(false);
                     haptic('success');
                     toast?.addToast('BEAT SAVED!', 'success');
+                    
+                    // Auto-save the song with the local beat URL
+                    try {
+                        await onSave({
+                            ...song,
+                            title,
+                            blocks,
+                            status,
+                            coverImage,
+                            beatUrl: dataUrl,
+                            videoUrl,
+                            studio,
+                            producer,
+                            key: songKey,
+                            bpm: bpm ? parseInt(bpm, 10) : null,
+                            updated_by: user?.id
+                        });
+                    } catch (saveErr) {
+                        console.error('Failed to save song with local beat:', saveErr);
+                    }
                     return; // Success with local fallback
                 } catch (e) {
                     console.error('Local storage fallback failed:', e);
