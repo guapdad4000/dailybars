@@ -10,7 +10,7 @@ const {
     api, callAI, generateId, countWords, countBars, formatDate, formatTime,
     copyToClipboard, haptic, fetchRhymes, fetchNearRhymes,
     getDailyPrompt, getRandomPrompt, DAILY_DROP_PROMPTS,
-    useVoiceRecorder, processImage, useSwipe,
+    useVoiceRecorder, useMetronome, processImage, useSwipe,
     ToastProvider, useToast, Icon,
     DailyDropWidget, ImagePreview, BottomBar, Header,
     SocialExportModal, IdeaCard, RhymePopup, QuickInput,
@@ -670,19 +670,22 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     
                     {bar.audioUrl && (
                         <div style={{
-                            marginTop: 20,
-                            padding: 16,
-                            background: 'rgba(239, 68, 68, 0.05)',
-                            border: '2px solid var(--black)',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 8
+                            marginTop: 20
                         }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Icon name="Mic" size={20} color="#EF4444" />
-                                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em' }}>🎙️ VOICE MEMO</span>
+                            <div style={{ 
+                                fontSize: 9, 
+                                fontWeight: 700, 
+                                letterSpacing: '0.15em', 
+                                marginBottom: 8,
+                                color: 'var(--gray)'
+                            }}>
+                                VOICE MEMO
                             </div>
-                            <audio src={bar.audioUrl} controls style={{ width: '100%', height: 40 }} />
+                            {window.VinylAudioPlayer ? (
+                                <window.VinylAudioPlayer src={bar.audioUrl} />
+                            ) : (
+                                <audio src={bar.audioUrl} controls style={{ width: '100%', height: 40 }} />
+                            )}
                         </div>
                     )}
                     
@@ -871,6 +874,20 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const addBlock = (type) => { setBlocks([...blocks, { id: generateId(), type, content: '' }]); haptic('medium'); };
     const updateBlock = (idx, content) => { const newBlocks = [...blocks]; newBlocks[idx].content = content; setBlocks(newBlocks); };
     const deleteBlock = (idx) => { setBlocks(blocks.filter((_, i) => i !== idx)); };
+    
+    const moveBlock = (idx, direction) => {
+        if (direction === 'up' && idx > 0) {
+            const newBlocks = [...blocks];
+            [newBlocks[idx], newBlocks[idx - 1]] = [newBlocks[idx - 1], newBlocks[idx]];
+            setBlocks(newBlocks);
+            haptic('light');
+        } else if (direction === 'down' && idx < blocks.length - 1) {
+            const newBlocks = [...blocks];
+            [newBlocks[idx], newBlocks[idx + 1]] = [newBlocks[idx + 1], newBlocks[idx]];
+            setBlocks(newBlocks);
+            haptic('light');
+        }
+    };
     
     const handleAI = async (mode) => {
         if (canUseAI && !canUseAI()) {
@@ -1107,6 +1124,187 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
     };
     
+    // --- PDF EXPORT FUNCTION ---
+    const handlePDFExport = async () => {
+        if (!blocks.length && !coverImage) {
+            toast?.addToast('NOTHING TO EXPORT', 'error');
+            return;
+        }
+        
+        toast?.addToast('GENERATING PDF...', 'info');
+
+        // Ensure jsPDF is loaded
+        if (!window.jspdf) {
+             console.log('⚠️ jsPDF not found, attempting dynamic load...');
+             try {
+                 await new Promise((resolve, reject) => {
+                     const script = document.createElement('script');
+                     script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+                     script.onload = resolve;
+                     script.onerror = () => reject(new Error("Script load failed"));
+                     document.head.appendChild(script);
+                 });
+             } catch (e) {
+                 console.error("Failed to load jsPDF:", e);
+                 toast?.addToast('PDF LIB FAILED TO LOAD', 'error');
+                 return;
+             }
+        }
+
+        if (!window.jspdf) {
+            toast?.addToast('PDF LIB MISSING', 'error');
+            return;
+        }
+        
+        // Create hidden container for PDF layout
+        const container = document.createElement('div');
+        container.style.position = 'fixed';
+        container.style.top = '-9999px';
+        container.style.left = '0';
+        container.style.width = '800px'; // Approx A4 width at 96 DPI
+        container.style.background = '#f4f4f0'; // Paper color
+        container.style.color = '#000';
+        container.style.fontFamily = "'Courier Prime', 'IBM Plex Mono', monospace";
+        container.style.padding = '40px';
+        container.style.boxSizing = 'border-box';
+        
+        // Title
+        const titleEl = document.createElement('h1');
+        titleEl.textContent = title || 'UNTITLED';
+        titleEl.style.fontFamily = "'Playfair Display', serif";
+        titleEl.style.fontSize = '48px';
+        titleEl.style.fontWeight = '700';
+        titleEl.style.fontStyle = 'italic';
+        titleEl.style.textAlign = 'center';
+        titleEl.style.margin = '0 0 10px 0';
+        titleEl.style.textTransform = 'uppercase';
+        container.appendChild(titleEl);
+        
+        // Metadata
+        const metaEl = document.createElement('div');
+        metaEl.style.textAlign = 'center';
+        metaEl.style.fontSize = '12px';
+        metaEl.style.marginBottom = '40px';
+        metaEl.style.borderBottom = '2px solid #000';
+        metaEl.style.paddingBottom = '20px';
+        metaEl.style.letterSpacing = '0.1em';
+        metaEl.style.textTransform = 'uppercase';
+        metaEl.innerHTML = `
+            ${new Date().toLocaleDateString()} • ${studio || 'NO STUDIO'} • ${producer || 'NO PRODUCER'} • ${songKey || 'KEY?'} • ${bpm || '?'} BPM
+        `;
+        container.appendChild(metaEl);
+        
+        // Cover Image
+        if (coverImage) {
+            const imgContainer = document.createElement('div');
+            imgContainer.style.marginBottom = '40px';
+            imgContainer.style.textAlign = 'center';
+            
+            const img = document.createElement('img');
+            img.src = coverImage;
+            img.style.maxWidth = '100%';
+            img.style.maxHeight = '400px';
+            img.style.border = '4px solid #000';
+            img.style.filter = 'grayscale(100%) contrast(1.1)';
+            
+            imgContainer.appendChild(img);
+            container.appendChild(imgContainer);
+        }
+        
+        // Blocks
+        blocks.forEach(block => {
+            const blockEl = document.createElement('div');
+            blockEl.style.marginBottom = '24px';
+            
+            if (block.type === 'heading') {
+                blockEl.textContent = block.content;
+                blockEl.style.fontFamily = "'Archivo Black', sans-serif";
+                blockEl.style.fontSize = '24px';
+                blockEl.style.fontWeight = '900';
+                blockEl.style.textTransform = 'uppercase';
+                blockEl.style.borderBottom = '2px solid #000';
+                blockEl.style.paddingBottom = '4px';
+                blockEl.style.marginTop = '32px';
+            } else if (block.type === 'text') {
+                blockEl.textContent = block.content;
+                blockEl.style.whiteSpace = 'pre-wrap';
+                blockEl.style.fontSize = '14px';
+                blockEl.style.lineHeight = '1.6';
+            } else if (block.type === 'image' && block.content) {
+                const bImg = document.createElement('img');
+                bImg.src = block.content;
+                bImg.style.maxWidth = '100%';
+                bImg.style.border = '2px solid #000';
+                bImg.style.filter = 'grayscale(100%)';
+                blockEl.appendChild(bImg);
+            } else if (block.type === 'divider') {
+                blockEl.style.textAlign = 'center';
+                blockEl.style.fontSize = '12px';
+                blockEl.style.letterSpacing = '0.2em';
+                blockEl.style.opacity = '0.5';
+                blockEl.textContent = '— • —';
+            }
+            
+            container.appendChild(blockEl);
+        });
+        
+        // Footer
+        const footerEl = document.createElement('div');
+        footerEl.style.marginTop = '60px';
+        footerEl.style.textAlign = 'center';
+        footerEl.style.fontSize = '10px';
+        footerEl.style.opacity = '0.6';
+        footerEl.textContent = 'GENERATED WITH DAILY BARS // GUAPDAD 4000';
+        container.appendChild(footerEl);
+        
+        document.body.appendChild(container);
+        
+        try {
+            // Wait for images to load? They are base64 so should be instant
+            const canvas = await html2canvas(container, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#f4f4f0'
+            });
+            
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
+            
+            // Access jsPDF safely
+            const jsPDF = window.jspdf.jsPDF;
+            if (!jsPDF) throw new Error("jsPDF constructor not found");
+            
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = pdf.internal.pageSize.getHeight();
+            const imgProps = pdf.getImageProperties(imgData);
+            const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
+            
+            // Handle multi-page
+            let heightLeft = imgHeight;
+            let position = 0;
+            
+            pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight);
+            heightLeft -= pdfHeight;
+            
+            while (heightLeft >= 0) {
+                position = heightLeft - imgHeight;
+                pdf.addPage();
+                pdf.addImage(imgData, 'JPEG', 0, position, pdfWidth, imgHeight);
+                heightLeft -= pdfHeight;
+            }
+            
+            pdf.save(`${title.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'track'}_export.pdf`);
+            haptic('success');
+            toast?.addToast('PDF DOWNLOADED!', 'success');
+            
+        } catch (err) {
+            console.error('PDF Export Error:', err);
+            toast?.addToast('PDF EXPORT FAILED', 'error');
+        } finally {
+            document.body.removeChild(container);
+        }
+    };
+    
     const toggleBeat = () => {
         if (beatAudioRef.current) {
             if (beatPlaying) {
@@ -1163,12 +1361,21 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             )}
             
             <button onClick={() => setShowCollabModal(true)} style={{
-                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 90, zIndex: 102,
+                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 130, zIndex: 102,
                 padding: '10px 12px', background: 'var(--electric)', color: 'var(--black)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700,
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', gap: 6
             }}>
                 <Icon name="Users" size={14} />
+            </button>
+            
+            <button onClick={handlePDFExport} style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 80, zIndex: 102,
+                padding: '10px 12px', background: 'var(--white)', color: 'var(--black)',
+                border: '2px solid var(--black)', fontSize: 10, fontWeight: 700,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', gap: 6
+            }}>
+                <Icon name="FileText" size={14} />
             </button>
             
             <button onClick={handleSave} disabled={saving} style={{
@@ -1670,11 +1877,32 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 {/* 3. Blocks List */}
                 {blocks.map((block, i) => (
                     <div key={block.id} style={{ borderBottom: '1px solid var(--light-gray)', position: 'relative' }}>
-                        <button onClick={() => deleteBlock(i)} style={{
-                            position: 'absolute', top: 8, right: 8, width: 24, height: 24,
-                            background: 'var(--white)', border: '1px solid var(--black)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10
-                        }}><Icon name="X" size={12} /></button>
+                        <div style={{
+                            position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 4
+                        }}>
+                            {i > 0 && (
+                                <button onClick={() => moveBlock(i, 'up')} style={{
+                                    width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <Icon name="ArrowUp" size={12} />
+                                </button>
+                            )}
+                            {i < blocks.length - 1 && (
+                                <button onClick={() => moveBlock(i, 'down')} style={{
+                                    width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                                }}>
+                                    <Icon name="ArrowDown" size={12} />
+                                </button>
+                            )}
+                            <button onClick={() => deleteBlock(i)} style={{
+                                width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444'
+                            }}>
+                                <Icon name="X" size={12} />
+                            </button>
+                        </div>
                         
                         {block.type === 'text' ? (
                             <div style={{ padding: 16, background: 'var(--white)' }}>

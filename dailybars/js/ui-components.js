@@ -586,6 +586,250 @@ const RadioWidget = ({ isPlaying, onClick }) => {
     );
 };
 
+// ============================================================================
+// VINYL AUDIO PLAYER - Custom styled player with spinning record
+// ============================================================================
+
+const VinylAudioPlayer = ({ src, compact = false }) => {
+    const [isPlaying, setIsPlaying] = React.useState(false);
+    const [progress, setProgress] = React.useState(0);
+    const [duration, setDuration] = React.useState(0);
+    const [currentTime, setCurrentTime] = React.useState(0);
+    const audioRef = React.useRef(null);
+    const progressRef = React.useRef(null);
+    const animationRef = React.useRef(null);
+
+    // Smooth progress update using requestAnimationFrame
+    const updateProgress = React.useCallback(() => {
+        const audio = audioRef.current;
+        if (audio && isPlaying) {
+            const currentProgress = (audio.currentTime / audio.duration) * 100 || 0;
+            setProgress(currentProgress);
+            setCurrentTime(audio.currentTime);
+            animationRef.current = requestAnimationFrame(updateProgress);
+        }
+    }, [isPlaying]);
+
+    React.useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        const handleLoadedMetadata = () => {
+            setDuration(audio.duration);
+        };
+
+        const handleEnded = () => {
+            setIsPlaying(false);
+            setProgress(0);
+            setCurrentTime(0);
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+            }
+        };
+
+        const handlePlay = () => {
+            setIsPlaying(true);
+        };
+
+        const handlePause = () => {
+            setIsPlaying(false);
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+            }
+        };
+
+        audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('play', handlePlay);
+        audio.addEventListener('pause', handlePause);
+
+        return () => {
+            audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+            audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('play', handlePlay);
+            audio.removeEventListener('pause', handlePause);
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+            }
+        };
+    }, []);
+
+    // Start/stop animation loop based on playing state
+    React.useEffect(() => {
+        if (isPlaying) {
+            animationRef.current = requestAnimationFrame(updateProgress);
+        } else if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+        }
+        return () => {
+            if (animationRef.current) {
+                cancelAnimationFrame(animationRef.current);
+            }
+        };
+    }, [isPlaying, updateProgress]);
+
+    const togglePlay = () => {
+        const audio = audioRef.current;
+        if (!audio) return;
+
+        if (isPlaying) {
+            audio.pause();
+        } else {
+            audio.play();
+        }
+    };
+
+    const handleProgressClick = (e) => {
+        const audio = audioRef.current;
+        const progressBar = progressRef.current;
+        if (!audio || !progressBar || !duration) return;
+
+        const rect = progressBar.getBoundingClientRect();
+        const clickX = e.clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, clickX / rect.width));
+        const newTime = percentage * duration;
+        
+        audio.currentTime = newTime;
+        setCurrentTime(newTime);
+        setProgress(percentage * 100);
+    };
+
+    const formatTime = (time) => {
+        if (!time || isNaN(time)) return '0:00';
+        const mins = Math.floor(time / 60);
+        const secs = Math.floor(time % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Sizes
+    const recordSize = compact ? 32 : 40;
+    const buttonSize = compact ? 28 : 32;
+
+    return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: compact ? 10 : 12,
+            padding: compact ? '10px 12px' : '12px 14px',
+            background: 'var(--white)',
+            border: '2px solid var(--black)',
+            width: '100%'
+        }}>
+            {/* Hidden audio element */}
+            <audio ref={audioRef} src={src} preload="metadata" />
+
+            {/* Play/Pause Button - Simple circle */}
+            <button
+                onClick={togglePlay}
+                style={{
+                    width: buttonSize,
+                    height: buttonSize,
+                    padding: 0,
+                    background: 'transparent',
+                    border: '2px solid var(--black)',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                }}
+            >
+                {isPlaying ? (
+                    <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24">
+                        <rect x="6" y="4" width="4" height="16" fill="var(--black)"/>
+                        <rect x="14" y="4" width="4" height="16" fill="var(--black)"/>
+                    </svg>
+                ) : (
+                    <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" style={{ marginLeft: 2 }}>
+                        <polygon points="5,3 19,12 5,21" fill="var(--black)"/>
+                    </svg>
+                )}
+            </button>
+
+            {/* Spinning Vinyl Record - Visual only */}
+            <div style={{ flexShrink: 0 }}>
+                <svg
+                    viewBox="0 0 44 44"
+                    width={recordSize}
+                    height={recordSize}
+                    style={{
+                        animation: isPlaying ? 'vinylSpin 1.5s linear infinite' : 'none',
+                        display: 'block'
+                    }}
+                >
+                    <style>
+                        {`@keyframes vinylSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}
+                    </style>
+                    {/* Outer edge */}
+                    <circle cx="22" cy="22" r="21" fill="#111" stroke="#000" strokeWidth="1"/>
+                    {/* Grooves - concentric circles */}
+                    <circle cx="22" cy="22" r="18" fill="none" stroke="#282828" strokeWidth="0.8"/>
+                    <circle cx="22" cy="22" r="15" fill="none" stroke="#1a1a1a" strokeWidth="0.5"/>
+                    <circle cx="22" cy="22" r="12" fill="none" stroke="#282828" strokeWidth="0.8"/>
+                    <circle cx="22" cy="22" r="9" fill="none" stroke="#1a1a1a" strokeWidth="0.5"/>
+                    {/* Label area */}
+                    <circle cx="22" cy="22" r="7" fill="#222"/>
+                    <circle cx="22" cy="22" r="5.5" fill="#666" stroke="#777" strokeWidth="0.3"/>
+                    {/* Center hole - grey */}
+                    <circle cx="22" cy="22" r="2" fill="#999"/>
+                    {/* Shine/reflection */}
+                    <ellipse cx="15" cy="15" rx="5" ry="2" fill="rgba(255,255,255,0.08)" transform="rotate(-45 15 15)"/>
+                </svg>
+            </div>
+
+            {/* Progress section */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* Progress bar */}
+                <div
+                    ref={progressRef}
+                    onClick={handleProgressClick}
+                    style={{
+                        width: '100%',
+                        height: 4,
+                        background: '#ddd',
+                        cursor: 'pointer',
+                        position: 'relative'
+                    }}
+                >
+                    {/* Progress fill - no transition for smooth updates */}
+                    <div style={{
+                        width: `${progress}%`,
+                        height: '100%',
+                        background: 'var(--black)',
+                        position: 'relative'
+                    }}>
+                        {/* Scrubber handle */}
+                        <div style={{
+                            position: 'absolute',
+                            right: -5,
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            width: 10,
+                            height: 10,
+                            background: 'var(--black)',
+                            borderRadius: '50%'
+                        }} />
+                    </div>
+                </div>
+
+                {/* Time display */}
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 9,
+                    fontFamily: "'IBM Plex Mono', monospace",
+                    color: 'var(--gray)',
+                    letterSpacing: '0.02em'
+                }}>
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Export components
 window.SvgIcon = SvgIcon;
 window.NewspaperModal = NewspaperModal;
@@ -594,3 +838,4 @@ window.AlertDialog = AlertDialog;
 window.LevelUpModal = LevelUpModal;
 window.ToastWithIcon = ToastWithIcon;
 window.RadioWidget = RadioWidget;
+window.VinylAudioPlayer = VinylAudioPlayer;

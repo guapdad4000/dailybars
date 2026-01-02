@@ -283,6 +283,17 @@ const fetchNearRhymes = async (word) => {
     }
 };
 
+const fetchSynonyms = async (word) => {
+    try {
+        const response = await fetch(`https://api.datamuse.com/words?rel_syn=${encodeURIComponent(word)}&max=8`);
+        const data = await response.json();
+        return data.map(item => item.word);
+    } catch (error) {
+        console.error('Synonym fetch error:', error);
+        return [];
+    }
+};
+
 // ============================================================================
 // RHYME HIGHLIGHTING SYSTEM - Color-coded end-of-line rhymes
 // Simple background colors, no effects
@@ -837,6 +848,7 @@ const useVoiceRecorder = (maxDuration = 30000) => {
     const [audioBlob, setAudioBlob] = useState(null);
     const [audioUrl, setAudioUrl] = useState(null);
     const [duration, setDuration] = useState(0);
+    const [stream, setStream] = useState(null);
     const [error, setError] = useState(null);
     const mediaRecorder = useRef(null);
     const chunks = useRef([]);
@@ -847,6 +859,7 @@ const useVoiceRecorder = (maxDuration = 30000) => {
         try {
             setError(null);
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            setStream(stream);
             mediaRecorder.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
             chunks.current = [];
             
@@ -885,6 +898,11 @@ const useVoiceRecorder = (maxDuration = 30000) => {
             mediaRecorder.current.stop();
             setIsRecording(false);
             if (timerRef.current) clearInterval(timerRef.current);
+            // Don't clear stream immediately if we want to do something with it?
+            // Actually stream tracks are stopped in onstop callback in original code?
+            // Wait, original code: stream.getTracks().forEach(track => track.stop()); inside onstop
+            // So stream becomes inactive. Visualizer handles this by checking isRecording.
+            setStream(null);
         }
     };
     
@@ -908,7 +926,7 @@ const useVoiceRecorder = (maxDuration = 30000) => {
         });
     };
     
-    return { isRecording, audioBlob, audioUrl, duration, error, startRecording, stopRecording, clearRecording, getBase64 };
+    return { isRecording, audioBlob, audioUrl, duration, error, stream, startRecording, stopRecording, clearRecording, getBase64 };
 };
 
 const processImage = (file, maxSize = 600) => {
@@ -2270,17 +2288,12 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
             )}
             
             {bar.audioUrl && (
-                <div style={{
-                    marginTop: 12,
-                    padding: 10,
-                    background: 'rgba(239, 68, 68, 0.05)',
-                    borderRadius: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8
-                }}>
-                    <Icon name="Mic" size={14} color="#EF4444" />
-                    <audio src={bar.audioUrl} controls style={{ flex: 1, height: 32 }} />
+                <div style={{ marginTop: 12 }}>
+                    {window.VinylAudioPlayer ? (
+                        <window.VinylAudioPlayer src={bar.audioUrl} compact={true} />
+                    ) : (
+                        <audio src={bar.audioUrl} controls style={{ width: '100%', height: 32 }} />
+                    )}
                 </div>
             )}
             
@@ -2360,18 +2373,21 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
 const RhymePopup = ({ word, position, onSelect, onClose }) => {
     const [rhymes, setRhymes] = useState([]);
     const [nearRhymes, setNearRhymes] = useState([]);
+    const [synonyms, setSynonyms] = useState([]);
     const [loading, setLoading] = useState(true);
     const popupRef = useRef(null);
     
     useEffect(() => {
         const loadRhymes = async () => {
             setLoading(true);
-            const [exactRhymes, nearRhymeResults] = await Promise.all([
+            const [exactRhymes, nearRhymeResults, synonymResults] = await Promise.all([
                 fetchRhymes(word),
-                fetchNearRhymes(word)
+                fetchNearRhymes(word),
+                fetchSynonyms(word)
             ]);
             setRhymes(exactRhymes);
             setNearRhymes(nearRhymeResults);
+            setSynonyms(synonymResults);
             setLoading(false);
         };
         loadRhymes();
@@ -2480,7 +2496,31 @@ const RhymePopup = ({ word, position, onSelect, onClose }) => {
                             </div>
                         )}
                         
-                        {rhymes.length === 0 && nearRhymes.length === 0 && (
+                        {synonyms.length > 0 && (
+                            <div style={{ marginTop: 12 }}>
+                                <div style={{ fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>SYNONYMS</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                    {synonyms.map((syn, i) => (
+                                        <button 
+                                            key={i} 
+                                            onClick={() => { onSelect(syn); haptic('light'); }}
+                                            style={{
+                                                padding: '5px 8px',
+                                                border: '1px dashed var(--black)',
+                                                background: 'rgba(0,0,0,0.02)',
+                                                fontSize: 10,
+                                                textTransform: 'lowercase',
+                                                color: 'var(--black)'
+                                            }}
+                                        >
+                                            {syn}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {rhymes.length === 0 && nearRhymes.length === 0 && synonyms.length === 0 && (
                             <div style={{ padding: 20, textAlign: 'center', color: 'var(--gray)', fontSize: 11 }}>
                                 NO RHYMES FOUND<br/>
                                 <span style={{ fontSize: 9 }}>TRY A DIFFERENT WORD</span>
@@ -2514,7 +2554,24 @@ const QuickInput = ({
     const [imageUrl, setImageUrl] = useState(null);
     const [aiLoading, setAiLoading] = useState(false);
     
-    const { isRecording, audioUrl, duration, error: recordError, startRecording, stopRecording, clearRecording, getBase64 } = useVoiceRecorder(30000);
+    // Auto-save draft
+    useEffect(() => {
+        const savedDraft = localStorage.getItem('quick_input_draft');
+        if (savedDraft) {
+            setText(savedDraft);
+            setExpanded(true); // Auto-expand if there's a draft
+        }
+    }, []);
+
+    useEffect(() => {
+        if (text) {
+            localStorage.setItem('quick_input_draft', text);
+        } else {
+            localStorage.removeItem('quick_input_draft');
+        }
+    }, [text]);
+    
+    const { isRecording, audioUrl, duration, error: recordError, stream, startRecording, stopRecording, clearRecording, getBase64 } = useVoiceRecorder(30000);
     const [savedAudioUrl, setSavedAudioUrl] = useState(null);
     
     const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 } });
@@ -2552,6 +2609,7 @@ const QuickInput = ({
         setTags([]);
         setImageUrl(null);
         setSavedAudioUrl(null);
+        localStorage.removeItem('quick_input_draft');
         clearRecording();
         setExpanded(false);
         haptic('success');
@@ -2618,6 +2676,15 @@ const QuickInput = ({
                 toast?.addToast('SAVE FAILED', 'error');
             }
         }
+    };
+
+    // Auto-clear draft if user explicitly cancels (optional, but good UX)
+    const handleCancel = () => {
+        setExpanded(false);
+        // We DON'T clear the text/draft on cancel, so they can come back to it.
+        // Just hide the expanded view.
+        // If they want to clear, they can delete the text manually.
+        // But for "Cancel" button in UI:
     };
     
     // Handle double-tap from RhymeTextarea - now works on mobile!
@@ -2703,67 +2770,132 @@ const QuickInput = ({
         <div className="animate-slide-up" style={{ background: style?.background || 'var(--white)', borderBottom: '2px solid var(--black)', ...style }}>
             {(isRecording || audioUrl || savedAudioUrl) && (
                 <div style={{
-                    background: isRecording ? '#FEE2E2' : '#F0FDF4',
-                    padding: 16,
+                    background: isRecording ? 'transparent' : (savedAudioUrl ? '#F0FDF4' : 'var(--white)'),
+                    padding: isRecording ? 0 : 16,
                     borderBottom: '2px solid var(--black)',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 12
+                    justifyContent: 'center',
+                    gap: 12,
+                    minHeight: isRecording ? 340 : 'auto',
+                    position: 'relative',
+                    overflow: 'hidden'
                 }}>
                     {isRecording ? (
-                        <>
-                            <div className="animate-pulse" style={{
-                                width: 48, height: 48, borderRadius: '50%',
-                                background: '#EF4444', display: 'flex',
-                                alignItems: 'center', justifyContent: 'center'
+                        <div style={{ 
+                            width: '100%', 
+                            height: 340, 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            justifyContent: 'flex-start', 
+                            position: 'relative',
+                            paddingTop: 16
+                        }}>
+                            {/* Timer - Above the mic */}
+                            <div style={{ 
+                                color: 'var(--black)', 
+                                fontFamily: "'IBM Plex Mono', monospace", 
+                                fontSize: 32, 
+                                fontWeight: 700,
+                                letterSpacing: '0.05em',
+                                marginBottom: 8,
+                                zIndex: 50
                             }}>
-                                <Icon name="Mic" size={24} color="white" />
+                                {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
                             </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>RECORDING...</div>
-                                <div style={{ fontSize: 24, fontWeight: 900, fontFamily: 'monospace' }}>
-                                    {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
-                                </div>
-                                <div style={{ fontSize: 9, color: 'var(--gray)' }}>MAX 30 SECONDS</div>
-                            </div>
-                            <button onClick={stopRecording} style={{
-                                width: 48, height: 48, background: 'var(--black)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center'
+                            
+                            {/* Recording Indicator - Small dot next to timer */}
+                            <div style={{ 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                gap: 6,
+                                marginBottom: 12,
+                                zIndex: 50
                             }}>
-                                <Icon name="Square" size={20} color="white" />
-                            </button>
-                        </>
+                                <div className="animate-pulse" style={{ width: 8, height: 8, background: '#EF4444', borderRadius: '50%' }} />
+                                <span style={{ color: '#EF4444', fontSize: 10, fontWeight: 700, letterSpacing: '0.15em' }}>REC</span>
+                            </div>
+                            
+                            {/* THE BOOTH VISUALIZER */}
+                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {window.MicVisualizer && (
+                                    <window.MicVisualizer 
+                                        stream={stream} 
+                                        isRecording={isRecording}
+                                        width={window.innerWidth} 
+                                        height={200} 
+                                    />
+                                )}
+                            </div>
+                            
+                            {/* Stop Button - Simple red circle with red square */}
+                            <div style={{ paddingBottom: 20, zIndex: 50 }}>
+                                <button onClick={stopRecording} style={{
+                                    width: 56, 
+                                    height: 56, 
+                                    background: 'transparent',
+                                    borderRadius: '50%', 
+                                    border: '3px solid #EF4444',
+                                    display: 'flex', 
+                                    alignItems: 'center', 
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    transition: 'transform 0.1s ease'
+                                }}>
+                                    <div style={{ 
+                                        width: 20, 
+                                        height: 20, 
+                                        background: '#EF4444', 
+                                        borderRadius: 3 
+                                    }} />
+                                </button>
+                            </div>
+                        </div>
                     ) : savedAudioUrl ? (
-                        <>
-                            <div style={{
-                                width: 48, height: 48, borderRadius: '50%',
-                                background: 'var(--brand-green)', display: 'flex',
-                                alignItems: 'center', justifyContent: 'center'
-                            }}>
-                                <Icon name="Check" size={24} color="white" />
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <div style={{
+                                        width: 24, height: 24, borderRadius: '50%',
+                                        background: 'var(--brand-green)', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center'
+                                    }}>
+                                        <Icon name="Check" size={14} color="white" />
+                                    </div>
+                                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>VOICE MEMO ATTACHED</span>
+                                </div>
+                                <button onClick={() => setSavedAudioUrl(null)} style={{
+                                    padding: 6, color: 'var(--gray)', background: 'transparent', border: 'none', cursor: 'pointer'
+                                }}>
+                                    <Icon name="Trash2" size={16} />
+                                </button>
                             </div>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 11, fontWeight: 700 }}>🎙️ VOICE MEMO ATTACHED</div>
-                                <audio src={savedAudioUrl} controls style={{ width: '100%', height: 32, marginTop: 4 }} />
-                            </div>
-                            <button onClick={() => setSavedAudioUrl(null)} style={{
-                                padding: 8, color: 'var(--gray)'
-                            }}>
-                                <Icon name="Trash2" size={18} />
-                            </button>
-                        </>
+                            {window.VinylAudioPlayer ? (
+                                <window.VinylAudioPlayer src={savedAudioUrl} compact={true} />
+                            ) : (
+                                <audio src={savedAudioUrl} controls style={{ width: '100%', height: 32 }} />
+                            )}
+                        </div>
                     ) : audioUrl && (
-                        <>
-                            <audio src={audioUrl} controls style={{ flex: 1, height: 40 }} />
-                            <button onClick={handleSaveAudio} style={{
-                                padding: '8px 12px', background: 'var(--brand-green)',
-                                color: 'var(--white)', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em'
-                            }}>KEEP</button>
-                            <button onClick={clearRecording} style={{
-                                padding: '8px 12px', border: '1px solid var(--black)',
-                                fontSize: 9, fontWeight: 700, letterSpacing: '0.1em'
-                            }}>REDO</button>
-                        </>
+                        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {window.VinylAudioPlayer ? (
+                                <window.VinylAudioPlayer src={audioUrl} compact={true} />
+                            ) : (
+                                <audio src={audioUrl} controls style={{ width: '100%', height: 40 }} />
+                            )}
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <button onClick={handleSaveAudio} style={{
+                                    flex: 1, padding: '10px 12px', background: 'var(--brand-green)',
+                                    color: 'var(--white)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+                                    border: 'none', cursor: 'pointer'
+                                }}>KEEP</button>
+                                <button onClick={clearRecording} style={{
+                                    flex: 1, padding: '10px 12px', border: '2px solid var(--black)',
+                                    fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', background: 'transparent', cursor: 'pointer'
+                                }}>REDO</button>
+                            </div>
+                        </div>
                     )}
                 </div>
             )}
@@ -2775,16 +2907,41 @@ const QuickInput = ({
             )}
             
             {!isRecording && !audioUrl && !savedAudioUrl && (
-                <button 
-                    onClick={handleRecordToggle}
-                    style={{
-                        width: '100%', padding: 12, borderBottom: '1px dashed var(--light-gray)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                        background: 'rgba(239, 68, 68, 0.05)', color: '#EF4444', fontSize: 10, letterSpacing: '0.1em'
-                    }}
-                >
-                    <Icon name="Mic" size={16} /> TAP TO RECORD VOICE MEMO
-                </button>
+                <div style={{
+                    width: '100%', 
+                    padding: '16px 12px', 
+                    borderBottom: '1px dashed var(--light-gray)',
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    gap: 8,
+                    background: 'transparent'
+                }}>
+                    <button 
+                        onClick={handleRecordToggle}
+                        style={{
+                            width: 48, 
+                            height: 48, 
+                            background: 'transparent',
+                            borderRadius: '50%', 
+                            border: '3px solid #EF4444',
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'transform 0.1s ease'
+                        }}
+                    >
+                        <div style={{ 
+                            width: 20, 
+                            height: 20, 
+                            background: '#EF4444', 
+                            borderRadius: '50%' 
+                        }} />
+                    </button>
+                    <span style={{ fontSize: 9, letterSpacing: '0.15em', color: 'var(--gray)' }}>TAP TO RECORD</span>
+                </div>
             )}
             
             {imageUrl ? (
@@ -2872,9 +3029,9 @@ const QuickInput = ({
             </div>
             
             <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button onClick={() => { setExpanded(false); setText(''); setTags([]); setImageUrl(null); setSavedAudioUrl(null); clearRecording(); }} style={{
+                <button onClick={() => { setExpanded(false); }} style={{
                     fontSize: 11, color: 'var(--gray)', letterSpacing: '0.1em'
-                }}>CANCEL</button>
+                }}>MINIMIZE</button>
                 <button onClick={handleSave} disabled={!text.trim() && !savedAudioUrl} style={{
                     padding: '12px 24px', background: (text.trim() || savedAudioUrl) ? 'var(--black)' : 'var(--light-gray)',
                     color: 'var(--white)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
@@ -3021,15 +3178,17 @@ window.DailyBarsApp = {
     haptic,
     fetchRhymes,
     fetchNearRhymes,
+    fetchSynonyms,
     getDailyPrompt,
     getRandomPrompt,
     DAILY_DROP_PROMPTS,
-    useVoiceRecorder,
     processImage,
     useSwipe,
     ToastProvider,
     useToast,
     Icon,
+    useVoiceRecorder,
+    MicVisualizer: window.MicVisualizer,
     DailyDropWidget,
     ImagePreview,
     BottomBar,
