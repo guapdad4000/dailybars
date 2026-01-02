@@ -867,7 +867,15 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             return;
         }
         const file = e.target.files?.[0];
-        if (file && file.type.startsWith('audio/')) {
+        if (!file) return;
+        
+        // Check by file extension as fallback (Safari/iOS doesn't always report MIME type)
+        const fileName = file.name?.toLowerCase() || '';
+        const audioExtensions = ['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.webm', '.flac', '.aiff', '.mp4'];
+        const hasAudioExtension = audioExtensions.some(ext => fileName.endsWith(ext));
+        const isAudioMime = file.type?.startsWith('audio/') || file.type === 'video/mp4'; // m4a sometimes reports as video/mp4
+        
+        if (isAudioMime || hasAudioExtension) {
             const readAsDataUrl = () => new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
@@ -1029,7 +1037,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                 <Icon name="Upload" size={32} style={{ opacity: 0.5 }} />
                                 <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.1em' }}>UPLOAD MP3 FILE</span>
                                 <span style={{ fontSize: 9, color: 'var(--gray)' }}>Local file, loops forever</span>
-                                <input type="file" accept="audio/*" onChange={handleBeatUpload} style={{ display: 'none' }} />
+                                <input type="file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.webm,.flac,.aiff,audio/mpeg,audio/mp4,audio/x-m4a,audio/wav,audio/aac,audio/ogg,audio/webm,audio/flac" onChange={handleBeatUpload} style={{ display: 'none' }} />
                             </label>
                             
                             <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
