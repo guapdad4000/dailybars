@@ -1,16 +1,56 @@
 {
-  "name": "dailybars",
-  "version": "1.0.0",
-  "description": "> *A unique mobile experience blending brutalist design with Bay Area flavor*",
-  "main": "service-worker.js",
+  "name": "daily-raps",
+  "version": "3.0.0",
+  "description": "Write bars daily. Stay creative. Oakland energy meets brutalist design. GUAPDAD 4000 Edition.",
+  "author": "GUAPDAD 4000",
+  "license": "UNLICENSED",
+  "private": true,
+  "homepage": "https://dailyraps.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guapdad4000/dailybars.git"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "echo 'Static site - no build required'",
+    "serve": "npx serve .",
+    "cap:init": "npx cap init 'Daily Raps' com.guapdad4000.dailyraps --web-dir .",
+    "cap:add:ios": "npx cap add ios",
+    "cap:add:android": "npx cap add android",
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "cap:open:android": "npx cap open android",
+    "ios:build": "npm run cap:sync && npx cap open ios",
+    "android:build": "npm run cap:sync && npx cap open android"
   },
   "dependencies": {
     "@revenuecat/purchases-js": "^7.0.0"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/splash-screen": "^6.0.0",
+    "@capacitor/status-bar": "^6.0.0",
+    "@capacitor/keyboard": "^6.0.0",
+    "serve": "^14.2.0"
+  },
+  "capacitor": {
+    "appId": "com.guapdad4000.dailyraps",
+    "appName": "Daily Raps",
+    "webDir": "."
+  },
+  "keywords": [
+    "music",
+    "lyrics",
+    "songwriting",
+    "rap",
+    "hip-hop",
+    "creative",
+    "oakland",
+    "bay-area",
+    "guapdad4000",
+    "pwa",
+    "mobile-app"
+  ]
 }

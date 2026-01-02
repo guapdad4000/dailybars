@@ -2,12 +2,17 @@
   "name": "Daily Raps - GUAPDAD 4000 Edition",
   "short_name": "Daily Raps",
   "description": "Write bars daily. Stay creative. Oakland energy meets brutalist design.",
+  "version": "3.0.0",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#F4F4F0",
   "theme_color": "#000000",
   "orientation": "portrait",
   "scope": "/",
+  "lang": "en-US",
+  "dir": "ltr",
   "icons": [
     {
       "src": "images/icon-32.png",
@@ -41,9 +46,38 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "images/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
     }
   ],
-  "categories": ["music", "productivity", "lifestyle"],
+  "categories": ["music", "productivity", "lifestyle", "entertainment"],
+  "screenshots": [
+    {
+      "src": "images/screenshots/feed.png",
+      "sizes": "1290x2796",
+      "type": "image/png",
+      "label": "Feed - Your daily bars",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "images/screenshots/archive.png",
+      "sizes": "1290x2796",
+      "type": "image/png",
+      "label": "Archive - Visual grid of your catalog",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "images/screenshots/crates.png",
+      "sizes": "1290x2796",
+      "type": "image/png",
+      "label": "Crates - Build songs from your bars",
+      "form_factor": "narrow"
+    }
+  ],
   "shortcuts": [
     {
       "name": "Write a Bar",
@@ -51,6 +85,20 @@
       "description": "Drop a new bar",
       "url": "/?action=write",
       "icons": [{ "src": "images/icon-180.png", "sizes": "180x180" }]
+    },
+    {
+      "name": "Daily Deposit",
+      "short_name": "Prompt",
+      "description": "Get today's writing prompt",
+      "url": "/?action=deposit",
+      "icons": [{ "src": "images/icon-180.png", "sizes": "180x180" }]
     }
-  ]
+  ],
+  "related_applications": [
+    {
+      "platform": "itunes",
+      "url": "https://apps.apple.com/app/daily-raps/id000000000"
+    }
+  ],
+  "prefer_related_applications": false
 }

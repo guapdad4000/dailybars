@@ -389,10 +389,77 @@ button:active { transform: scale(0.98); }
 
 /* ============================================================================
    RHYME HIGHLIGHTING SYSTEM
-   Simple color-coded end-of-line rhymes for lyric writing
+   Simple visible textarea with rhyme legend below
+   No overlay tricks - cursor is always correct
    ============================================================================ */
 
 /* Container for rhyme-enabled textareas */
 .rhyme-editor-active {
     position: relative;
+}
+
+/* Main container */
+.rhyme-textarea-container {
+    position: relative;
+    width: 100%;
+}
+
+/* The actual textarea - fully visible, no tricks */
+.rhyme-textarea-input {
+    -webkit-text-size-adjust: 100%;
+    -moz-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: text;
+    -webkit-user-select: text;
+    caret-color: var(--black) !important;
+    /* Ensure proper line height */
+    line-height: 1.5;
+}
+
+/* Focus state */
+.rhyme-textarea-input:focus {
+    outline: none;
+}
+
+/* Placeholder styling */
+.rhyme-textarea-input::placeholder {
+    color: var(--gray);
+    opacity: 0.6;
+}
+
+/* Mobile-specific fixes */
+@media (pointer: coarse) {
+    .rhyme-textarea-input {
+        /* Larger touch target */
+        min-height: 100px;
+        /* Prevent zoom on focus in iOS - must be 16px+ */
+        font-size: 16px !important;
+        /* Better touch scrolling */
+        -webkit-overflow-scrolling: touch;
+        /* Disable auto features that interfere */
+        autocomplete: off;
+        autocorrect: off;
+        autocapitalize: sentences;
+    }
+    
+    .rhyme-textarea-container {
+        touch-action: manipulation;
+    }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+    .rhyme-textarea-input {
+        /* Prevent iOS zoom on input */
+        font-size: max(16px, 1em) !important;
+        /* Fix iOS textarea quirks */
+        -webkit-appearance: none;
+        border-radius: 0;
+        /* Prevent iOS from adding shadows */
+        -webkit-box-shadow: none;
+        box-shadow: none;
+    }
 }
