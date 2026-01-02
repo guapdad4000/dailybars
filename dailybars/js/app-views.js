@@ -996,11 +996,22 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             }
         } catch (err) {
             console.error('Beat upload failed:', err);
-            toast?.addToast(err.message || 'UPLOAD FAILED', 'error');
             
-            // Fallback to base64 for smaller files if storage fails
-            if (file.size < 5 * 1024 * 1024) { // < 5MB
+            // Check for RLS policy error (Supabase storage not configured)
+            const isRLSError = err.message?.includes('row-level security') || 
+                              err.message?.includes('StorageApiError') ||
+                              err.message?.includes('policy');
+            
+            if (isRLSError) {
+                console.warn('⚠️ Supabase Storage RLS not configured. Using local storage fallback.');
+                console.info('To fix: Configure storage bucket RLS policies in Supabase dashboard.');
+            }
+            
+            // Always try local storage fallback first (up to 15MB for mobile)
+            const maxLocalSize = 15 * 1024 * 1024; // 15MB
+            if (file.size <= maxLocalSize) {
                 try {
+                    toast?.addToast('SAVING LOCALLY...', 'info');
                     const dataUrl = await new Promise((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve(reader.result);
@@ -1010,10 +1021,18 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     setBeatUrl(dataUrl);
                     setShowBeatLocker(false);
                     haptic('success');
-                    toast?.addToast('BEAT SAVED (LOCAL)', 'success');
+                    toast?.addToast('BEAT SAVED!', 'success');
+                    return; // Success with local fallback
                 } catch (e) {
-                    toast?.addToast('UPLOAD FAILED', 'error');
+                    console.error('Local storage fallback failed:', e);
                 }
+            }
+            
+            // Show appropriate error message
+            if (file.size > maxLocalSize) {
+                toast?.addToast('FILE TOO LARGE (MAX 15MB)', 'error');
+            } else {
+                toast?.addToast('UPLOAD FAILED', 'error');
             }
         }
     };

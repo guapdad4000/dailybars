@@ -371,7 +371,14 @@ const DailyDepositEngine = {
                 .select()
                 .single();
             
-            if (error) throw error;
+            if (error) {
+                // Check if table doesn't exist (500 error or relation not found)
+                if (error.code === '42P01' || error.message?.includes('relation') || error.code === 'PGRST200') {
+                    console.warn('⚠️ song_collaborators table not created in Supabase. Collaboration feature unavailable.');
+                    throw new Error('Collaboration coming soon! Backend setup in progress.');
+                }
+                throw error;
+            }
             
             // Return the shareable link
             const baseUrl = window.location.origin;
@@ -435,7 +442,14 @@ const DailyDepositEngine = {
                 .eq('song_id', songId)
                 .not('user_id', 'is', null);
             
-            if (error) throw error;
+            if (error) {
+                // Silently handle missing table - feature not yet deployed
+                if (error.code === '42P01' || error.message?.includes('relation') || error.code === 'PGRST200') {
+                    console.warn('⚠️ song_collaborators table not available');
+                    return [];
+                }
+                throw error;
+            }
             return data || [];
         } catch (error) {
             console.error("❌ Failed to get collaborators:", error);
@@ -581,9 +595,9 @@ const DailyDepositEngine = {
                 throw new Error(`Storage limit exceeded. ${Math.round(storageInfo.remaining / 1024 / 1024)}MB remaining.`);
             }
             
-            // Generate unique filename
+            // Generate unique filename (flat structure, no folders)
             const ext = file.name.split('.').pop() || 'mp3';
-            const filename = `${userId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+            const filename = `${userId}_${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
             
             // Upload to storage bucket
             const { data: uploadData, error: uploadError } = await client
