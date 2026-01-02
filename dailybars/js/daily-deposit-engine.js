@@ -217,6 +217,232 @@ const DailyDepositEngine = {
         }
     },
 
+    // Track user upvotes to prevent duplicates (uses localStorage + optional DB)
+    async upvotePost(postId, userId) {
+        const storageKey = `upvoted_posts_${userId || 'guest'}`;
+        
+        try {
+            // Check localStorage first (fast)
+            const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            if (upvotedPosts.includes(postId)) {
+                return { alreadyVoted: true };
+            }
+            
+            // Get current post
+            const client = this.getSupabase();
+            const { data: post, error: fetchError } = await client
+                .from('community_submissions')
+                .select('likes')
+                .eq('id', postId)
+                .single();
+            
+            if (fetchError) throw fetchError;
+            
+            // Increment likes
+            const { data, error } = await client
+                .from('community_submissions')
+                .update({ likes: (post.likes || 0) + 1 })
+                .eq('id', postId)
+                .select()
+                .single();
+            
+            if (error) throw error;
+            
+            // Save to localStorage
+            upvotedPosts.push(postId);
+            localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
+            
+            return { success: true, newLikes: data.likes };
+        } catch (error) {
+            console.error("❌ Failed to upvote:", error);
+            throw error;
+        }
+    },
+
+    // Check if user already upvoted a post
+    hasUpvoted(postId, userId) {
+        const storageKey = `upvoted_posts_${userId || 'guest'}`;
+        const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        return upvotedPosts.includes(postId);
+    },
+
+    // ========================================================================
+    // Real-time Song Collaboration
+    // ========================================================================
+
+    // Subscribe to real-time changes on a song
+    subscribeToSong(songId, callback) {
+        const client = this.getSupabase();
+        
+        const channel = client
+            .channel(`song_${songId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'songs',
+                    filter: `id=eq.${songId}`
+                },
+                (payload) => {
+                    console.log('🔄 Song updated in real-time:', payload);
+                    callback(payload.new);
+                }
+            )
+            .subscribe((status) => {
+                console.log(`📡 Song subscription status: ${status}`);
+            });
+        
+        return channel;
+    },
+
+    // Unsubscribe from song updates
+    unsubscribeFromSong(channel) {
+        if (channel) {
+            const client = this.getSupabase();
+            client.removeChannel(channel);
+        }
+    },
+
+    // Get active collaborators on a song (presence)
+    async joinSongSession(songId, userId, username) {
+        const client = this.getSupabase();
+        
+        const channel = client.channel(`song_presence_${songId}`, {
+            config: {
+                presence: {
+                    key: userId || 'guest_' + Math.random().toString(36).slice(2)
+                }
+            }
+        });
+
+        channel.on('presence', { event: 'sync' }, () => {
+            const state = channel.presenceState();
+            console.log('👥 Collaborators:', state);
+        });
+
+        channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
+            console.log('👋 User joined:', key, newPresences);
+        });
+
+        channel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+            console.log('👋 User left:', key, leftPresences);
+        });
+
+        await channel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') {
+                await channel.track({
+                    user_id: userId,
+                    username: username || 'Anonymous',
+                    online_at: new Date().toISOString()
+                });
+            }
+        });
+
+        return channel;
+    },
+
+    // Broadcast cursor/selection position to collaborators
+    broadcastCursor(channel, userId, position) {
+        if (channel) {
+            channel.send({
+                type: 'broadcast',
+                event: 'cursor',
+                payload: { userId, position }
+            });
+        }
+    },
+
+    // Create a shareable collaboration link
+    async createCollabLink(songId, ownerId) {
+        // Generate a unique token
+        const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('song_collaborators')
+                .insert({
+                    song_id: songId,
+                    invite_token: token,
+                    created_by: ownerId,
+                    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
+                })
+                .select()
+                .single();
+            
+            if (error) throw error;
+            
+            // Return the shareable link
+            const baseUrl = window.location.origin;
+            return `${baseUrl}?collab=${token}`;
+        } catch (error) {
+            console.error("❌ Failed to create collab link:", error);
+            throw error;
+        }
+    },
+
+    // Join a song via collaboration link
+    async joinViaCollabLink(token, userId, username) {
+        try {
+            const client = this.getSupabase();
+            
+            // Find the invite
+            const { data: invite, error: findError } = await client
+                .from('song_collaborators')
+                .select('song_id, expires_at')
+                .eq('invite_token', token)
+                .single();
+            
+            if (findError || !invite) {
+                throw new Error('Invalid or expired invite link');
+            }
+            
+            // Check expiration
+            if (new Date(invite.expires_at) < new Date()) {
+                throw new Error('Invite link has expired');
+            }
+            
+            // Add user as collaborator
+            const { error: addError } = await client
+                .from('song_collaborators')
+                .insert({
+                    song_id: invite.song_id,
+                    user_id: userId,
+                    username: username,
+                    role: 'editor'
+                });
+            
+            // Ignore duplicate errors (user already collaborator)
+            if (addError && !addError.message.includes('duplicate')) {
+                throw addError;
+            }
+            
+            return { songId: invite.song_id };
+        } catch (error) {
+            console.error("❌ Failed to join via collab link:", error);
+            throw error;
+        }
+    },
+
+    // Get collaborators for a song
+    async getSongCollaborators(songId) {
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('song_collaborators')
+                .select('user_id, username, role, created_at')
+                .eq('song_id', songId)
+                .not('user_id', 'is', null);
+            
+            if (error) throw error;
+            return data || [];
+        } catch (error) {
+            console.error("❌ Failed to get collaborators:", error);
+            return [];
+        }
+    },
+
     // ========================================================================
     // Trophy Logic
     // ========================================================================

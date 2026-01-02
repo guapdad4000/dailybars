@@ -764,7 +764,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
 // TRACK EDITOR
 // ============================================================================
 
-const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPremiumRequired }) => {
+const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPremiumRequired, user }) => {
     const [title, setTitle] = useState(song?.title || 'UNTITLED');
     const [blocks, setBlocks] = useState(song?.blocks || []);
     const [status, setStatus] = useState(song?.status || 'draft');
@@ -785,7 +785,88 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [videoUrlInput, setVideoUrlInput] = useState('');
     const beatAudioRef = useRef(null);
     
+    // Collaboration state
+    const [showCollabModal, setShowCollabModal] = useState(false);
+    const [collaborators, setCollaborators] = useState([]);
+    const [collabLink, setCollabLink] = useState('');
+    const [activeUsers, setActiveUsers] = useState([]);
+    const realtimeChannel = useRef(null);
+    const presenceChannel = useRef(null);
+    
     const toast = useToast();
+    
+    // Set up real-time collaboration
+    useEffect(() => {
+        if (!song?.id) return;
+        
+        // Subscribe to song changes
+        realtimeChannel.current = window.DailyDepositEngine.subscribeToSong(song.id, (updatedSong) => {
+            // Only update if change came from another user
+            if (updatedSong.updated_by !== user?.id) {
+                setTitle(updatedSong.title || 'UNTITLED');
+                setBlocks(updatedSong.blocks || []);
+                setCoverImage(updatedSong.cover_image || null);
+                setBeatUrl(updatedSong.beat_url || '');
+                setVideoUrl(updatedSong.video_url || '');
+                toast?.addToast('TRACK UPDATED BY COLLABORATOR', 'info');
+                haptic('light');
+            }
+        });
+        
+        // Join presence channel to see who's online
+        const setupPresence = async () => {
+            presenceChannel.current = await window.DailyDepositEngine.joinSongSession(
+                song.id, 
+                user?.id, 
+                user?.username
+            );
+            
+            // Listen for presence changes
+            presenceChannel.current.on('presence', { event: 'sync' }, () => {
+                const state = presenceChannel.current.presenceState();
+                const users = Object.values(state).flat().map(p => ({
+                    id: p.user_id,
+                    username: p.username,
+                    online_at: p.online_at
+                }));
+                setActiveUsers(users);
+            });
+        };
+        
+        setupPresence();
+        
+        // Load collaborators
+        window.DailyDepositEngine.getSongCollaborators(song.id).then(setCollaborators);
+        
+        return () => {
+            // Cleanup subscriptions
+            if (realtimeChannel.current) {
+                window.DailyDepositEngine.unsubscribeFromSong(realtimeChannel.current);
+            }
+            if (presenceChannel.current) {
+                presenceChannel.current.unsubscribe();
+            }
+        };
+    }, [song?.id, user?.id, user?.username]);
+    
+    // Generate collaboration link
+    const handleCreateCollabLink = async () => {
+        try {
+            const link = await window.DailyDepositEngine.createCollabLink(song.id, user?.id);
+            setCollabLink(link);
+            haptic('success');
+        } catch (err) {
+            toast?.addToast('FAILED TO CREATE LINK', 'error');
+        }
+    };
+    
+    const copyCollabLink = async () => {
+        if (collabLink) {
+            await navigator.clipboard.writeText(collabLink);
+            toast?.addToast('LINK COPIED!', 'success');
+            haptic('success');
+        }
+    };
     
     const addBlock = (type) => { setBlocks([...blocks, { id: generateId(), type, content: '' }]); haptic('medium'); };
     const updateBlock = (idx, content) => { const newBlocks = [...blocks]; newBlocks[idx].content = content; setBlocks(newBlocks); };
@@ -853,7 +934,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 studio,
                 producer,
                 key: songKey,
-                bpm: bpm ? parseInt(bpm, 10) : null
+                bpm: bpm ? parseInt(bpm, 10) : null,
+                updated_by: user?.id // Track who made the update for realtime
             });
             toast?.addToast('SAVED', 'success');
         } catch { toast?.addToast('SAVE FAILED', 'error'); }
@@ -969,12 +1051,146 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)'
             }}><Icon name="ArrowLeft" size={20} /></button>
             
+            {/* Active collaborators indicator */}
+            {activeUsers.length > 1 && (
+                <div style={{
+                    position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', left: '50%', transform: 'translateX(-50%)',
+                    zIndex: 102, display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '6px 12px', background: 'var(--electric)', border: '2px solid var(--black)',
+                    fontSize: 9, fontWeight: 700, letterSpacing: '0.05em'
+                }}>
+                    <span className="animate-pulse" style={{ width: 8, height: 8, background: '#22C55E', borderRadius: '50%' }} />
+                    {activeUsers.length} WRITERS LIVE
+                </div>
+            )}
+            
+            <button onClick={() => setShowCollabModal(true)} style={{
+                position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 90, zIndex: 102,
+                padding: '10px 12px', background: 'var(--electric)', color: 'var(--black)',
+                border: '2px solid var(--black)', fontSize: 10, fontWeight: 700,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)', display: 'flex', alignItems: 'center', gap: 6
+            }}>
+                <Icon name="Users" size={14} />
+            </button>
+            
             <button onClick={handleSave} disabled={saving} style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 16, zIndex: 102,
                 padding: '10px 16px', background: 'var(--brand-green)', color: 'var(--white)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving ? 0.7 : 1
             }}>{saving ? 'SAVING...' : 'SAVE'}</button>
+            
+            {/* COLLABORATION MODAL */}
+            {showCollabModal && (
+                <div 
+                    className="animate-fade-in"
+                    style={{
+                        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+                    }}
+                >
+                    <div 
+                        className="animate-scale-in"
+                        style={{
+                            width: '100%', maxWidth: 380,
+                            backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover',
+                            border: '3px solid var(--black)', boxShadow: '8px 8px 0 var(--black)'
+                        }}
+                    >
+                        <div style={{
+                            background: 'var(--crates-blue)', color: 'var(--white)', padding: 16,
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            borderBottom: '3px solid var(--black)'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <Icon name="Users" size={24} />
+                                <span className="font-display" style={{ fontSize: 16, fontWeight: 900 }}>COLLABORATE</span>
+                            </div>
+                            <button onClick={() => setShowCollabModal(false)}>
+                                <Icon name="X" size={20} color="white" />
+                            </button>
+                        </div>
+                        
+                        <div style={{ padding: 20 }}>
+                            {/* Active Users */}
+                            <div style={{ marginBottom: 20 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', marginBottom: 10 }}>
+                                    LIVE NOW ({activeUsers.length})
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                    {activeUsers.map((u, i) => (
+                                        <div key={i} style={{
+                                            display: 'flex', alignItems: 'center', gap: 6,
+                                            padding: '6px 10px', background: 'var(--white)',
+                                            border: '1px solid var(--black)', fontSize: 10
+                                        }}>
+                                            <span style={{ width: 8, height: 8, background: '#22C55E', borderRadius: '50%' }} />
+                                            @{u.username || 'Guest'}
+                                        </div>
+                                    ))}
+                                    {activeUsers.length === 0 && (
+                                        <div style={{ fontSize: 10, color: 'var(--gray)' }}>Just you right now</div>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            {/* Invite Link */}
+                            <div style={{ marginBottom: 20 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', marginBottom: 10 }}>
+                                    INVITE COLLABORATORS
+                                </div>
+                                {collabLink ? (
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <input 
+                                            value={collabLink} 
+                                            readOnly 
+                                            style={{
+                                                flex: 1, padding: 10, border: '2px solid var(--black)',
+                                                fontSize: 9, fontFamily: 'monospace', background: 'var(--white)'
+                                            }}
+                                        />
+                                        <button onClick={copyCollabLink} style={{
+                                            padding: '10px 14px', background: 'var(--black)', color: 'var(--white)',
+                                            fontWeight: 700, fontSize: 10
+                                        }}>COPY</button>
+                                    </div>
+                                ) : (
+                                    <button onClick={handleCreateCollabLink} style={{
+                                        width: '100%', padding: 14, background: 'var(--electric)',
+                                        border: '2px solid var(--black)', fontSize: 11, fontWeight: 700,
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
+                                    }}>
+                                        <Icon name="Link" size={16} /> GENERATE INVITE LINK
+                                    </button>
+                                )}
+                                <div style={{ fontSize: 9, color: 'var(--gray)', marginTop: 8 }}>
+                                    Link expires in 7 days. Anyone with link can edit.
+                                </div>
+                            </div>
+                            
+                            {/* Collaborators List */}
+                            {collaborators.length > 0 && (
+                                <div>
+                                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', marginBottom: 10 }}>
+                                        COLLABORATORS ({collaborators.length})
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        {collaborators.map((c, i) => (
+                                            <div key={i} style={{
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                padding: '8px 10px', background: 'var(--white)', border: '1px solid var(--light-gray)'
+                                            }}>
+                                                <span style={{ fontSize: 11 }}>@{c.username || 'Anonymous'}</span>
+                                                <span style={{ fontSize: 9, color: 'var(--gray)', textTransform: 'uppercase' }}>{c.role}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
             
             {/* BEAT LOCKER MODAL */}
             {showBeatLocker && (
@@ -3059,34 +3275,74 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                             </div>
                         ) : (
                             <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
-                                {feed.map((p, i) => (
-                                    <div key={p.id || i} className="animate-slide-up" style={{
-                                        background: 'rgba(255,255,255,0.95)',
-                                        padding: 16,
-                                        border: '1px solid var(--black)',
-                                        boxShadow: '4px 4px 0 rgba(0,0,0,0.1)'
-                                    }}>
-                                        <div style={{ 
-                                            fontFamily: "'Space Mono', monospace", 
-                                            fontSize: 12, 
-                                            lineHeight: 1.5,
-                                            marginBottom: 12
+                                {feed.map((p, i) => {
+                                    const hasVoted = window.DailyDepositEngine.hasUpvoted(p.id, user?.id);
+                                    return (
+                                        <div key={p.id || i} className="animate-slide-up" style={{
+                                            background: 'rgba(255,255,255,0.95)',
+                                            padding: 16,
+                                            border: '1px solid var(--black)',
+                                            boxShadow: '4px 4px 0 rgba(0,0,0,0.1)'
                                         }}>
-                                            {p.prompt_text}
+                                            <div style={{ 
+                                                fontFamily: "'Space Mono', monospace", 
+                                                fontSize: 12, 
+                                                lineHeight: 1.5,
+                                                marginBottom: 12
+                                            }}>
+                                                {p.prompt_text}
+                                            </div>
+                                            <div style={{ 
+                                                display: 'flex', 
+                                                justifyContent: 'space-between', 
+                                                alignItems: 'center',
+                                                fontSize: 9, 
+                                                color: 'var(--gray)',
+                                                letterSpacing: '0.1em',
+                                                textTransform: 'uppercase'
+                                            }}>
+                                                <span>@{p.author}</span>
+                                                <button
+                                                    onClick={async () => {
+                                                        if (hasVoted) {
+                                                            toast?.addToast('ALREADY UPVOTED', 'info');
+                                                            return;
+                                                        }
+                                                        try {
+                                                            const result = await window.DailyDepositEngine.upvotePost(p.id, user?.id);
+                                                            if (result.success) {
+                                                                // Update local state
+                                                                setFeed(prev => prev.map(item => 
+                                                                    item.id === p.id ? { ...item, likes: result.newLikes } : item
+                                                                ));
+                                                                haptic('success');
+                                                                toast?.addToast('UPVOTED! +10 XP', 'success');
+                                                                if (onAction) onAction(10, 'UPVOTED PROMPT');
+                                                            }
+                                                        } catch (err) {
+                                                            toast?.addToast('UPVOTE FAILED', 'error');
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        padding: '6px 12px',
+                                                        background: hasVoted ? 'var(--electric)' : 'transparent',
+                                                        border: '1px solid var(--black)',
+                                                        cursor: hasVoted ? 'default' : 'pointer',
+                                                        fontSize: 10,
+                                                        fontWeight: 700,
+                                                        transition: 'all 0.2s ease'
+                                                    }}
+                                                >
+                                                    <span style={{ fontSize: 14 }}>{hasVoted ? '💎' : '◇'}</span>
+                                                    <span>{p.likes || 0}</span>
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div style={{ 
-                                            display: 'flex', 
-                                            justifyContent: 'space-between', 
-                                            fontSize: 9, 
-                                            color: 'var(--gray)',
-                                            letterSpacing: '0.1em',
-                                            textTransform: 'uppercase'
-                                        }}>
-                                            <span>@{p.author}</span>
-                                            <span>💎 {p.likes || 0}</span>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -3996,6 +4252,7 @@ const App = () => {
                     canUseAI={canUseAI}
                     onAIUse={noteAIUse}
                     onPremiumRequired={() => requestPremium('Unlock premium to edit with AI and upload beats that persist.')}
+                    user={user}
                 />
                 {premiumOverlay}
             </ToastProvider>
