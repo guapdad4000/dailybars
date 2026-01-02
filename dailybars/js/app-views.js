@@ -4271,6 +4271,8 @@ const App = () => {
                 blocks: songData.blocks,
                 status: songData.status,
                 coverImage: songData.coverImage,
+                beatUrl: songData.beatUrl,
+                videoUrl: songData.videoUrl,
                 username: user.username,
                 studio: songData.studio || '',
                 producer: songData.producer || '',
