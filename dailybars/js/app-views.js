@@ -966,82 +966,11 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
 
         try {
-            toast?.addToast('ANALYZING BEAT...', 'info');
-            console.log('🎵 Starting beat upload process...');
+            toast?.addToast('UPLOADING BEAT...', 'info');
             
-            // Skip heavy analysis on mobile - just do quick metadata extraction
-            // Full analysis can hang on mobile Safari
-            let analysisResults = null;
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            
-            if (window.BeatAnalyzer && !isMobile) {
-                try {
-                    // Desktop only: full analysis with 10 second timeout
-                    console.log('🎵 Starting desktop beat analysis...');
-                    const analysisPromise = window.BeatAnalyzer.fullAnalyze(file);
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Analysis timeout')), 10000)
-                    );
-                    
-                    analysisResults = await Promise.race([analysisPromise, timeoutPromise]);
-                    
-                    // Auto-fill BPM if detected
-                    if (analysisResults?.bpm && !bpm) {
-                        setBpm(analysisResults.bpm.toString());
-                    }
-                    
-                    // Auto-fill key if detected
-                    if (analysisResults?.key && !songKey) {
-                        setSongKey(analysisResults.key);
-                    }
-                    
-                    console.log('🎵 Beat Analysis Results:', analysisResults);
-                } catch (analysisErr) {
-                    console.warn('Beat analysis skipped:', analysisErr.message);
-                    // Continue without analysis - that's fine
-                }
-            } else if (window.BeatAnalyzer && isMobile) {
-                // Mobile: just extract ID3 metadata (fast, no Web Audio)
-                try {
-                    console.log('📱 Starting mobile metadata extraction...');
-                    const metadataPromise = window.BeatAnalyzer.extractID3Metadata(file);
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Metadata timeout')), 3000)
-                    );
-                    const metadata = await Promise.race([metadataPromise, timeoutPromise]);
-                    if (metadata) {
-                        analysisResults = { metadata };
-                        console.log('📱 Mobile metadata extracted:', metadata);
-                    }
-                } catch (e) {
-                    console.warn('Mobile metadata extraction skipped');
-                }
-            }
-            
-            // Update toast to show uploading phase
-            toast?.addToast('UPLOADING...', 'info');
-            console.log('🎵 Analysis complete, starting upload...');
-            
-            // Prepare metadata for upload (all fields optional)
+            // Simple metadata - just use filename
             const beatMetadata = {
-                title: analysisResults?.metadata?.title || file.name.replace(/\.[^.]+$/, ''),
-                artist: analysisResults?.metadata?.artist || null,
-                album: analysisResults?.metadata?.album || null,
-                bpm: analysisResults?.bpm || null,
-                key: analysisResults?.key || null,
-                duration_seconds: analysisResults?.duration || null,
-                detected_bpm: analysisResults?.bpm || null,
-                detected_bpm_confidence: analysisResults?.bpmConfidence || null,
-                detected_key: analysisResults?.key || null,
-                detected_key_confidence: analysisResults?.keyConfidence || null,
-                detected_energy: analysisResults?.energy || null,
-                detected_danceability: analysisResults?.danceability || null,
-                waveform_data: analysisResults?.waveform || null,
-                embedded_title: analysisResults?.metadata?.title || null,
-                embedded_artist: analysisResults?.metadata?.artist || null,
-                embedded_album: analysisResults?.metadata?.album || null,
-                embedded_year: analysisResults?.metadata?.year || null,
-                embedded_genre: analysisResults?.metadata?.genre || null
+                title: file.name.replace(/\.[^.]+$/, '')
             };
             
             // Upload to Supabase Storage with timeout
@@ -1056,35 +985,22 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             );
             
             const result = await Promise.race([uploadPromise, uploadTimeoutPromise]);
-            console.log('🎵 Upload result:', result);
             
             if (result && result.success) {
                 setBeatUrl(result.url);
                 setShowBeatLocker(false);
                 haptic('success');
-                
-                // Show what was detected
-                if (analysisResults?.bpm || analysisResults?.key) {
-                    const detected = [];
-                    if (analysisResults.bpm) detected.push(`${analysisResults.bpm} BPM`);
-                    if (analysisResults.key) detected.push(analysisResults.key);
-                    toast?.addToast(`BEAT UPLOADED! ${detected.join(' • ')}`, 'success');
-                } else {
-                    toast?.addToast('BEAT UPLOADED!', 'success');
-                }
+                toast?.addToast('BEAT UPLOADED!', 'success');
             } else {
-                // Upload returned but wasn't successful
-                console.error('Upload failed - result:', result);
-                throw new Error(result?.error || 'Upload failed. Storage may not be configured.');
+                throw new Error(result?.error || 'Upload failed. Check storage config.');
             }
         } catch (err) {
-            console.error('Failed to upload beat:', err);
+            console.error('Beat upload failed:', err);
             toast?.addToast(err.message || 'UPLOAD FAILED', 'error');
             
             // Fallback to base64 for smaller files if storage fails
             if (file.size < 5 * 1024 * 1024) { // < 5MB
                 try {
-                    console.log('🎵 Attempting base64 fallback...');
                     const dataUrl = await new Promise((resolve, reject) => {
                         const reader = new FileReader();
                         reader.onload = () => resolve(reader.result);
@@ -1094,9 +1010,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     setBeatUrl(dataUrl);
                     setShowBeatLocker(false);
                     haptic('success');
-                    toast?.addToast('BEAT SAVED (LOCAL ONLY)', 'success');
+                    toast?.addToast('BEAT SAVED (LOCAL)', 'success');
                 } catch (e) {
-                    console.error('Base64 fallback failed:', e);
                     toast?.addToast('UPLOAD FAILED', 'error');
                 }
             }
