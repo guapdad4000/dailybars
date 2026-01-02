@@ -966,20 +966,22 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
 
         try {
-            toast?.addToast('UPLOADING...', 'info');
+            toast?.addToast('UPLOADING BEAT...', 'info');
             
-            // Auto-detect BPM, key, and metadata for premium/admin users
+            // Skip heavy analysis on mobile - just do quick metadata extraction
+            // Full analysis can hang on mobile Safari
             let analysisResults = null;
-            if (window.BeatAnalyzer) {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            
+            if (window.BeatAnalyzer && !isMobile) {
                 try {
-                    toast?.addToast('ANALYZING BEAT...', 'info');
+                    // Desktop only: full analysis with 10 second timeout
+                    const analysisPromise = window.BeatAnalyzer.fullAnalyze(file);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Analysis timeout')), 10000)
+                    );
                     
-                    // Full analysis for premium/admin users
-                    analysisResults = await window.BeatAnalyzer.fullAnalyze(file, (progress, status) => {
-                        if (progress === 100) {
-                            toast?.addToast('ANALYSIS COMPLETE!', 'success');
-                        }
-                    });
+                    analysisResults = await Promise.race([analysisPromise, timeoutPromise]);
                     
                     // Auto-fill BPM if detected
                     if (analysisResults?.bpm && !bpm) {
@@ -993,11 +995,27 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     
                     console.log('🎵 Beat Analysis Results:', analysisResults);
                 } catch (analysisErr) {
-                    console.warn('Beat analysis failed (continuing with upload):', analysisErr);
+                    console.warn('Beat analysis skipped:', analysisErr.message);
+                    // Continue without analysis - that's fine
+                }
+            } else if (window.BeatAnalyzer && isMobile) {
+                // Mobile: just extract ID3 metadata (fast, no Web Audio)
+                try {
+                    const metadataPromise = window.BeatAnalyzer.extractID3Metadata(file);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Metadata timeout')), 3000)
+                    );
+                    const metadata = await Promise.race([metadataPromise, timeoutPromise]);
+                    if (metadata) {
+                        analysisResults = { metadata };
+                        console.log('📱 Mobile metadata extracted:', metadata);
+                    }
+                } catch (e) {
+                    console.warn('Mobile metadata extraction skipped');
                 }
             }
             
-            // Prepare metadata for upload
+            // Prepare metadata for upload (all fields optional)
             const beatMetadata = {
                 title: analysisResults?.metadata?.title || file.name.replace(/\.[^.]+$/, ''),
                 artist: analysisResults?.metadata?.artist || null,
