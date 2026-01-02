@@ -968,19 +968,79 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         try {
             toast?.addToast('UPLOADING...', 'info');
             
+            // Auto-detect BPM, key, and metadata for premium/admin users
+            let analysisResults = null;
+            if (window.BeatAnalyzer) {
+                try {
+                    toast?.addToast('ANALYZING BEAT...', 'info');
+                    
+                    // Full analysis for premium/admin users
+                    analysisResults = await window.BeatAnalyzer.fullAnalyze(file, (progress, status) => {
+                        if (progress === 100) {
+                            toast?.addToast('ANALYSIS COMPLETE!', 'success');
+                        }
+                    });
+                    
+                    // Auto-fill BPM if detected
+                    if (analysisResults?.bpm && !bpm) {
+                        setBpm(analysisResults.bpm.toString());
+                    }
+                    
+                    // Auto-fill key if detected
+                    if (analysisResults?.key && !songKey) {
+                        setSongKey(analysisResults.key);
+                    }
+                    
+                    console.log('🎵 Beat Analysis Results:', analysisResults);
+                } catch (analysisErr) {
+                    console.warn('Beat analysis failed (continuing with upload):', analysisErr);
+                }
+            }
+            
+            // Prepare metadata for upload
+            const beatMetadata = {
+                title: analysisResults?.metadata?.title || file.name.replace(/\.[^.]+$/, ''),
+                artist: analysisResults?.metadata?.artist || null,
+                album: analysisResults?.metadata?.album || null,
+                bpm: analysisResults?.bpm || null,
+                key: analysisResults?.key || null,
+                duration_seconds: analysisResults?.duration || null,
+                detected_bpm: analysisResults?.bpm || null,
+                detected_bpm_confidence: analysisResults?.bpmConfidence || null,
+                detected_key: analysisResults?.key || null,
+                detected_key_confidence: analysisResults?.keyConfidence || null,
+                detected_energy: analysisResults?.energy || null,
+                detected_danceability: analysisResults?.danceability || null,
+                waveform_data: analysisResults?.waveform || null,
+                embedded_title: analysisResults?.metadata?.title || null,
+                embedded_artist: analysisResults?.metadata?.artist || null,
+                embedded_album: analysisResults?.metadata?.album || null,
+                embedded_year: analysisResults?.metadata?.year || null,
+                embedded_genre: analysisResults?.metadata?.genre || null
+            };
+            
             // Upload to Supabase Storage
             const result = await window.DailyDepositEngine.uploadBeat(
                 user?.id,
                 file,
                 song?.id,
-                { title: file.name.replace(/\.[^.]+$/, '') }
+                beatMetadata
             );
             
             if (result.success) {
                 setBeatUrl(result.url);
                 setShowBeatLocker(false);
                 haptic('success');
-                toast?.addToast('BEAT UPLOADED!', 'success');
+                
+                // Show what was detected
+                if (analysisResults?.bpm || analysisResults?.key) {
+                    const detected = [];
+                    if (analysisResults.bpm) detected.push(`${analysisResults.bpm} BPM`);
+                    if (analysisResults.key) detected.push(analysisResults.key);
+                    toast?.addToast(`BEAT UPLOADED! ${detected.join(' • ')}`, 'success');
+                } else {
+                    toast?.addToast('BEAT UPLOADED!', 'success');
+                }
             }
         } catch (err) {
             console.error('Failed to upload beat:', err);

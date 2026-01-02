@@ -603,24 +603,60 @@ const DailyDepositEngine = {
                 .from('beats')
                 .getPublicUrl(filename);
             
-            // Create record in beats table
+            // Create record in beats table - ALL METADATA FIELDS ARE OPTIONAL
+            // Users can upload without knowing anything about the beat
+            const beatData = {
+                user_id: userId,
+                song_id: songId || null,
+                filename: filename,
+                original_filename: file.name || null,
+                file_size_bytes: file.size || 0,
+                mime_type: file.type || 'audio/mpeg',
+                storage_path: uploadData.path,
+                public_url: urlData.publicUrl,
+                
+                // User-provided metadata (all optional, can be blank)
+                title: metadata.title || null,
+                artist: metadata.artist || null,
+                album: metadata.album || null,
+                bpm: metadata.bpm ? parseInt(metadata.bpm) : null,
+                key: metadata.key || null,
+                genre: metadata.genre || null,
+                mood: metadata.mood || null,
+                tags: metadata.tags || null,
+                
+                // Auto-detected fields (Premium/Admin feature)
+                duration_seconds: metadata.duration_seconds || null,
+                detected_bpm: metadata.detected_bpm || null,
+                detected_bpm_confidence: metadata.detected_bpm_confidence || null,
+                detected_key: metadata.detected_key || null,
+                detected_key_confidence: metadata.detected_key_confidence || null,
+                detected_energy: metadata.detected_energy || null,
+                detected_danceability: metadata.detected_danceability || null,
+                waveform_data: metadata.waveform_data || null,
+                
+                // Embedded ID3 metadata (extracted from file)
+                embedded_title: metadata.embedded_title || null,
+                embedded_artist: metadata.embedded_artist || null,
+                embedded_album: metadata.embedded_album || null,
+                embedded_year: metadata.embedded_year || null,
+                embedded_genre: metadata.embedded_genre || null,
+                
+                // Analysis status
+                analysis_status: metadata.detected_bpm ? 'completed' : 'pending',
+                analysis_completed_at: metadata.detected_bpm ? new Date().toISOString() : null
+            };
+            
+            // Remove null/undefined values to let database defaults apply
+            Object.keys(beatData).forEach(key => {
+                if (beatData[key] === null || beatData[key] === undefined) {
+                    delete beatData[key];
+                }
+            });
+            
             const { data: beatRecord, error: dbError } = await client
                 .from('beats')
-                .insert({
-                    user_id: userId,
-                    song_id: songId,
-                    filename: filename,
-                    original_filename: file.name,
-                    file_size_bytes: file.size,
-                    mime_type: file.type || 'audio/mpeg',
-                    storage_path: uploadData.path,
-                    public_url: urlData.publicUrl,
-                    title: metadata.title || file.name.replace(/\.[^.]+$/, ''),
-                    artist: metadata.artist,
-                    bpm: metadata.bpm,
-                    key: metadata.key,
-                    tags: metadata.tags
-                })
+                .insert(beatData)
                 .select()
                 .single();
             
