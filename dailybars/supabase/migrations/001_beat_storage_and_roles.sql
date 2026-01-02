@@ -130,17 +130,19 @@ CREATE INDEX IF NOT EXISTS idx_analysis_queue_beat ON beat_analysis_queue(beat_i
 
 -- ============================================================================
 -- 4. CREATE SONG COLLABORATORS TABLE (for real-time collab)
+-- NOTE: songs table uses 'username' not 'user_id' for ownership
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS song_collaborators (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     song_id UUID REFERENCES songs(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    username TEXT,
+    username TEXT,  -- Denormalized for quick lookups
     
     -- Invite system
     invite_token TEXT UNIQUE,
     invited_by UUID REFERENCES users(id),
+    invited_by_username TEXT, -- Denormalized
     
     -- Permissions
     role TEXT DEFAULT 'editor' CHECK (role IN ('viewer', 'editor', 'owner')),
@@ -158,12 +160,14 @@ CREATE TABLE IF NOT EXISTS song_collaborators (
 CREATE INDEX IF NOT EXISTS idx_song_collaborators_song ON song_collaborators(song_id);
 CREATE INDEX IF NOT EXISTS idx_song_collaborators_user ON song_collaborators(user_id);
 CREATE INDEX IF NOT EXISTS idx_song_collaborators_token ON song_collaborators(invite_token);
+CREATE INDEX IF NOT EXISTS idx_song_collaborators_username ON song_collaborators(username);
 
 -- ============================================================================
 -- 5. UPDATE SONGS TABLE - Add collaboration fields
+-- NOTE: Songs uses 'username' for ownership, not 'user_id'
 -- ============================================================================
 
-ALTER TABLE songs ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users(id);
+ALTER TABLE songs ADD COLUMN IF NOT EXISTS updated_by_username TEXT;
 ALTER TABLE songs ADD COLUMN IF NOT EXISTS is_collaborative BOOLEAN DEFAULT false;
 ALTER TABLE songs ADD COLUMN IF NOT EXISTS collaborator_count INTEGER DEFAULT 0;
 
@@ -183,6 +187,13 @@ ALTER TABLE songs ADD COLUMN IF NOT EXISTS collaborator_count INTEGER DEFAULT 0;
 
 -- Enable RLS on beats table
 ALTER TABLE beats ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist (for re-running migration)
+DROP POLICY IF EXISTS "Users can view own beats" ON beats;
+DROP POLICY IF EXISTS "Premium users can upload beats" ON beats;
+DROP POLICY IF EXISTS "Users can update own beats" ON beats;
+DROP POLICY IF EXISTS "Users can delete own beats" ON beats;
+DROP POLICY IF EXISTS "Admins have full access to beats" ON beats;
 
 -- Policy: Users can see their own beats
 CREATE POLICY "Users can view own beats" ON beats
@@ -219,7 +230,13 @@ CREATE POLICY "Admins have full access to beats" ON beats
 -- Enable RLS on song_collaborators
 ALTER TABLE song_collaborators ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view song collaborators" ON song_collaborators;
+DROP POLICY IF EXISTS "Song owners can add collaborators" ON song_collaborators;
+DROP POLICY IF EXISTS "Anyone with invite can join" ON song_collaborators;
+
 -- Policy: Users can see collaborators for songs they're part of
+-- Using username-based ownership since songs table uses username
 CREATE POLICY "Users can view song collaborators" ON song_collaborators
     FOR SELECT USING (
         user_id = auth.uid() 
@@ -229,24 +246,37 @@ CREATE POLICY "Users can view song collaborators" ON song_collaborators
             AND sc.user_id = auth.uid()
         )
         OR EXISTS (
-            SELECT 1 FROM songs 
-            WHERE songs.id = song_collaborators.song_id 
-            AND songs.user_id = auth.uid()
+            SELECT 1 FROM songs s
+            JOIN users u ON s.username = u.username
+            WHERE s.id = song_collaborators.song_id 
+            AND u.id = auth.uid()
         )
     );
 
--- Policy: Song owners can add collaborators
+-- Policy: Song owners can add collaborators (using username lookup)
 CREATE POLICY "Song owners can add collaborators" ON song_collaborators
     FOR INSERT WITH CHECK (
         EXISTS (
-            SELECT 1 FROM songs 
-            WHERE songs.id = song_id 
-            AND songs.user_id = auth.uid()
+            SELECT 1 FROM songs s
+            JOIN users u ON s.username = u.username
+            WHERE s.id = song_id 
+            AND u.id = auth.uid()
         )
+    );
+
+-- Policy: Anyone with a valid invite token can join (for public invite links)
+CREATE POLICY "Anyone with invite can join" ON song_collaborators
+    FOR INSERT WITH CHECK (
+        invite_token IS NOT NULL 
+        AND expires_at > NOW()
     );
 
 -- Enable RLS on analysis queue
 ALTER TABLE beat_analysis_queue ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can view own analysis queue" ON beat_analysis_queue;
+DROP POLICY IF EXISTS "Premium users can request analysis" ON beat_analysis_queue;
 
 -- Policy: Users can see their own analysis requests
 CREATE POLICY "Users can view own analysis queue" ON beat_analysis_queue
@@ -448,6 +478,39 @@ BEGIN
         analysis_completed_at = NOW(),
         updated_at = NOW()
     WHERE id = p_beat_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user owns a song (using username)
+CREATE OR REPLACE FUNCTION user_owns_song(user_uuid UUID, p_song_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM songs s
+        JOIN users u ON s.username = u.username
+        WHERE s.id = p_song_id 
+        AND u.id = user_uuid
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user can edit song (owner or collaborator)
+CREATE OR REPLACE FUNCTION can_edit_song(user_uuid UUID, p_song_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    -- Check if owner
+    IF user_owns_song(user_uuid, p_song_id) THEN
+        RETURN true;
+    END IF;
+    
+    -- Check if collaborator with edit permission
+    RETURN EXISTS (
+        SELECT 1 FROM song_collaborators
+        WHERE song_id = p_song_id
+        AND user_id = user_uuid
+        AND role IN ('editor', 'owner')
+        AND (expires_at IS NULL OR expires_at > NOW())
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
