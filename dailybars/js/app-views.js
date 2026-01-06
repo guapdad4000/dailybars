@@ -937,6 +937,35 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
     };
 
+    const handleBlockAudioUpload = async (idx, e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const fileName = file.name?.toLowerCase() || '';
+        const audioExtensions = ['.mp3', '.m4a', '.wav', '.aac', '.ogg', '.webm', '.flac', '.aiff'];
+        const hasAudioExtension = audioExtensions.some(ext => fileName.endsWith(ext));
+        const isAudioMime = file.type?.startsWith('audio/');
+
+        if (!isAudioMime && !hasAudioExtension) {
+            toast?.addToast('AUDIO FILES ONLY', 'error');
+            return;
+        }
+
+        try {
+            const reader = new FileReader();
+            reader.onload = () => {
+                updateBlock(idx, reader.result);
+                haptic('success');
+                toast?.addToast('VOICE NOTE ADDED', 'success');
+            };
+            reader.onerror = () => toast?.addToast('UPLOAD FAILED', 'error');
+            reader.readAsDataURL(file);
+        } catch (err) {
+            console.error('Audio upload failed', err);
+            toast?.addToast('UPLOAD FAILED', 'error');
+        }
+    };
+
     const handleSave = async () => {
         setSaving(true);
         try {
@@ -1237,6 +1266,17 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 bImg.style.border = '2px solid #000';
                 bImg.style.filter = 'grayscale(100%)';
                 blockEl.appendChild(bImg);
+            } else if (block.type === 'audio' && block.content) {
+                const audioBadge = document.createElement('div');
+                audioBadge.textContent = '🎤 VOICE NOTE ATTACHED';
+                audioBadge.style.display = 'inline-block';
+                audioBadge.style.padding = '6px 10px';
+                audioBadge.style.border = '2px solid #000';
+                audioBadge.style.fontFamily = "'Archivo Black', sans-serif";
+                audioBadge.style.fontSize = '12px';
+                audioBadge.style.letterSpacing = '0.1em';
+                audioBadge.style.background = '#fef3c7';
+                blockEl.appendChild(audioBadge);
             } else if (block.type === 'divider') {
                 blockEl.style.textAlign = 'center';
                 blockEl.style.fontSize = '12px';
@@ -1847,9 +1887,10 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     overflowX: 'auto'
                 }}>
                     {[
-                        { type: 'text', icon: 'FileText', label: 'VERSE' }, 
-                        { type: 'heading', icon: 'Type', label: 'TITLE' }, 
+                        { type: 'text', icon: 'FileText', label: 'VERSE' },
+                        { type: 'heading', icon: 'Type', label: 'TITLE' },
                         { type: 'image', icon: 'Image', label: 'IMG' },
+                        { type: 'audio', icon: 'Mic', label: 'AUDIO' },
                         { type: 'divider', icon: 'Minus', label: 'BREAK' }
                     ].map(item => (
                         <button key={item.type} onClick={() => addBlock(item.type)} style={{
@@ -1934,6 +1975,43 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                     }}>
                                         <Icon name="Image" size={16} /> ADD IMAGE BLOCK
                                         <input type="file" accept="image/*" onChange={(e) => handleBlockImageUpload(i, e)} style={{ display: 'none' }} />
+                                    </label>
+                                )}
+                            </div>
+                        ) : block.type === 'audio' ? (
+                            <div style={{ padding: 16, background: 'var(--white)' }}>
+                                {block.content ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        {window.VinylAudioPlayer ? (
+                                            <window.VinylAudioPlayer src={block.content} compact={true} />
+                                        ) : (
+                                            <audio src={block.content} controls style={{ width: '100%' }} />
+                                        )}
+                                        <label style={{
+                                            alignSelf: 'flex-start',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: 6,
+                                            padding: '6px 10px',
+                                            border: '1px solid var(--black)',
+                                            background: 'transparent',
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            letterSpacing: '0.05em',
+                                            cursor: 'pointer'
+                                        }}>
+                                            <Icon name="RefreshCw" size={12} /> REPLACE CLIP
+                                            <input type="file" accept="audio/*" onChange={(e) => handleBlockAudioUpload(i, e)} style={{ display: 'none' }} />
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <label style={{
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                        height: 80, border: '1px dashed var(--gray)',
+                                        cursor: 'pointer', gap: 8
+                                    }}>
+                                        <Icon name="Mic" size={16} /> ADD VOICE NOTE
+                                        <input type="file" accept="audio/*" onChange={(e) => handleBlockAudioUpload(i, e)} style={{ display: 'none' }} />
                                     </label>
                                 )}
                             </div>
@@ -3848,6 +3926,7 @@ const App = () => {
     // Initialize view from storage or default to feed
     const [view, setView] = useState(() => localStorage.getItem('dailybars_view') || 'feed');
     const [bars, setBars] = useState([]);
+    const [archiveQuery, setArchiveQuery] = useState('');
     const [songs, setSongs] = useState([]);
     const [loadingBars, setLoadingBars] = useState(true);
     const [loadingSongs, setLoadingSongs] = useState(true);
@@ -4377,6 +4456,18 @@ const App = () => {
         // Clear after a short delay so QuickInput can pick it up
         setTimeout(() => setDailyPrompt(null), 100);
     };
+
+    const archiveBars = useMemo(() => {
+        const query = archiveQuery.trim().toLowerCase();
+        if (!query) return bars;
+
+        return bars.filter((bar) => {
+            const text = (bar.text || '').toLowerCase();
+            const date = formatDate(bar.created_at || '').toLowerCase();
+            const tags = Array.isArray(bar.tags) ? bar.tags.join(' ').toLowerCase() : '';
+            return text.includes(query) || date.includes(query) || tags.includes(query);
+        });
+    }, [archiveQuery, bars]);
     
     const views = [
         { id: 'feed', label: 'FEED', subtitle: 'YOUR IDEAS' },
@@ -4516,18 +4607,32 @@ const App = () => {
         try {
             const song = songs.find(s => s.id === songId);
             if (!song) return;
-            
-            const newBlock = { 
-                id: generateId(), 
-                type: 'text', 
-                content: bar.text 
-            };
-            
-            const updatedBlocks = [...(song.blocks || []), newBlock];
-            
-            const updatedSong = await api.update('songs', songId, { 
+
+            const blocksToInsert = [];
+
+            if (bar.audioUrl) {
+                blocksToInsert.push({
+                    id: generateId(),
+                    type: 'audio',
+                    content: bar.audioUrl
+                });
+            }
+
+            if (bar.text?.trim()) {
+                blocksToInsert.push({
+                    id: generateId(),
+                    type: 'text',
+                    content: bar.text
+                });
+            }
+
+            if (blocksToInsert.length === 0) return;
+
+            const updatedBlocks = [...(song.blocks || []), ...blocksToInsert];
+
+            const updatedSong = await api.update('songs', songId, {
                 blocks: updatedBlocks,
-                username: user.username 
+                username: user.username
             });
             
             setSongs(prev => prev.map(s => s.id === songId ? updatedSong : s));
@@ -4593,8 +4698,8 @@ const App = () => {
                 {...(!isInputExpanded ? swipeHandlers : {})}
                 className="swipe-container"
             >
-                <Header 
-                    title={currentView.label} 
+                <Header
+                    title={currentView.label}
                     subtitle={currentView.subtitle}
                     currentView={view}
                     views={views}
@@ -4604,6 +4709,8 @@ const App = () => {
                     }}
                     isTyping={isTyping}
                     onDailyDropUse={handleUsePrompt}
+                    archiveQuery={archiveQuery}
+                    onArchiveSearch={setArchiveQuery}
                 />
                 
                 <main className="scrollable view-enter" style={{ flex: 1 }} key={view}>
@@ -4633,7 +4740,7 @@ const App = () => {
                             onAction={addExperience}
                         />
                     )}
-                    {view === 'archive' && <ArchiveView bars={bars} onSelect={setSelectedBar} />}
+                    {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                 </main>
