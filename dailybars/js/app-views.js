@@ -3926,6 +3926,7 @@ const App = () => {
     // Initialize view from storage or default to feed
     const [view, setView] = useState(() => localStorage.getItem('dailybars_view') || 'feed');
     const [bars, setBars] = useState([]);
+    const [archiveQuery, setArchiveQuery] = useState('');
     const [songs, setSongs] = useState([]);
     const [loadingBars, setLoadingBars] = useState(true);
     const [loadingSongs, setLoadingSongs] = useState(true);
@@ -4455,6 +4456,18 @@ const App = () => {
         // Clear after a short delay so QuickInput can pick it up
         setTimeout(() => setDailyPrompt(null), 100);
     };
+
+    const archiveBars = useMemo(() => {
+        const query = archiveQuery.trim().toLowerCase();
+        if (!query) return bars;
+
+        return bars.filter((bar) => {
+            const text = (bar.text || '').toLowerCase();
+            const date = formatDate(bar.created_at || '').toLowerCase();
+            const tags = Array.isArray(bar.tags) ? bar.tags.join(' ').toLowerCase() : '';
+            return text.includes(query) || date.includes(query) || tags.includes(query);
+        });
+    }, [archiveQuery, bars]);
     
     const views = [
         { id: 'feed', label: 'FEED', subtitle: 'YOUR IDEAS' },
@@ -4685,8 +4698,8 @@ const App = () => {
                 {...(!isInputExpanded ? swipeHandlers : {})}
                 className="swipe-container"
             >
-                <Header 
-                    title={currentView.label} 
+                <Header
+                    title={currentView.label}
                     subtitle={currentView.subtitle}
                     currentView={view}
                     views={views}
@@ -4696,6 +4709,8 @@ const App = () => {
                     }}
                     isTyping={isTyping}
                     onDailyDropUse={handleUsePrompt}
+                    archiveQuery={archiveQuery}
+                    onArchiveSearch={setArchiveQuery}
                 />
                 
                 <main className="scrollable view-enter" style={{ flex: 1 }} key={view}>
@@ -4725,7 +4740,7 @@ const App = () => {
                             onAction={addExperience}
                         />
                     )}
-                    {view === 'archive' && <ArchiveView bars={bars} onSelect={setSelectedBar} />}
+                    {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                 </main>

@@ -1599,151 +1599,192 @@ const BottomBar = ({ currentView, streak, user }) => {
 // UNIFIED HEADER
 // ============================================================================
 
-const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse }) => {
-    // Determine active index safely
+const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse, archiveQuery, onArchiveSearch }) => {
     const activeIndex = Math.max(0, views.findIndex(v => v.id === currentView));
-    const [isCollapsed, setIsCollapsed] = useState(false);
-    const [isHidden, setIsHidden] = useState(false);
+    const [isTurning, setIsTurning] = useState(false);
+    const [turnDirection, setTurnDirection] = useState('forward');
+    const previousViewRef = useRef(currentView);
+
+    const isArchive = currentView === 'archive';
+    const isCrates = currentView === 'crates';
 
     useEffect(() => {
-        let lastScrollY = window.scrollY;
-        const hideOnViews = new Set(['crates']);
-
-        const handleScroll = () => {
-            const y = window.scrollY;
-            setIsCollapsed(y > 24);
-
-            if (hideOnViews.has(currentView)) {
-                const scrollingDown = y > lastScrollY;
-                setIsHidden(scrollingDown && y > 140);
-            } else {
-                setIsHidden(false);
-            }
-
-            lastScrollY = y;
-        };
-
-        window.addEventListener('scroll', handleScroll, { passive: true });
-        handleScroll();
-        return () => window.removeEventListener('scroll', handleScroll);
-    }, [currentView]);
+        const prev = previousViewRef.current;
+        if (prev !== currentView) {
+            const prevIndex = Math.max(0, views.findIndex(v => v.id === prev));
+            setTurnDirection(activeIndex > prevIndex ? 'forward' : 'backward');
+            setIsTurning(true);
+            const timer = setTimeout(() => setIsTurning(false), 550);
+            previousViewRef.current = currentView;
+            return () => clearTimeout(timer);
+        }
+    }, [currentView, activeIndex, views]);
 
     useEffect(() => {
-        setIsCollapsed(false);
-        setIsHidden(false);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, [currentView]);
 
+    const turnAmount = isTurning ? (turnDirection === 'forward' ? -18 : 18) : 0;
+    const slideAmount = isTurning ? (turnDirection === 'forward' ? -6 : 6) : 0;
+
     return (
         <header style={{
-            position: 'sticky',
-            top: 0,
-            zIndex: 50,
+            position: 'relative',
+            zIndex: 10,
             background: 'url(images/smooth-paper-texture.jpg)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             borderBottom: '2px solid var(--black)',
-            transition: 'transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease',
-            transform: `translateY(${isHidden ? '-110%' : '0'}) scale(${isCollapsed ? 0.97 : 1})`,
-            boxShadow: isCollapsed ? '0 6px 16px rgba(0,0,0,0.08)' : 'none',
-            opacity: isHidden ? 0 : 1
+            transition: 'transform 0.55s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
+            transform: `perspective(1100px) rotateY(${turnAmount}deg) translateX(${slideAmount}px)`,
+            boxShadow: '0 10px 24px rgba(0,0,0,0.08)',
+            opacity: isCrates ? 0.96 : 1,
+            maxHeight: isCrates ? 120 : 400,
+            overflow: 'hidden'
         }}>
-            {/* Main header - Big Boss Logo */}
-            <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                paddingTop: 10,
-                paddingBottom: 0
-            }}>
-                <img src={LOGO_SOLID} alt="Daily Bars" style={{ width: '80%', maxWidth: 300, height: 'auto', objectFit: 'contain' }} /> 
-            </div>
-            
-            {/* Unified Control Bar - with Daily Drop in corner */}
+            {!isCrates && (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingTop: 10,
+                    paddingBottom: isArchive ? 6 : 0
+                }}>
+                    <img src={LOGO_SOLID} alt="Daily Bars" style={{ width: '80%', maxWidth: 300, height: 'auto', objectFit: 'contain' }} />
+                </div>
+            )}
+
             <div style={{
                 position: 'relative',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '0 16px 10px',
-                gap: 2
+                padding: isCrates ? '6px 12px 10px' : '0 16px 12px',
+                gap: 6,
+                background: isCrates ? 'rgba(255,255,255,0.9)' : 'transparent'
             }}>
-                {/* Daily Drop Dice - Bottom Right Corner */}
-                <div style={{
-                    position: 'absolute',
-                    bottom: 8,
-                    right: 12,
-                    zIndex: 10
-                }}>
-                    <DailyDropWidget onUsePrompt={onDailyDropUse} isHeaderMode={true} />
-                </div>
-                
-                {/* Title & Subtitle */}
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8
-                }}>
-                    <span style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        letterSpacing: '0.15em',
-                        textTransform: 'uppercase'
+                {!isCrates && (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 12,
+                        zIndex: 10
                     }}>
-                        {title}
-                    </span>
-                    {subtitle && (
+                        <DailyDropWidget onUsePrompt={onDailyDropUse} isHeaderMode={true} />
+                    </div>
+                )}
+
+                {!isArchive && !isCrates && (
+                    <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8
+                    }}>
                         <span style={{
-                            fontSize: 9,
-                            color: 'var(--gray)',
-                            letterSpacing: '0.1em'
+                            fontSize: 11,
+                            fontWeight: 700,
+                            letterSpacing: '0.15em',
+                            textTransform: 'uppercase'
                         }}>
-                            — {subtitle}
+                            {title}
                         </span>
-                    )}
-                </div>
-                
+                        {subtitle && (
+                            <span style={{
+                                fontSize: 9,
+                                color: 'var(--gray)',
+                                letterSpacing: '0.1em'
+                            }}>
+                                — {subtitle}
+                            </span>
+                        )}
+                    </div>
+                )}
+
+                {isArchive && (
+                    <div style={{ width: '100%', maxWidth: 420 }}>
+                        <label style={{
+                            display: 'block',
+                            fontSize: 10,
+                            letterSpacing: '0.12em',
+                            fontWeight: 700,
+                            marginBottom: 6,
+                            textAlign: 'center'
+                        }}>ARCHIVE SEARCH</label>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            background: 'var(--white)',
+                            border: '2px solid var(--black)',
+                            padding: '8px 12px'
+                        }}>
+                            <Icon name="Search" size={18} />
+                            <input
+                                value={archiveQuery}
+                                onChange={(e) => onArchiveSearch?.(e.target.value)}
+                                placeholder="Find bars by words, date, or tag"
+                                style={{
+                                    flex: 1,
+                                    border: 'none',
+                                    outline: 'none',
+                                    fontSize: 12,
+                                    letterSpacing: '0.04em',
+                                    background: 'transparent'
+                                }}
+                            />
+                            {archiveQuery && (
+                                <button
+                                    onClick={() => onArchiveSearch?.('')}
+                                    style={{ border: 'none', background: 'transparent', cursor: 'pointer' }}
+                                >
+                                    <Icon name="X" size={16} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 {/* Navigation Dots (Subway Train Style) */}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    marginTop: 2,
+                    marginTop: isCrates ? 0 : 2,
+                    paddingTop: isCrates ? 4 : 0,
+                    paddingBottom: isCrates ? 2 : 0,
                     height: 32
                 }}>
                     <svg width="220" height="32" viewBox="0 0 220 32" style={{ overflow: 'visible' }}>
-                        {/* The Track */}
                         <line x1="10" y1="26" x2="210" y2="26" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
                         <line x1="10" y1="29" x2="210" y2="29" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
-                        
-                        {/* Static Stations */}
+
                         {views.map((v, i) => {
-                            const cx = 30 + (i * 40); 
+                            const cx = 30 + (i * 40);
                             const isActive = currentView === v.id;
                             const letter = v.id === 'favorites' ? '★' : v.label[0];
-                            
+
                             return (
-                                <g 
-                                    key={v.id} 
+                                <g
+                                    key={v.id}
                                     onClick={() => { onViewChange(v.id); haptic('light'); }}
                                     style={{ cursor: 'pointer' }}
                                 >
-                                    <circle 
-                                        cx={cx} cy="26" 
-                                        r="7" 
-                                        fill={isActive ? "var(--brand-red)" : "var(--white)"} 
-                                        stroke="var(--black)" 
+                                    <circle
+                                        cx={cx} cy="26"
+                                        r={isCrates ? 6.5 : 7}
+                                        fill={isActive ? "var(--brand-red)" : "var(--white)"}
+                                        stroke="var(--black)"
                                         strokeWidth="1.5"
-                                        style={{ transition: 'fill 0.3s ease' }}
+                                        style={{ transition: 'fill 0.3s ease, r 0.2s ease' }}
                                     />
-                                    <text 
-                                        x={cx} y="26" dy="3" 
-                                        textAnchor="middle" 
-                                        fill={isActive ? "var(--white)" : "var(--black)"} 
-                                        fontSize={v.id === 'favorites' ? "10" : "8"} 
-                                        fontFamily="'Archivo Black', sans-serif" 
+                                    <text
+                                        x={cx} y="26" dy="3"
+                                        textAnchor="middle"
+                                        fill={isActive ? "var(--white)" : "var(--black)"}
+                                        fontSize={v.id === 'favorites' ? "10" : "8"}
+                                        fontFamily="'Archivo Black', sans-serif"
                                         fontWeight="bold"
                                     >
                                         {letter}
@@ -1751,10 +1792,9 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                                 </g>
                             );
                         })}
-                        
-                        {/* The Animated Train Car */}
-                        <g 
-                            style={{ 
+
+                        <g
+                            style={{
                                 transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
                                 transform: `translateX(${30 + (activeIndex * 40) - 30}px)`,
                             }}
