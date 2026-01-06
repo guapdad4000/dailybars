@@ -1602,6 +1602,37 @@ const BottomBar = ({ currentView, streak, user }) => {
 const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse }) => {
     // Determine active index safely
     const activeIndex = Math.max(0, views.findIndex(v => v.id === currentView));
+    const [isCollapsed, setIsCollapsed] = useState(false);
+    const [isHidden, setIsHidden] = useState(false);
+
+    useEffect(() => {
+        let lastScrollY = window.scrollY;
+        const hideOnViews = new Set(['crates']);
+
+        const handleScroll = () => {
+            const y = window.scrollY;
+            setIsCollapsed(y > 24);
+
+            if (hideOnViews.has(currentView)) {
+                const scrollingDown = y > lastScrollY;
+                setIsHidden(scrollingDown && y > 140);
+            } else {
+                setIsHidden(false);
+            }
+
+            lastScrollY = y;
+        };
+
+        window.addEventListener('scroll', handleScroll, { passive: true });
+        handleScroll();
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, [currentView]);
+
+    useEffect(() => {
+        setIsCollapsed(false);
+        setIsHidden(false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [currentView]);
 
     return (
         <header style={{
@@ -1611,7 +1642,11 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
             background: 'url(images/smooth-paper-texture.jpg)',
             backgroundSize: 'cover',
             backgroundPosition: 'center',
-            borderBottom: '2px solid var(--black)'
+            borderBottom: '2px solid var(--black)',
+            transition: 'transform 0.25s ease, box-shadow 0.25s ease, opacity 0.25s ease',
+            transform: `translateY(${isHidden ? '-110%' : '0'}) scale(${isCollapsed ? 0.97 : 1})`,
+            boxShadow: isCollapsed ? '0 6px 16px rgba(0,0,0,0.08)' : 'none',
+            opacity: isHidden ? 0 : 1
         }}>
             {/* Main header - Big Boss Logo */}
             <div style={{
@@ -2203,6 +2238,8 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
         );
     }
     
+    const showAddCaptionCta = !bar.text && bar.audioUrl && !isEditing;
+
     return (
         <article className="animate-slide-up" style={{
             background: 'var(--white)',
@@ -2258,7 +2295,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                     />
                 </div>
             ) : (
-                <div 
+                <div
                     onClick={handleTextClick}
                     className="inline-edit font-serif"
                     style={{
@@ -2267,10 +2304,24 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                         whiteSpace: 'pre-wrap',
                         cursor: 'text',
                         padding: 4,
-                        margin: -4
+                        margin: -4,
+                        border: showAddCaptionCta ? '1px dashed var(--gray)' : 'none',
+                        borderRadius: 6,
+                        background: showAddCaptionCta ? 'rgba(0,0,0,0.02)' : 'transparent'
                     }}
                 >
-                    {bar.text}
+                    {showAddCaptionCta ? (
+                        <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            fontSize: 13,
+                            letterSpacing: '0.05em',
+                            color: 'var(--gray)'
+                        }}>
+                            <Icon name="Edit3" size={14} /> ADD CAPTION TO THIS VOICE NOTE
+                        </span>
+                    ) : bar.text}
                 </div>
             )}
             
