@@ -158,6 +158,39 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
 
     const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
 
+    const spriteLayouts = useMemo(() => ([
+        {
+            padding: { top: 56, right: 36, bottom: 44, left: 48 },
+            rotation: -1.1,
+            translateX: -2
+        },
+        {
+            padding: { top: 58, right: 40, bottom: 44, left: 70 },
+            rotation: -0.2,
+            translateX: -1
+        },
+        {
+            padding: { top: 60, right: 50, bottom: 46, left: 62 },
+            rotation: 1.1,
+            translateX: -4
+        },
+        {
+            padding: { top: 58, right: 36, bottom: 46, left: 50 },
+            rotation: -0.6,
+            translateX: 0
+        },
+        {
+            padding: { top: 60, right: 42, bottom: 46, left: 72 },
+            rotation: 0.8,
+            translateX: 1
+        },
+        {
+            padding: { top: 62, right: 52, bottom: 48, left: 64 },
+            rotation: 1.6,
+            translateX: -3
+        }
+    ]), []);
+
     return (
         <div style={{
             position: 'relative',
@@ -259,15 +292,10 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         const spriteIndex = i % 6;
                         const bgX = (spriteIndex % 3) * 50;
                         const bgY = Math.floor(spriteIndex / 3) * 100;
-                        
-                        const column = spriteIndex % 3;
-                        // Adjust padding to match visual offset of newspapers in sprite sheet
-                        // Column 1 and 2 appear shifted right, so we increase left padding to push text onto the paper
-                        const paddingConfig = {
-                            0: { top: 55, right: 35, bottom: 40, left: 45 },
-                            1: { top: 55, right: 40, bottom: 40, left: 65 }, // Shifted text right
-                            2: { top: 55, right: 50, bottom: 40, left: 55 }  // Shifted text right
-                        }[column];
+                        const layout = spriteLayouts[spriteIndex] || spriteLayouts[0];
+                        const paddingConfig = layout.padding;
+                        const translateX = layout.translateX || 0;
+                        const rotation = (layout.rotation || 0) + (i % 2 === 0 ? -0.35 : 0.35);
 
                         return (
                             <article 
@@ -289,7 +317,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                     minHeight: 320,
                                     position: 'relative',
                                     transition: 'transform 0.2s ease',
-                                    transform: `rotate(${i % 2 === 0 ? -0.5 : 0.5}deg)`,
+                                    transform: `translateX(${translateX}px) rotate(${rotation}deg)`,
                                     cursor: 'pointer'
                                 }}
                             >
