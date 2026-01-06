@@ -1624,8 +1624,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, [currentView]);
 
-    const turnAmount = isTurning ? (turnDirection === 'forward' ? -18 : 18) : 0;
-    const slideAmount = isTurning ? (turnDirection === 'forward' ? -6 : 6) : 0;
+    const slideAmount = isTurning ? (turnDirection === 'forward' ? -10 : 10) : 0;
 
     return (
         <header style={{
@@ -1635,8 +1634,8 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             borderBottom: '2px solid var(--black)',
-            transition: 'transform 0.55s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
-            transform: `perspective(1100px) rotateY(${turnAmount}deg) translateX(${slideAmount}px)`,
+            transition: 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
+            transform: `translateX(${slideAmount}px)`,
             boxShadow: '0 10px 24px rgba(0,0,0,0.08)',
             opacity: isCrates ? 0.96 : 1,
             maxHeight: isCrates ? 120 : 400,
