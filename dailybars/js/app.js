@@ -1169,7 +1169,7 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
             </button>
             
             {/* Modal */}
-            {isOpen && (
+            {isOpen && ReactDOM.createPortal(
                 <div 
                     className="daily-drop-modal animate-fade-in" 
                     onClick={handleClose}
@@ -1259,7 +1259,8 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </>
     );
