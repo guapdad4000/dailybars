@@ -1602,30 +1602,13 @@ const BottomBar = ({ currentView, streak, user }) => {
 
 const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse, archiveQuery, onArchiveSearch }) => {
     const activeIndex = Math.max(0, views.findIndex(v => v.id === currentView));
-    const [isTurning, setIsTurning] = useState(false);
-    const [turnDirection, setTurnDirection] = useState('forward');
-    const previousViewRef = useRef(currentView);
 
     const isArchive = currentView === 'archive';
     const isCrates = currentView === 'crates';
 
     useEffect(() => {
-        const prev = previousViewRef.current;
-        if (prev !== currentView) {
-            const prevIndex = Math.max(0, views.findIndex(v => v.id === prev));
-            setTurnDirection(activeIndex > prevIndex ? 'forward' : 'backward');
-            setIsTurning(true);
-            const timer = setTimeout(() => setIsTurning(false), 550);
-            previousViewRef.current = currentView;
-            return () => clearTimeout(timer);
-        }
-    }, [currentView, activeIndex, views]);
-
-    useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }, [currentView]);
-
-    const slideAmount = isTurning ? (turnDirection === 'forward' ? -10 : 10) : 0;
 
     return (
         <header style={{
@@ -1635,8 +1618,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             borderBottom: '2px solid var(--black)',
-            transition: 'transform 0.45s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
-            transform: `translateX(${slideAmount}px)`,
+            transition: 'box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
             boxShadow: '0 10px 24px rgba(0,0,0,0.08)',
             opacity: isCrates ? 0.96 : 1,
             maxHeight: isCrates ? 120 : 400,
@@ -2685,6 +2667,12 @@ const QuickInput = ({
     useEffect(() => {
         onExpandChange?.(expanded);
     }, [expanded, onExpandChange]);
+
+    useEffect(() => {
+        return () => {
+            onExpandChange?.(false);
+        };
+    }, [onExpandChange]);
     
     const handleTextChange = (e) => {
         setText(e.target.value);
