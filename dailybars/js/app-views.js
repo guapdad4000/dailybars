@@ -817,6 +817,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [beatUrlInput, setBeatUrlInput] = useState('');
     const [videoUrlInput, setVideoUrlInput] = useState('');
     const beatAudioRef = useRef(null);
+    const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null });
     
     // Collaboration state
     const [showCollabModal, setShowCollabModal] = useState(false);
@@ -957,6 +958,27 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             toast?.addToast('GENERATED', 'success');
         }
         setAiLoading(false);
+    };
+
+    const handleWordDoubleTap = useCallback(({ word, position, blockIndex }) => {
+        if (word && word.length >= 2) {
+            setRhymePopup({
+                show: true,
+                word,
+                position,
+                blockIndex
+            });
+        }
+    }, []);
+
+    const handleRhymeSelect = (rhyme) => {
+        setBlocks(prev => prev.map((block, idx) => {
+            if (idx !== rhymePopup.blockIndex) return block;
+            const needsSpace = block.content && !block.content.endsWith(' ');
+            return { ...block, content: `${block.content || ''}${needsSpace ? ' ' : ''}${rhyme}` };
+        }));
+        setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null });
+        toast?.addToast(`ADDED: ${rhyme.toUpperCase()}`, 'success');
     };
 
     const handleCoverUpload = async (e) => {
@@ -1996,7 +2018,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                 <RhymeTextarea
                                     value={block.content}
                                     onChange={(e) => updateBlock(i, e.target.value)}
-                                    placeholder={block.placeholder || 'WRITE YOUR VERSE...'}
+                                    placeholder="WRITE YOUR VERSE..."
+                                    onWordDoubleTap={({ word, position }) => handleWordDoubleTap({ word, position, blockIndex: i })}
                                     className="font-mono rhyme-editor-active"
                                     style={{ width: '100%', minHeight: 100, fontSize: 14, lineHeight: 1.6, overflowAnchor: 'none' }}
                                 />
@@ -2155,6 +2178,15 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     </div>
                 </div>
             </div>
+
+            {rhymePopup.show && (
+                <RhymePopup
+                    word={rhymePopup.word}
+                    position={rhymePopup.position}
+                    onSelect={handleRhymeSelect}
+                    onClose={() => setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null })}
+                />
+            )}
         </div>
     );
 };
