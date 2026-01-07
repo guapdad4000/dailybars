@@ -126,6 +126,9 @@ const ArchiveView = ({ bars, onSelect }) => {
 
 const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     const [isWide, setIsWide] = useState(window.innerWidth > 768);
+    const [showCalendar, setShowCalendar] = useState(false);
+    const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+    const [activeDate, setActiveDate] = useState(() => new Date());
     const featuredArtists = [
         {
             name: 'GUAPDAD 4000',
@@ -157,6 +160,38 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     }, []);
 
     const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
+    const calendarYear = calendarMonth.getFullYear();
+    const calendarMonthIndex = calendarMonth.getMonth();
+    const calendarLabel = calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const daysInMonth = new Date(calendarYear, calendarMonthIndex + 1, 0).getDate();
+    const firstDayOfWeek = new Date(calendarYear, calendarMonthIndex, 1).getDay();
+    const calendarDays = useMemo(() => {
+        const blanks = Array.from({ length: firstDayOfWeek }, () => null);
+        const days = Array.from({ length: daysInMonth }, (_, index) => index + 1);
+        return [...blanks, ...days];
+    }, [firstDayOfWeek, daysInMonth]);
+    const isSameDay = (dateA, dateB) =>
+        dateA.getFullYear() === dateB.getFullYear() &&
+        dateA.getMonth() === dateB.getMonth() &&
+        dateA.getDate() === dateB.getDate();
+    const songsByDay = useMemo(() => {
+        const map = new Map();
+        songs.forEach(song => {
+            const dateValue = song.updated_at || song.created_at;
+            if (!dateValue) return;
+            const dateKey = new Date(dateValue);
+            const key = `${dateKey.getFullYear()}-${dateKey.getMonth()}-${dateKey.getDate()}`;
+            map.set(key, (map.get(key) || 0) + 1);
+        });
+        return map;
+    }, [songs]);
+    const activeSongs = useMemo(() => {
+        return songs.filter(song => {
+            const dateValue = song.updated_at || song.created_at;
+            if (!dateValue) return false;
+            return isSameDay(new Date(dateValue), activeDate);
+        });
+    }, [songs, activeDate]);
 
     const spriteLayouts = useMemo(() => ([
         {
@@ -228,44 +263,332 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
 
-            <button
-                onClick={onCreateSong}
-                className="animate-slide-in"
-                style={{
-                    width: '90%',
-                    maxWidth: 400,
-                    padding: '16px',
-                    background: 'var(--black)',
-                    color: 'var(--electric)',
+            <div style={{
+                width: '90%',
+                maxWidth: 400,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                marginBottom: 40,
+                zIndex: 15,
+                position: 'relative'
+            }}>
+                <button
+                    onClick={onCreateSong}
+                    className="animate-slide-in"
+                    style={{
+                        flex: 1,
+                        padding: '16px',
+                        background: 'var(--black)',
+                        color: 'var(--electric)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
+                        position: 'relative' // Ensure above background
+                    }}
+                >
+                    <div style={{
+                        border: '1px solid var(--electric)',
+                        width: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                    }}>
+                        <Icon name="Plus" size={14} />
+                    </div>
+                    <span className="font-display" style={{ 
+                        fontSize: 12, 
+                        fontWeight: 900,
+                        letterSpacing: '0.05em',
+                        textTransform: 'uppercase' 
+                    }}>
+                        START NEW EDITION
+                    </span>
+                </button>
+                <button
+                    onClick={() => setShowCalendar(true)}
+                    aria-label="Open calendar view"
+                    style={{
+                        width: 54,
+                        height: 54,
+                        background: '#FACC15',
+                        border: '2px solid var(--black)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '4px 4px 0 var(--black)',
+                        position: 'relative'
+                    }}
+                >
+                    <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
+                        <defs>
+                            <linearGradient id="calendar-gold" x1="0" x2="1">
+                                <stop offset="0%" stopColor="#FDE68A" />
+                                <stop offset="100%" stopColor="#F59E0B" />
+                            </linearGradient>
+                        </defs>
+                        <rect x="6" y="10" width="52" height="46" rx="6" fill="url(#calendar-gold)" stroke="#111827" strokeWidth="3" />
+                        <rect x="6" y="18" width="52" height="10" fill="#111827" />
+                        <rect x="14" y="6" width="8" height="10" rx="2" fill="#111827" />
+                        <rect x="42" y="6" width="8" height="10" rx="2" fill="#111827" />
+                        <circle cx="18" cy="36" r="4" fill="#111827" />
+                        <circle cx="32" cy="36" r="4" fill="#111827" />
+                        <circle cx="46" cy="36" r="4" fill="#111827" />
+                        <circle cx="18" cy="48" r="4" fill="#111827" />
+                        <circle cx="32" cy="48" r="4" fill="#111827" />
+                        <path d="M8 30H56" stroke="#111827" strokeWidth="2" />
+                        <path d="M8 42H56" stroke="#111827" strokeWidth="2" />
+                        <path d="M22 30V56" stroke="#111827" strokeWidth="2" />
+                        <path d="M38 30V56" stroke="#111827" strokeWidth="2" />
+                        <path d="M10 14H54" stroke="#FDE68A" strokeWidth="2" />
+                    </svg>
+                </button>
+            </div>
+
+            {showCalendar && (
+                <div style={{
+                    position: 'fixed',
+                    inset: 0,
+                    backgroundImage: `url(${backgroundUrl})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                    zIndex: 120,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 12,
-                    marginBottom: 40,
-                    boxShadow: '0 10px 20px rgba(0,0,0,0.2)',
-                    zIndex: 15,
-                    position: 'relative' // Ensure above background
-                }}
-            >
-                <div style={{
-                    border: '1px solid var(--electric)',
-                    width: 20,
-                    height: 20,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
+                    padding: 20
                 }}>
-                    <Icon name="Plus" size={14} />
+                    <div style={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'rgba(0,0,0,0.35)',
+                        backdropFilter: 'blur(2px)'
+                    }} />
+                    <div style={{
+                        position: 'relative',
+                        width: '100%',
+                        maxWidth: 520,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 16,
+                        zIndex: 2
+                    }}>
+                        <div style={{
+                            position: 'relative',
+                            background: 'rgba(255,255,255,0.9)',
+                            border: '3px solid var(--black)',
+                            boxShadow: '8px 8px 0 var(--black)'
+                        }}>
+                            <svg viewBox="0 0 520 360" width="100%" height="auto" aria-hidden="true">
+                                <defs>
+                                    <linearGradient id="calendar-header" x1="0" x2="1">
+                                        <stop offset="0%" stopColor="#FBBF24" />
+                                        <stop offset="100%" stopColor="#F59E0B" />
+                                    </linearGradient>
+                                    <linearGradient id="calendar-paper" x1="0" x2="0" y1="0" y2="1">
+                                        <stop offset="0%" stopColor="#FFF7D6" />
+                                        <stop offset="100%" stopColor="#FDE68A" />
+                                    </linearGradient>
+                                </defs>
+                                <rect x="10" y="10" width="500" height="340" rx="18" fill="url(#calendar-paper)" stroke="#111827" strokeWidth="4" />
+                                <rect x="10" y="10" width="500" height="70" rx="18" fill="url(#calendar-header)" stroke="#111827" strokeWidth="4" />
+                                <rect x="10" y="70" width="500" height="12" fill="#111827" opacity="0.15" />
+                                <circle cx="52" cy="44" r="10" fill="#111827" />
+                                <circle cx="468" cy="44" r="10" fill="#111827" />
+                                <path d="M70 30H450" stroke="#111827" strokeWidth="3" strokeDasharray="8 6" />
+                                <rect x="36" y="26" width="28" height="36" rx="6" fill="#111827" />
+                                <rect x="456" y="26" width="28" height="36" rx="6" fill="#111827" />
+                                <path d="M46 34H58" stroke="#FBBF24" strokeWidth="2" />
+                                <path d="M466 34H478" stroke="#FBBF24" strokeWidth="2" />
+                                <path d="M36 120H484" stroke="#111827" strokeWidth="2" />
+                                <path d="M36 170H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M36 220H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M36 270H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M36 320H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M108 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M180 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M252 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M324 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M396 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M468 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
+                                <path d="M78 92H170" stroke="#111827" strokeWidth="2" />
+                                <path d="M352 92H450" stroke="#111827" strokeWidth="2" />
+                                <circle cx="260" cy="92" r="16" fill="#111827" />
+                                <circle cx="260" cy="92" r="8" fill="#FBBF24" />
+                                <path d="M82 330C120 312 156 312 194 330" stroke="#111827" strokeWidth="2" fill="none" />
+                                <path d="M326 330C364 312 400 312 438 330" stroke="#111827" strokeWidth="2" fill="none" />
+                                <path d="M26 286L60 250" stroke="#111827" strokeWidth="2" />
+                                <path d="M494 286L460 250" stroke="#111827" strokeWidth="2" />
+                            </svg>
+                            <div style={{
+                                position: 'absolute',
+                                inset: 0,
+                                padding: '20px 28px 24px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12
+                            }}>
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '8px 14px',
+                                    marginTop: 8,
+                                    color: 'var(--black)'
+                                }}>
+                                    <button
+                                        onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}
+                                        style={{
+                                            padding: '4px 8px',
+                                            border: '2px solid var(--black)',
+                                            background: 'var(--white)',
+                                            fontSize: 10,
+                                            fontWeight: 700
+                                        }}
+                                    >
+                                        PREV
+                                    </button>
+                                    <div className="font-display" style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.2em' }}>
+                                        {calendarLabel}
+                                    </div>
+                                    <button
+                                        onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}
+                                        style={{
+                                            padding: '4px 8px',
+                                            border: '2px solid var(--black)',
+                                            background: 'var(--white)',
+                                            fontSize: 10,
+                                            fontWeight: 700
+                                        }}
+                                    >
+                                        NEXT
+                                    </button>
+                                </div>
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(7, 1fr)',
+                                    gap: 6,
+                                    padding: '0 6px'
+                                }}>
+                                    {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+                                        <div key={day} className="font-mono" style={{
+                                            fontSize: 9,
+                                            letterSpacing: '0.1em',
+                                            textAlign: 'center',
+                                            fontWeight: 700
+                                        }}>
+                                            {day}
+                                        </div>
+                                    ))}
+                                    {calendarDays.map((day, index) => {
+                                        if (!day) {
+                                            return <div key={`blank-${index}`} />;
+                                        }
+                                        const dayDate = new Date(calendarYear, calendarMonthIndex, day);
+                                        const dayKey = `${calendarYear}-${calendarMonthIndex}-${day}`;
+                                        const count = songsByDay.get(dayKey) || 0;
+                                        const isActive = isSameDay(dayDate, activeDate);
+                                        return (
+                                            <button
+                                                key={day}
+                                                onClick={() => setActiveDate(dayDate)}
+                                                style={{
+                                                    position: 'relative',
+                                                    padding: '10px 0',
+                                                    border: '2px solid var(--black)',
+                                                    background: isActive ? 'var(--electric)' : 'var(--white)',
+                                                    fontSize: 10,
+                                                    fontWeight: 700
+                                                }}
+                                            >
+                                                {day}
+                                                {count > 0 && (
+                                                    <span style={{
+                                                        position: 'absolute',
+                                                        top: 2,
+                                                        right: 4,
+                                                        width: 14,
+                                                        height: 14,
+                                                        borderRadius: '50%',
+                                                        background: 'var(--black)',
+                                                        color: 'var(--electric)',
+                                                        fontSize: 8,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center'
+                                                    }}>
+                                                        {count}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{
+                            background: 'rgba(255,255,255,0.9)',
+                            border: '3px solid var(--black)',
+                            boxShadow: '6px 6px 0 var(--black)',
+                            padding: 16
+                        }}>
+                            <div className="font-display" style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', marginBottom: 10 }}>
+                                {activeDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                            </div>
+                            {activeSongs.length === 0 ? (
+                                <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>
+                                    NO SONGS LOGGED FOR THIS DAY.
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {activeSongs.map(song => (
+                                        <button
+                                            key={song.id}
+                                            onClick={() => {
+                                                onEditSong(song);
+                                                setShowCalendar(false);
+                                            }}
+                                            style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                padding: '10px 12px',
+                                                border: '2px solid var(--black)',
+                                                background: 'var(--white)',
+                                                fontSize: 11,
+                                                fontWeight: 700
+                                            }}
+                                        >
+                                            <span>{song.title || 'UNTITLED EDITION'}</span>
+                                            <span className="font-mono" style={{ fontSize: 9, color: 'var(--gray)' }}>
+                                                {formatTime(song.updated_at || song.created_at)}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setShowCalendar(false)}
+                            style={{
+                                alignSelf: 'center',
+                                padding: '10px 16px',
+                                border: '2px solid var(--black)',
+                                background: 'var(--black)',
+                                color: 'var(--white)',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                letterSpacing: '0.1em'
+                            }}
+                        >
+                            CLOSE CALENDAR
+                        </button>
+                    </div>
                 </div>
-                <span className="font-display" style={{ 
-                    fontSize: 12, 
-                    fontWeight: 900,
-                    letterSpacing: '0.05em',
-                    textTransform: 'uppercase' 
-                }}>
-                    START NEW EDITION
-                </span>
-            </button>
+            )}
 
             <div style={{
                 width: '100%',
