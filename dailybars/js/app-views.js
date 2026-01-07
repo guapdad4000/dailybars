@@ -805,8 +805,10 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
 
     const [studio, setStudio] = useState(song?.studio || '');
     const [producer, setProducer] = useState(song?.producer || '');
+    const [otherArtists, setOtherArtists] = useState(song?.otherArtists || '');
     const [songKey, setSongKey] = useState(song?.key || '');
     const [bpm, setBpm] = useState(song?.bpm ? String(song?.bpm) : '');
+    const [sessionDetailsOpen, setSessionDetailsOpen] = useState(true);
 
     const [beatUrl, setBeatUrl] = useState(song?.beatUrl || '');
     const [videoUrl, setVideoUrl] = useState(song?.videoUrl || '');
@@ -840,6 +842,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 setCoverImage(updatedSong.cover_image || null);
                 setBeatUrl(updatedSong.beat_url || '');
                 setVideoUrl(updatedSong.video_url || '');
+                setOtherArtists(updatedSong.otherArtists || '');
                 toast?.addToast('TRACK UPDATED BY COLLABORATOR', 'info');
                 haptic('light');
             }
@@ -900,7 +903,20 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
     };
     
-    const addBlock = (type) => { setBlocks([...blocks, { id: generateId(), type, content: '' }]); haptic('medium'); };
+    const addBlock = (type, options = {}) => {
+        setBlocks([
+            ...blocks,
+            {
+                id: generateId(),
+                type,
+                content: options.content ?? '',
+                label: options.label,
+                placeholder: options.placeholder,
+                source: options.source
+            }
+        ]);
+        haptic('medium');
+    };
     const updateBlock = (idx, content) => { const newBlocks = [...blocks]; newBlocks[idx].content = content; setBlocks(newBlocks); };
     const deleteBlock = (idx) => { setBlocks(blocks.filter((_, i) => i !== idx)); };
     
@@ -938,7 +954,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         const result = await callAI(prompts[mode]);
         
         if (result) {
-            setBlocks(prev => [...prev, { id: generateId(), type: 'text', content: result }]);
+            setBlocks(prev => [...prev, { id: generateId(), type: 'text', content: result, source: 'ai' }]);
             toast?.addToast('GENERATED', 'success');
         }
         setAiLoading(false);
@@ -1029,6 +1045,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 videoUrl,
                 studio,
                 producer,
+                otherArtists,
                 key: songKey,
                 bpm: bpm ? parseInt(bpm, 10) : null,
                 updated_by: user?.id // Track who made the update for realtime
@@ -1100,6 +1117,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                         videoUrl,
                         studio,
                         producer,
+                        otherArtists,
                         key: songKey,
                         bpm: bpm ? parseInt(bpm, 10) : null,
                         updated_by: user?.id
@@ -1152,6 +1170,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                             videoUrl,
                             studio,
                             producer,
+                            otherArtists,
                             key: songKey,
                             bpm: bpm ? parseInt(bpm, 10) : null,
                             updated_by: user?.id
@@ -1423,6 +1442,16 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             beatAudioRef.current.loop = true;
         }
     }, [beatUrl]);
+
+    const userBlockOptions = [
+        { type: 'text', icon: 'FileText', label: 'VERSE', placeholder: 'WRITE YOUR VERSE...', tag: 'VERSE' },
+        { type: 'text', icon: 'Music', label: 'HOOK', placeholder: 'WRITE YOUR HOOK...', tag: 'HOOK' },
+        { type: 'text', icon: 'Activity', label: 'BRIDGE', placeholder: 'WRITE YOUR BRIDGE...', tag: 'BRIDGE' },
+        { type: 'heading', icon: 'Type', label: 'TITLE' },
+        { type: 'image', icon: 'Image', label: 'IMG' },
+        { type: 'audio', icon: 'Mic', label: 'AUDIO' },
+        { type: 'divider', icon: 'Minus', label: 'BREAK' }
+    ];
     
     return (
         <div style={{ position: 'fixed', inset: 0, backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', zIndex: 100, display: 'flex', flexDirection: 'column' }}>
@@ -1713,22 +1742,6 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             )}
 
             <header style={{ borderBottom: '2px solid var(--black)', backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover', backgroundPosition: 'center', paddingTop: 'max(60px, calc(env(safe-area-inset-top) + 50px))' }}>
-                {/* Title Input */}
-                <div style={{ padding: '0 16px 12px', background: 'rgba(255,255,255,0.5)' }}>
-                    <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="TRACK TITLE"
-                        className="font-display" style={{ 
-                            width: '100%', 
-                            fontSize: 28, 
-                            fontWeight: 900, 
-                            textTransform: 'uppercase', 
-                            textAlign: 'center',
-                            background: 'transparent',
-                            border: 'none',
-                            outline: 'none'
-                        }} 
-                    />
-                </div>
-                
                 {/* Media Area: Radio (Left) & Video (Right) */}
                 <div style={{ 
                     borderTop: '2px solid var(--black)',
@@ -1847,9 +1860,25 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                         </div>
                     )}
                 </div>
+
+                {/* Title Input */}
+                <div style={{ padding: '12px 16px 12px', background: 'rgba(255,255,255,0.5)', borderTop: '2px solid var(--black)' }}>
+                    <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="TRACK TITLE"
+                        className="font-display" style={{ 
+                            width: '100%', 
+                            fontSize: 28, 
+                            fontWeight: 900, 
+                            textTransform: 'uppercase', 
+                            textAlign: 'center',
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none'
+                        }} 
+                    />
+                </div>
             </header>
             
-            <div className="scrollable" style={{ flex: 1, paddingBottom: 80 }}>
+            <div className="scrollable" style={{ flex: 1, paddingBottom: 220 }}>
                 {/* 1. Cover Art */}
                 <div style={{ padding: 16, borderBottom: '1px solid var(--black)' }}>
                     {coverImage ? (
@@ -1877,92 +1906,71 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
 
                 {/* 1.5 Session Details */}
                 <div style={{ padding: 16, borderBottom: '1px solid var(--black)', background: 'linear-gradient(135deg, rgba(255,255,255,0.9), rgba(244,244,240,0.9))' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+                    <button
+                        onClick={() => setSessionDetailsOpen((prev) => !prev)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left' }}
+                    >
                         <div style={{ width: 32, height: 32, border: '2px solid var(--black)', backgroundImage: 'url(images/paper-texture.jpg)', backgroundSize: 'cover', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '4px 4px 0 var(--black)' }}>
                             <Icon name="NotebookText" size={18} />
                         </div>
-                        <div>
+                        <div style={{ flex: 1 }}>
                             <div className="font-display" style={{ fontSize: 14, letterSpacing: '0.1em' }}>SESSION DETAILS</div>
                             <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>Dial in the credits and cadence</div>
                         </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
-                        <div className="session-input">
-                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>STUDIO</label>
-                            <input
-                                value={studio}
-                                onChange={(e) => setStudio(e.target.value)}
-                                placeholder="E.g. OAKLAND HQ"
-                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
-                            />
+                        <div style={{ width: 28, height: 28, border: '2px solid var(--black)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--white)' }}>
+                            <Icon name={sessionDetailsOpen ? 'ChevronUp' : 'ChevronDown'} size={16} />
                         </div>
-                        <div className="session-input">
-                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>PRODUCER</label>
-                            <input
-                                value={producer}
-                                onChange={(e) => setProducer(e.target.value)}
-                                placeholder="E.g. GUAPDAD"
-                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
-                            />
+                    </button>
+                    {sessionDetailsOpen && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginTop: 12 }}>
+                            <div className="session-input">
+                                <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>STUDIO</label>
+                                <input
+                                    value={studio}
+                                    onChange={(e) => setStudio(e.target.value)}
+                                    placeholder="E.g. OAKLAND HQ"
+                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                                />
+                            </div>
+                            <div className="session-input">
+                                <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>PRODUCER</label>
+                                <input
+                                    value={producer}
+                                    onChange={(e) => setProducer(e.target.value)}
+                                    placeholder="E.g. GUAPDAD"
+                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                                />
+                            </div>
+                            <div className="session-input">
+                                <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>OTHER ARTISTS</label>
+                                <input
+                                    value={otherArtists}
+                                    onChange={(e) => setOtherArtists(e.target.value)}
+                                    placeholder="E.g. FEATURED VOCALS"
+                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                                />
+                            </div>
+                            <div className="session-input">
+                                <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>KEY</label>
+                                <input
+                                    value={songKey}
+                                    onChange={(e) => setSongKey(e.target.value)}
+                                    placeholder="E.g. B MINOR"
+                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                                />
+                            </div>
+                            <div className="session-input">
+                                <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>BPM</label>
+                                <input
+                                    type="number"
+                                    value={bpm}
+                                    onChange={(e) => setBpm(e.target.value)}
+                                    placeholder="E.g. 92"
+                                    style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
+                                />
+                            </div>
                         </div>
-                        <div className="session-input">
-                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>KEY</label>
-                            <input
-                                value={songKey}
-                                onChange={(e) => setSongKey(e.target.value)}
-                                placeholder="E.g. B MINOR"
-                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
-                            />
-                        </div>
-                        <div className="session-input">
-                            <label className="font-mono" style={{ fontSize: 10, letterSpacing: '0.08em', color: 'var(--gray)' }}>BPM</label>
-                            <input
-                                type="number"
-                                value={bpm}
-                                onChange={(e) => setBpm(e.target.value)}
-                                placeholder="E.g. 92"
-                                style={{ width: '100%', padding: '10px 12px', border: '2px solid var(--black)', background: 'var(--white)', fontSize: 12, fontWeight: 700 }}
-                            />
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. Add Block Controls (Moved from Footer to here) */}
-                <div style={{
-                    display: 'flex',
-                    gap: 8,
-                    padding: '12px 16px',
-                    background: 'var(--paper)',
-                    borderBottom: '2px solid var(--black)',
-                    overflowX: 'auto'
-                }}>
-                    {[
-                        { type: 'text', icon: 'FileText', label: 'VERSE' },
-                        { type: 'heading', icon: 'Type', label: 'TITLE' },
-                        { type: 'image', icon: 'Image', label: 'IMG' },
-                        { type: 'audio', icon: 'Mic', label: 'AUDIO' },
-                        { type: 'divider', icon: 'Minus', label: 'BREAK' }
-                    ].map(item => (
-                        <button key={item.type} onClick={() => addBlock(item.type)} style={{
-                            flex: 1,
-                            minWidth: 80,
-                            padding: '10px 12px', 
-                            background: 'var(--white)',
-                            border: '1px solid var(--black)',
-                            display: 'flex', 
-                            flexDirection: 'column',
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            gap: 6, 
-                            fontSize: 9, 
-                            fontWeight: 700, 
-                            letterSpacing: '0.1em',
-                            boxShadow: '2px 2px 0 rgba(0,0,0,0.1)'
-                        }}>
-                            <Icon name={item.icon} size={16} />
-                            {item.label}
-                        </button>
-                    ))}
+                    )}
                 </div>
 
                 {/* 3. Blocks List */}
@@ -1997,13 +2005,23 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                         
                         {block.type === 'text' ? (
                             <div style={{ padding: 16, background: 'var(--white)' }}>
+                                {(block.label || block.source === 'ai') && (
+                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                                        {block.label && (
+                                            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: '0.1em' }}>{block.label}</span>
+                                        )}
+                                        {block.source === 'ai' && (
+                                            <span style={{ fontSize: 8, letterSpacing: '0.1em', background: 'var(--electric)', padding: '2px 6px', border: '1px solid var(--black)' }}>AI DRAFT</span>
+                                        )}
+                                    </div>
+                                )}
                                 <RhymeTextarea
                                     value={block.content}
                                     onChange={(e) => updateBlock(i, e.target.value)}
                                     placeholder="WRITE YOUR VERSE..."
                                     onWordDoubleTap={({ word, position }) => handleWordDoubleTap({ word, position, blockIndex: i })}
                                     className="font-mono rhyme-editor-active"
-                                    style={{ width: '100%', minHeight: 100, fontSize: 14, lineHeight: 1.6 }}
+                                    style={{ width: '100%', minHeight: 100, fontSize: 14, lineHeight: 1.6, overflowAnchor: 'none' }}
                                 />
                             </div>
                         ) : block.type === 'heading' ? (
@@ -2078,38 +2096,87 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 )}
             </div>
             
-            {/* 4. AI Toolbar (Sticky Bottom) - Replaces the old footer */}
+            {/* 4. Input & AI Toolbars (Sticky Bottom) */}
             <div style={{
                 position: 'sticky', bottom: 0, left: 0, right: 0,
-                display: 'flex', 
-                gap: 0, 
-                background: 'var(--black)', 
-                padding: '0',
-                borderTop: '2px solid var(--electric)',
-                paddingBottom: 'max(0px, env(safe-area-inset-bottom))'
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 0
             }}>
-                {[
-                    { id: 'next', label: '✦ NEXT BARS' },
-                    { id: 'hook', label: 'HOOK' },
-                    { id: 'bridge', label: 'BRIDGE' },
-                    { id: 'freestyle', label: 'FREESTYLE' }
-                ].map((item, i) => (
-                    <button key={item.id} onClick={() => handleAI(item.id)} disabled={aiLoading} style={{
-                        flex: 1,
-                        padding: '16px 4px', 
-                        border: 'none',
-                        borderRight: i < 3 ? '1px solid #333' : 'none',
-                        fontSize: 10, 
-                        fontWeight: 900, 
-                        letterSpacing: '0.1em', 
-                        whiteSpace: 'nowrap',
-                        background: 'transparent',
-                        color: aiLoading ? '#666' : 'var(--electric)',
-                        opacity: aiLoading ? 0.5 : 1
-                    }}>
-                        {aiLoading ? '...' : item.label}
-                    </button>
-                ))}
+                <div style={{
+                    background: 'var(--paper)',
+                    borderTop: '2px solid var(--black)',
+                    padding: '10px 12px 12px'
+                }}>
+                    <div className="font-mono" style={{ fontSize: 9, letterSpacing: '0.2em', color: 'var(--gray)', marginBottom: 8 }}>
+                        YOUR INPUT
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, overflowX: 'auto' }}>
+                        {userBlockOptions.map(item => (
+                            <button key={item.label} onClick={() => addBlock(item.type, {
+                                placeholder: item.placeholder,
+                                label: item.tag,
+                                source: item.type === 'text' ? 'user' : undefined
+                            })} style={{
+                                flex: 1,
+                                minWidth: 76,
+                                padding: '10px 12px', 
+                                background: 'var(--white)',
+                                border: '1px solid var(--black)',
+                                display: 'flex', 
+                                flexDirection: 'column',
+                                alignItems: 'center', 
+                                justifyContent: 'center',
+                                gap: 6, 
+                                fontSize: 9, 
+                                fontWeight: 700, 
+                                letterSpacing: '0.1em',
+                                boxShadow: '2px 2px 0 rgba(0,0,0,0.1)'
+                            }}>
+                                <Icon name={item.icon} size={16} />
+                                {item.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0,
+                    background: 'var(--black)', 
+                    padding: '8px 0 0',
+                    borderTop: '2px solid var(--electric)',
+                    paddingBottom: 'max(0px, env(safe-area-inset-bottom))'
+                }}>
+                    <div className="font-mono" style={{ fontSize: 9, letterSpacing: '0.2em', color: 'var(--electric)', padding: '0 12px 6px' }}>
+                        AI ASSIST
+                    </div>
+                    <div style={{ display: 'flex' }}>
+                        {[
+                            { id: 'next', label: '✦ NEXT BARS' },
+                            { id: 'hook', label: 'HOOK' },
+                            { id: 'bridge', label: 'BRIDGE' },
+                            { id: 'freestyle', label: 'FREESTYLE' }
+                        ].map((item, i) => (
+                            <button key={item.id} onClick={() => handleAI(item.id)} disabled={aiLoading} style={{
+                                flex: 1,
+                                padding: '16px 4px', 
+                                border: 'none',
+                                borderRight: i < 3 ? '1px solid #333' : 'none',
+                                fontSize: 10, 
+                                fontWeight: 900, 
+                                letterSpacing: '0.1em', 
+                                whiteSpace: 'nowrap',
+                                background: 'transparent',
+                                color: aiLoading ? '#666' : 'var(--electric)',
+                                opacity: aiLoading ? 0.5 : 1
+                            }}>
+                                {aiLoading ? '...' : item.label}
+                            </button>
+                        ))}
+                    </div>
+                </div>
             </div>
 
             {rhymePopup.show && (
@@ -4633,6 +4700,7 @@ const App = () => {
                 username: user.username,
                 studio: '',
                 producer: '',
+                otherArtists: '',
                 key: '',
                 bpm: null
             });
@@ -4655,6 +4723,7 @@ const App = () => {
                 username: user.username,
                 studio: songData.studio || '',
                 producer: songData.producer || '',
+                otherArtists: songData.otherArtists || '',
                 key: songData.key || '',
                 bpm: songData.bpm ?? null
             });
