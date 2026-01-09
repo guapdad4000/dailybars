@@ -36,6 +36,7 @@ const toSnakeCase = (obj) => {
     if (!obj || typeof obj !== 'object') return obj;
     const mapped = {};
     for (const [key, value] of Object.entries(obj)) {
+        if (key === 'otherArtists') continue;
         const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
         // Special mappings
         if (key === 'imageUrl') mapped['image_url'] = value;
