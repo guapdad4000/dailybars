@@ -1141,6 +1141,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [videoUrlInput, setVideoUrlInput] = useState('');
     const beatAudioRef = useRef(null);
     const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null });
+    const [recordingBlockIndex, setRecordingBlockIndex] = useState(null);
+    const { isRecording, audioUrl, duration, error: recordError, startRecording, stopRecording, clearRecording, getBase64 } = useVoiceRecorder(30000);
     
     // Collaboration state
     const [showCollabModal, setShowCollabModal] = useState(false);
@@ -1353,6 +1355,39 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             console.error('Audio upload failed', err);
             toast?.addToast('UPLOAD FAILED', 'error');
         }
+    };
+
+    const handleStartBlockRecording = async (idx) => {
+        if (isRecording) return;
+        clearRecording();
+        setRecordingBlockIndex(idx);
+        await startRecording();
+        haptic('medium');
+    };
+
+    const handleStopBlockRecording = () => {
+        if (isRecording) {
+            stopRecording();
+        }
+    };
+
+    const handleSaveBlockRecording = async (idx) => {
+        if (!audioUrl || recordingBlockIndex !== idx) return;
+        try {
+            const base64 = await getBase64();
+            updateBlock(idx, base64);
+            clearRecording();
+            setRecordingBlockIndex(null);
+            haptic('success');
+            toast?.addToast('VOICE NOTE ADDED', 'success');
+        } catch (err) {
+            toast?.addToast('SAVE FAILED', 'error');
+        }
+    };
+
+    const handleDiscardBlockRecording = () => {
+        clearRecording();
+        setRecordingBlockIndex(null);
     };
 
     const handleSave = async () => {
@@ -2379,32 +2414,126 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                         ) : (
                                             <audio src={block.content} controls style={{ width: '100%' }} />
                                         )}
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                            <label style={{
+                                                alignSelf: 'flex-start',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: 6,
+                                                padding: '6px 10px',
+                                                border: '1px solid var(--black)',
+                                                background: 'transparent',
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.05em',
+                                                cursor: 'pointer'
+                                            }}>
+                                                <Icon name="RefreshCw" size={12} /> REPLACE CLIP
+                                                <input type="file" accept="audio/*" onChange={(e) => handleBlockAudioUpload(i, e)} style={{ display: 'none' }} />
+                                            </label>
+                                            <button
+                                                onClick={() => handleStartBlockRecording(i)}
+                                                disabled={isRecording && recordingBlockIndex !== i}
+                                                style={{
+                                                    alignSelf: 'flex-start',
+                                                    display: 'inline-flex',
+                                                    alignItems: 'center',
+                                                    gap: 6,
+                                                    padding: '6px 10px',
+                                                    border: '1px solid var(--black)',
+                                                    background: 'transparent',
+                                                    fontSize: 10,
+                                                    fontWeight: 700,
+                                                    letterSpacing: '0.05em',
+                                                    cursor: isRecording && recordingBlockIndex !== i ? 'not-allowed' : 'pointer',
+                                                    opacity: isRecording && recordingBlockIndex !== i ? 0.5 : 1
+                                                }}
+                                            >
+                                                <Icon name="Mic" size={12} /> RECORD NEW
+                                            </button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <button
+                                            onClick={() => handleStartBlockRecording(i)}
+                                            disabled={isRecording && recordingBlockIndex !== i}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                height: 56, border: '2px solid #EF4444',
+                                                cursor: isRecording && recordingBlockIndex !== i ? 'not-allowed' : 'pointer', gap: 8,
+                                                background: 'transparent',
+                                                fontSize: 11,
+                                                fontWeight: 700,
+                                                letterSpacing: '0.1em',
+                                                color: '#EF4444',
+                                                opacity: isRecording && recordingBlockIndex !== i ? 0.5 : 1
+                                            }}
+                                        >
+                                            <Icon name="Mic" size={16} /> RECORD VOICE NOTE
+                                        </button>
                                         <label style={{
-                                            alignSelf: 'flex-start',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: 6,
-                                            padding: '6px 10px',
-                                            border: '1px solid var(--black)',
-                                            background: 'transparent',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            height: 56, border: '1px dashed var(--gray)',
+                                            cursor: 'pointer', gap: 8,
                                             fontSize: 10,
-                                            fontWeight: 700,
-                                            letterSpacing: '0.05em',
-                                            cursor: 'pointer'
+                                            letterSpacing: '0.1em'
                                         }}>
-                                            <Icon name="RefreshCw" size={12} /> REPLACE CLIP
+                                            <Icon name="Upload" size={14} /> UPLOAD AUDIO
                                             <input type="file" accept="audio/*" onChange={(e) => handleBlockAudioUpload(i, e)} style={{ display: 'none' }} />
                                         </label>
                                     </div>
-                                ) : (
-                                    <label style={{
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                        height: 80, border: '1px dashed var(--gray)',
-                                        cursor: 'pointer', gap: 8
-                                    }}>
-                                        <Icon name="Mic" size={16} /> ADD VOICE NOTE
-                                        <input type="file" accept="audio/*" onChange={(e) => handleBlockAudioUpload(i, e)} style={{ display: 'none' }} />
-                                    </label>
+                                )}
+                                {recordingBlockIndex === i && (isRecording || audioUrl || recordError) && (
+                                    <div style={{ marginTop: 12, padding: 12, border: '1px solid var(--black)', background: 'var(--paper)' }}>
+                                        {isRecording ? (
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                    <span className="animate-pulse" style={{ width: 8, height: 8, background: '#EF4444', borderRadius: '50%' }} />
+                                                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.15em', color: '#EF4444' }}>REC</span>
+                                                </div>
+                                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12 }}>
+                                                    {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
+                                                </span>
+                                                <button onClick={handleStopBlockRecording} style={{
+                                                    padding: '6px 10px', border: '2px solid #EF4444', background: 'transparent',
+                                                    fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: '#EF4444'
+                                                }}>
+                                                    STOP
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                {audioUrl && (
+                                                    window.VinylAudioPlayer ? (
+                                                        <window.VinylAudioPlayer src={audioUrl} compact={true} />
+                                                    ) : (
+                                                        <audio src={audioUrl} controls style={{ width: '100%' }} />
+                                                    )
+                                                )}
+                                                <div style={{ display: 'flex', gap: 8 }}>
+                                                    <button onClick={() => handleSaveBlockRecording(i)} style={{
+                                                        flex: 1, padding: '8px 10px', background: 'var(--brand-green)',
+                                                        color: 'var(--white)', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+                                                        border: 'none'
+                                                    }}>
+                                                        SAVE
+                                                    </button>
+                                                    <button onClick={handleDiscardBlockRecording} style={{
+                                                        flex: 1, padding: '8px 10px', border: '2px solid var(--black)',
+                                                        fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', background: 'transparent'
+                                                    }}>
+                                                        DISCARD
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+                                        {recordError && (
+                                            <div style={{ marginTop: 8, fontSize: 10, color: '#EF4444', textAlign: 'center' }}>
+                                                {recordError} - ENABLE MICROPHONE ACCESS
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         ) : (
