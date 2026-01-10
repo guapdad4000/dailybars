@@ -475,16 +475,25 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         const blockSize = Math.floor(rawData.length / samples);
         const waves = [];
         
+        let maxAmp = 0;
+        
+        // First pass: Find peaks and maximum amplitude
         for (let i = 0; i < samples; i++) {
             let sum = 0;
+            // Use RMS (Root Mean Square) for better loudness representation
             for (let j = 0; j < blockSize; j++) {
-                sum += Math.abs(rawData[i * blockSize + j]);
+                sum += rawData[i * blockSize + j] * rawData[i * blockSize + j];
             }
-            const average = sum / blockSize;
-            waves.push(Math.min(100, average * 200)); // Normalize to 0-100
+            const rms = Math.sqrt(sum / blockSize);
+            waves.push(rms);
+            if (rms > maxAmp) maxAmp = rms;
         }
         
-        return waves;
+        // Second pass: Normalize to 0-100 scale based on max amplitude
+        // If maxAmp is very small (silence), normalize against a threshold to avoid noise amplification
+        const normalizeFactor = maxAmp > 0.01 ? (1 / maxAmp) : 100;
+        
+        return waves.map(amp => Math.min(100, Math.max(5, amp * normalizeFactor * 100)));
     };
 
     const startSession = () => {
@@ -1765,7 +1774,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         borderRadius: 2,
                                         transition: 'all 0.3s',
                                         background: (isPlaying || isScrubbing) ? '#ffd700' : 'black',
-                                        height: (isPlaying || isScrubbing) ? `${Math.max(4, Math.min(100, h * (1 + Math.random() * 0.1)))}%` : `${Math.max(4, h)}%`,
+                                        height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
                                         opacity: 1
                                     }}
                                 />
