@@ -1603,14 +1603,20 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 position: 'absolute',
                                 top: 0,
                                 left: 0,
-                                fontSize: 10,
+                                fontSize: 14,
                                 fontWeight: 900,
                                 color: '#ff1744',
                                 zIndex: 20,
-                                background: 'rgba(255,255,255,0.8)',
-                                padding: '2px 4px',
-                                borderRadius: 4,
-                                pointerEvents: 'none'
+                                background: 'rgba(255,255,255,0.9)',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                pointerEvents: 'none',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                                letterSpacing: '-0.02em',
+                                maxWidth: '90%',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
                             }}>
                                 {beat}
                             </div>
@@ -1744,7 +1750,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
                         <div style={{ 
                             flex: 1, 
-                            height: 64, 
+                            height: 80, 
                             display: 'flex', 
                             alignItems: 'center', 
                             gap: 1, 
@@ -1758,9 +1764,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         flex: 1, 
                                         borderRadius: 2,
                                         transition: 'all 0.3s',
-                                        background: (isPlaying || isScrubbing) ? 'var(--electric)' : 'var(--gray-light)',
+                                        background: (isPlaying || isScrubbing) ? '#ffd700' : 'black',
                                         height: (isPlaying || isScrubbing) ? `${Math.max(4, Math.min(100, h * (1 + Math.random() * 0.1)))}%` : `${Math.max(4, h)}%`,
-                                        opacity: 0.5 + (layer.volume / 100) * 0.5
+                                        opacity: 1
                                     }}
                                 />
                             ))}
