@@ -297,8 +297,46 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Request microphone access and start recording
     const startRecording = async () => {
         try {
+            // CRITICAL FOR iOS: Start beat playback IMMEDIATELY in user gesture
+            // BEFORE any async operations like getUserMedia
+            // This ensures audio starts within the user tap context
+            const hasBeatToPlay = beatAudioBuffer.current && !beatMuted;
+            let beatStarted = false;
+            
+            if (hasBeatToPlay) {
+                console.log('[ScratchLab] Starting beat IMMEDIATELY in user gesture...');
+                try {
+                    // Ensure audio context is ready
+                    if (!audioContext.current) {
+                        audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                        masterGainNode.current = audioContext.current.createGain();
+                        masterGainNode.current.connect(audioContext.current.destination);
+                    }
+                    if (audioContext.current.state === 'suspended') {
+                        await audioContext.current.resume();
+                    }
+                    
+                    // Start beat NOW before getUserMedia breaks the gesture chain
+                    const beatSource = audioContext.current.createBufferSource();
+                    beatSource.buffer = beatAudioBuffer.current;
+                    beatSource.loop = true;
+                    
+                    const beatGain = audioContext.current.createGain();
+                    beatGain.gain.value = 0.7;
+                    
+                    beatSource.connect(beatGain);
+                    beatGain.connect(audioContext.current.destination);
+                    beatSource.start(0);
+                    beatSourceNode.current = { source: beatSource, gainNode: beatGain };
+                    beatStarted = true;
+                    console.log('[ScratchLab] Beat started BEFORE getUserMedia!');
+                } catch (beatErr) {
+                    console.error('[ScratchLab] Failed to start beat early:', beatErr);
+                }
+            }
+            
             // Resume audio context if suspended (required for iOS/Safari)
-            if (audioContext.current.state === 'suspended') {
+            if (audioContext.current && audioContext.current.state === 'suspended') {
                 await audioContext.current.resume();
             }
             
@@ -495,8 +533,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             mediaRecorder.current.start(timeslice);
             setIsRecording(true);
             
-            // Play beat while recording if loaded
-            if (beatAudioBuffer.current) {
+            // Play beat while recording if loaded (only if not already started)
+            if (beatAudioBuffer.current && !beatStarted) {
+                console.log('[ScratchLab] Beat not started early, starting now...');
                 playBeatDuringRecording();
             }
             
