@@ -297,25 +297,45 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Request microphone access and start recording
     const startRecording = async () => {
         try {
-            // CRITICAL FOR iOS: Start beat playback IMMEDIATELY in user gesture
+            // CRITICAL FOR iOS: Unlock audio IMMEDIATELY in user gesture
             // BEFORE any async operations like getUserMedia
-            // This ensures audio starts within the user tap context
+            // This ensures audio is unlocked within the user tap context
+            // Must happen even for acapella-only recording (no beat)
+            
+            console.log('[ScratchLab] Unlocking audio in user gesture...');
+            
+            // Ensure audio context is ready - ALWAYS do this in gesture
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
+                console.log('[ScratchLab] Audio context created in gesture');
+            }
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+                console.log('[ScratchLab] Audio context resumed in gesture');
+            }
+            
+            // Play a silent buffer to fully unlock iOS audio
+            // This is critical for acapella playback to work later
+            try {
+                const silentBuffer = audioContext.current.createBuffer(1, 1, 22050);
+                const silentSource = audioContext.current.createBufferSource();
+                silentSource.buffer = silentBuffer;
+                silentSource.connect(audioContext.current.destination);
+                silentSource.start(0);
+                console.log('[ScratchLab] Silent unlock buffer played');
+            } catch (e) {
+                console.warn('[ScratchLab] Silent unlock failed:', e);
+            }
+            
+            // Now start beat if loaded
             const hasBeatToPlay = beatAudioBuffer.current && !beatMuted;
             let beatStarted = false;
             
             if (hasBeatToPlay) {
-                console.log('[ScratchLab] Starting beat IMMEDIATELY in user gesture...');
+                console.log('[ScratchLab] Starting beat in user gesture...');
                 try {
-                    // Ensure audio context is ready
-                    if (!audioContext.current) {
-                        audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
-                        masterGainNode.current = audioContext.current.createGain();
-                        masterGainNode.current.connect(audioContext.current.destination);
-                    }
-                    if (audioContext.current.state === 'suspended') {
-                        await audioContext.current.resume();
-                    }
-                    
                     // Start beat NOW before getUserMedia breaks the gesture chain
                     const beatSource = audioContext.current.createBufferSource();
                     beatSource.buffer = beatAudioBuffer.current;
@@ -335,10 +355,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 }
             }
             
-            // Resume audio context if suspended (required for iOS/Safari)
-            if (audioContext.current && audioContext.current.state === 'suspended') {
-                await audioContext.current.resume();
-            }
+            // Mark audio as unlocked for later playback
+            audioUnlocked.current = true;
+            setAudioReady(true);
             
             // Mobile-optimized constraints - Safari/iOS needs simpler constraints
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);

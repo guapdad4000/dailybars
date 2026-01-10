@@ -4,7 +4,7 @@
 // ============================================================================
 
 const CACHE_NAME = 'daily-bars-v27';
-const CACHE_VERSION = 30;
+const CACHE_VERSION = 31;
 
 const urlsToCache = [
   '/',
