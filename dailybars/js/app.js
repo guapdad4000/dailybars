@@ -1618,6 +1618,8 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
 
     const isArchive = currentView === 'archive';
     const isCrates = currentView === 'crates';
+    const isScratchLab = currentView === 'scratchlab';
+    const isMinimized = isCrates || isScratchLab;
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1633,11 +1635,11 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
             borderBottom: '2px solid var(--black)',
             transition: 'box-shadow 0.3s ease, opacity 0.3s ease, max-height 0.4s ease',
             boxShadow: '0 10px 24px rgba(0,0,0,0.08)',
-            opacity: isCrates ? 0.96 : 1,
-            maxHeight: isCrates ? 120 : 400,
+            opacity: isMinimized ? 0.96 : 1,
+            maxHeight: isMinimized ? 120 : 400,
             overflow: 'hidden'
         }}>
-            {!isCrates && (
+            {!isMinimized && (
                 <div style={{
                     display: 'flex',
                     justifyContent: 'center',
@@ -1655,11 +1657,11 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: isCrates ? '6px 12px 10px' : '0 16px 12px',
+                padding: isMinimized ? '6px 12px 10px' : '0 16px 12px',
                 gap: 6,
-                background: isCrates ? 'rgba(255,255,255,0.9)' : 'transparent'
+                background: isMinimized ? 'rgba(255,255,255,0.9)' : 'transparent'
             }}>
-                {!isCrates && (
+                {!isMinimized && (
                     <div style={{
                         position: 'absolute',
                         bottom: 8,
@@ -1670,7 +1672,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                     </div>
                 )}
 
-                {!isArchive && !isCrates && (
+                {!isArchive && !isMinimized && (
                     <div style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -1746,19 +1748,19 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                     display: 'flex',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    marginTop: isCrates ? 0 : 2,
-                    paddingTop: isCrates ? 4 : 0,
-                    paddingBottom: isCrates ? 2 : 0,
+                    marginTop: isMinimized ? 0 : 2,
+                    paddingTop: isMinimized ? 4 : 0,
+                    paddingBottom: isMinimized ? 2 : 0,
                     height: 32
                 }}>
-                    <svg width="220" height="32" viewBox="0 0 220 32" style={{ overflow: 'visible' }}>
-                        <line x1="10" y1="26" x2="210" y2="26" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
-                        <line x1="10" y1="29" x2="210" y2="29" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
+                    <svg width="260" height="32" viewBox="0 0 260 32" style={{ overflow: 'visible' }}>
+                        <line x1="10" y1="26" x2="250" y2="26" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
+                        <line x1="10" y1="29" x2="250" y2="29" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
 
                         {views.map((v, i) => {
                             const cx = 30 + (i * 40);
                             const isActive = currentView === v.id;
-                            const letter = v.id === 'favorites' ? '★' : v.label[0];
+                            const letter = v.id === 'favorites' ? '★' : v.id === 'scratchlab' ? 'S' : v.label[0];
 
                             return (
                                 <g
@@ -1768,7 +1770,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                                 >
                                     <circle
                                         cx={cx} cy="26"
-                                        r={isCrates ? 6.5 : 7}
+                                        r={isMinimized ? 6.5 : 7}
                                         fill={isActive ? "var(--brand-red)" : "var(--white)"}
                                         stroke="var(--black)"
                                         strokeWidth="1.5"

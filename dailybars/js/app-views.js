@@ -4518,6 +4518,7 @@ const App = () => {
     const [crateModalBar, setCrateModalBar] = useState(null);
     const [showXPStore, setShowXPStore] = useState(false);
     const [levelUpModal, setLevelUpModal] = useState(null); // Level number to show
+    const [isScratchLabScrubbing, setIsScratchLabScrubbing] = useState(false); // Disable swipe during scrubbing
     const [hasPremium, setHasPremium] = useState(false);
     const [showPremiumPrompt, setShowPremiumPrompt] = useState(false);
     const [premiumMessage, setPremiumMessage] = useState('');
@@ -5277,7 +5278,7 @@ const App = () => {
     return (
         <ToastProvider>
             <div style={{ minHeight: '100vh', paddingBottom: 40, display: 'flex', flexDirection: 'column' }}
-                {...(!isInputExpanded ? swipeHandlers : {})}
+                {...(!isInputExpanded && !isScratchLabScrubbing ? swipeHandlers : {})}
                 className="swipe-container"
             >
                 <Header
@@ -5327,7 +5328,11 @@ const App = () => {
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                     {view === 'scratchlab' && window.ScratchLabView && (
                         hasPremium || user?.username?.toLowerCase() === 'guap' ? (
-                            <window.ScratchLabView user={user} isPremium={hasPremium} />
+                            <window.ScratchLabView 
+                                user={user} 
+                                isPremium={hasPremium} 
+                                onScrubStateChange={setIsScratchLabScrubbing}
+                            />
                         ) : (
                             <div style={{ 
                                 display: 'flex', 
