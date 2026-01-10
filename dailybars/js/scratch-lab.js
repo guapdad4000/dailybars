@@ -127,8 +127,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [showLoadModal, setShowLoadModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Initialize Audio Context
-    useEffect(() => {
+    // Helper to generate IDs
+    const generateId = () => Math.random().toString(36).substring(2, 9);
         if (!audioContext.current) {
             audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
             masterGainNode.current = audioContext.current.createGain();
@@ -990,9 +990,11 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // SUPABASE INTEGRATION
     // ============================================================================
     
-    // Upload audio blob to Supabase Storage
+    // Upload audio blob to Supabase Storage (Mocked for LocalStorage fallback)
     const uploadAudioToStorage = async (audioBlob, filename) => {
         try {
+            // Try Supabase first (will fail if bucket missing)
+            /*
             const { data, error } = await window.supabase.storage
                 .from('scratch-lab')
                 .upload(`${user.username}/${filename}`, audioBlob, {
@@ -1002,19 +1004,29 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             if (error) throw error;
             
-            // Get public URL
             const { data: urlData } = window.supabase.storage
                 .from('scratch-lab')
                 .getPublicUrl(`${user.username}/${filename}`);
             
             return urlData.publicUrl;
+            */
+           
+            // LocalStorage Fallback: Convert to Base64
+            // Note: This is heavy for localStorage but works for small clips in dev
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(audioBlob);
+            });
+
         } catch (err) {
             console.error('Error uploading audio:', err);
             throw err;
         }
     };
     
-    // Save session to Supabase
+    // Save session to Supabase (Mocked for LocalStorage fallback)
     const saveSessionToSupabase = async () => {
         if (layers.length === 0) {
             alert('No layers to save!');
@@ -1024,20 +1036,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setIsSaving(true);
         
         try {
+            const sessionId = generateId(); // Use local ID generator
+            
             // 1. Create session record
             const sessionData = {
+                id: sessionId,
                 username: user.username,
                 user_id: user.id,
                 title: sessionTitle,
                 beat_url: beat || null,
-                beat_title: beatFile?.name || null
+                beat_title: beatFile?.name || null,
+                created_at: new Date().toISOString()
             };
             
+            /*
             const { data: session, error: sessionError } = await api.create('scratch_sessions', sessionData);
-            
             if (sessionError) throw sessionError;
+            */
             
             // 2. Upload each layer and save metadata
+            const savedLayers = [];
+            
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
                 
@@ -1045,13 +1064,14 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 const response = await fetch(layer.audioUrl);
                 const audioBlob = await response.blob();
                 
-                // Upload audio file
-                const filename = `${session.id}_layer_${i + 1}_${Date.now()}.webm`;
+                // Upload audio file (returns Base64 in fallback)
+                const filename = `${sessionId}_layer_${i + 1}_${Date.now()}.webm`;
                 const audioUrl = await uploadAudioToStorage(audioBlob, filename);
                 
                 // Save layer metadata
                 const layerData = {
-                    session_id: session.id,
+                    id: generateId(),
+                    session_id: sessionId,
                     layer_number: layers.length - i, // Newest = 1
                     audio_url: audioUrl,
                     waveform_data: layer.waves,
@@ -1059,13 +1079,24 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     pan: layer.pan || 0,
                     muted: layer.muted || false,
                     solo: layer.solo || false,
-                    duration_seconds: layer.audioBuffer.duration
+                    duration_seconds: layer.audioBuffer.duration,
+                    created_at: new Date().toISOString()
                 };
                 
-                await api.create('scratch_layers', layerData);
+                savedLayers.push(layerData);
+                // await api.create('scratch_layers', layerData);
             }
             
-            alert(`Session "${sessionTitle}" saved successfully!`);
+            // LOCAL STORAGE SAVE
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            localSessions.push(sessionData);
+            localStorage.setItem('scratch_sessions_local', JSON.stringify(localSessions));
+            
+            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
+            localLayers.push(...savedLayers);
+            localStorage.setItem('scratch_layers_local', JSON.stringify(localLayers));
+            
+            alert(`Session "${sessionTitle}" saved successfully! (Local Storage)`);
             setShowSaveModal(false);
             
             // Reload saved sessions list
@@ -1079,11 +1110,17 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
     
-    // Load saved sessions from Supabase
+    // Load saved sessions from Supabase (Mocked for LocalStorage fallback)
     const loadSavedSessions = async () => {
         try {
+            // Local Storage Load
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            const userSessions = localSessions.filter(s => s.username === user.username);
+            
+            /*
             const response = await api.get('scratch_sessions', { limit: 100 });
             const userSessions = response.data.filter(s => s.username === user.username);
+            */
             
             // Sort by most recent
             userSessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1094,14 +1131,19 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
     
-    // Load a specific session
+    // Load a specific session (Mocked for LocalStorage fallback)
     const loadSession = async (sessionId) => {
         try {
             setShowLoadModal(false);
             
             // Get session metadata
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            const session = localSessions.find(s => s.id === sessionId);
+            
+            /*
             const sessionResponse = await api.get('scratch_sessions', { limit: 1000 });
             const session = sessionResponse.data.find(s => s.id === sessionId);
+            */
             
             if (!session) {
                 alert('Session not found');
@@ -1109,8 +1151,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             }
             
             // Get layers for this session
+            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
+            const sessionLayers = localLayers.filter(l => l.session_id === sessionId);
+            
+            /*
             const layersResponse = await api.get('scratch_layers', { limit: 1000 });
             const sessionLayers = layersResponse.data.filter(l => l.session_id === sessionId);
+            */
             
             // Sort by layer number
             sessionLayers.sort((a, b) => b.layer_number - a.layer_number);
@@ -1120,7 +1167,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             for (const layerData of sessionLayers) {
                 try {
-                    // Fetch audio file
+                    // Fetch audio file (works with Base64 data URLs too)
                     const audioResponse = await fetch(layerData.audio_url);
                     const audioBlob = await audioResponse.blob();
                     const audioUrl = URL.createObjectURL(audioBlob);
