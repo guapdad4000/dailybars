@@ -126,6 +126,12 @@ const api = {
             const { id, created_at, updated_at, ...cleanData } = data;
             const snakeData = toSnakeCase(cleanData);
             
+            // HOTFIX: Ensure we never send user_id to songs table (it uses username)
+            if (table === 'songs' && snakeData.user_id) {
+                console.warn('⚠️ Stripping user_id from songs insert');
+                delete snakeData.user_id;
+            }
+            
             const { data: result, error } = await supabase
                 .from(table)
                 .insert(snakeData)
@@ -152,6 +158,11 @@ const api = {
         try {
             const { created_at, updated_at, ...cleanData } = data;
             const snakeData = toSnakeCase(cleanData);
+            
+            // HOTFIX: Ensure we never send user_id to songs table
+            if (table === 'songs' && snakeData.user_id) {
+                delete snakeData.user_id;
+            }
             
             const { data: result, error } = await supabase
                 .from(table)
@@ -1329,6 +1340,7 @@ const BottomBar = ({ currentView, streak, user }) => {
             case 'archive': return '#4A2C2A';
             case 'favorites': return 'var(--electric)';
             case 'crates': return '#1E3A8A';
+            case 'scratchlab': return '#7C3AED';
             default: return 'var(--black)';
         }
     };

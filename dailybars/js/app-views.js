@@ -5053,6 +5053,7 @@ const App = () => {
         { id: 'archive', label: 'ARCHIVE', subtitle: 'FLYER GRID' },
         { id: 'favorites', label: 'FAVORITES', subtitle: 'STARRED' },
         { id: 'crates', label: 'CRATES', subtitle: 'TRACKS' },
+        { id: 'scratchlab', label: 'SCRATCH LAB', subtitle: 'VOCAL STUDIO' },
         { id: 'syndicate', label: 'SYNDICATE', subtitle: 'COMMUNITY' }
     ];
     
@@ -5149,7 +5150,6 @@ const App = () => {
                 status: 'draft',
                 isFavorite: false,
                 coverImage: null,
-                userId: user.id || null,
                 username: user.username,
                 studio: '',
                 producer: '',
@@ -5173,7 +5173,6 @@ const App = () => {
                 coverImage: songData.coverImage,
                 beatUrl: songData.beatUrl,
                 videoUrl: songData.videoUrl,
-                userId: user.id || null,
                 username: user.username,
                 studio: songData.studio || '',
                 producer: songData.producer || '',
@@ -5326,6 +5325,81 @@ const App = () => {
                     {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
+                    {view === 'scratchlab' && window.ScratchLabView && (
+                        hasPremium || user?.username?.toLowerCase() === 'guap' ? (
+                            <window.ScratchLabView user={user} isPremium={hasPremium} />
+                        ) : (
+                            <div style={{ 
+                                display: 'flex', 
+                                flexDirection: 'column',
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                minHeight: '60vh',
+                                padding: 40,
+                                textAlign: 'center'
+                            }}>
+                                <div style={{
+                                    width: 80,
+                                    height: 80,
+                                    borderRadius: '50%',
+                                    background: 'linear-gradient(135deg, #7C3AED 0%, #A78BFA 100%)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    marginBottom: 24,
+                                    boxShadow: '0 20px 40px rgba(124, 58, 237, 0.3)'
+                                }}>
+                                    <Icon name="Lock" size={36} color="white" />
+                                </div>
+                                <h2 style={{
+                                    fontSize: 20,
+                                    fontFamily: 'Playfair Display, serif',
+                                    fontWeight: 900,
+                                    fontStyle: 'italic',
+                                    marginBottom: 12,
+                                    letterSpacing: '-0.01em'
+                                }}>SCRATCH LAB</h2>
+                                <p style={{
+                                    fontSize: 11,
+                                    color: 'var(--gray)',
+                                    letterSpacing: '0.1em',
+                                    textTransform: 'uppercase',
+                                    marginBottom: 32,
+                                    lineHeight: 1.6,
+                                    maxWidth: 400
+                                }}>
+                                    Premium vocal studio for layering tracks and recording over beats. VIP/Pro access only.
+                                </p>
+                                <button
+                                    onClick={() => requestPremium('Unlock Scratch Lab with Premium to record unlimited vocal layers.')}
+                                    style={{
+                                        background: 'linear-gradient(135deg, #7C3AED 0%, #A78BFA 100%)',
+                                        color: 'white',
+                                        border: 'none',
+                                        padding: '16px 32px',
+                                        fontSize: 10,
+                                        fontWeight: 900,
+                                        letterSpacing: '0.15em',
+                                        textTransform: 'uppercase',
+                                        borderRadius: 12,
+                                        cursor: 'pointer',
+                                        boxShadow: '0 10px 20px rgba(124, 58, 237, 0.3)',
+                                        transition: 'transform 0.2s, box-shadow 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.target.style.transform = 'translateY(-2px)';
+                                        e.target.style.boxShadow = '0 15px 30px rgba(124, 58, 237, 0.4)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.target.style.transform = 'translateY(0)';
+                                        e.target.style.boxShadow = '0 10px 20px rgba(124, 58, 237, 0.3)';
+                                    }}
+                                >
+                                    Unlock Premium
+                                </button>
+                            </div>
+                        )
+                    )}
                 </main>
 
             {showXPStore && (

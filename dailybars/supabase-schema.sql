@@ -300,5 +300,81 @@ INSERT INTO prompts_vocab (value) VALUES
     ('Dividend'), ('Manuscript'), ('Catalyst'), ('Silhouette'), ('Reservoir');
 
 -- ============================================================================
+-- 11. BEATS TABLE (Storage metadata)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS beats (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    song_id UUID REFERENCES songs(id) ON DELETE SET NULL,
+    filename TEXT NOT NULL,
+    original_filename TEXT,
+    file_size_bytes BIGINT,
+    mime_type TEXT,
+    storage_path TEXT NOT NULL,
+    public_url TEXT,
+    title TEXT,
+    artist TEXT,
+    album TEXT,
+    bpm INTEGER,
+    key TEXT,
+    genre TEXT,
+    mood TEXT,
+    tags TEXT,
+    duration_seconds NUMERIC,
+    detected_bpm NUMERIC,
+    detected_bpm_confidence NUMERIC,
+    detected_key TEXT,
+    detected_key_confidence NUMERIC,
+    detected_energy NUMERIC,
+    detected_danceability NUMERIC,
+    waveform_data JSONB,
+    embedded_title TEXT,
+    embedded_artist TEXT,
+    embedded_album TEXT,
+    embedded_year TEXT,
+    embedded_genre TEXT,
+    analysis_status TEXT DEFAULT 'pending',
+    analysis_completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_beats_user_id ON beats(user_id);
+CREATE INDEX IF NOT EXISTS idx_beats_song_id ON beats(song_id);
+
+ALTER TABLE beats ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Beats viewable by everyone" ON beats FOR SELECT USING (true);
+CREATE POLICY "Beats insertable by everyone" ON beats FOR INSERT WITH CHECK (true);
+CREATE POLICY "Beats updatable by everyone" ON beats FOR UPDATE USING (true);
+CREATE POLICY "Beats deletable by everyone" ON beats FOR DELETE USING (true);
+
+-- ============================================================================
+-- 12. SONG COLLABORATORS TABLE
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS song_collaborators (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    song_id UUID REFERENCES songs(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    username TEXT,
+    role TEXT DEFAULT 'editor',
+    invite_token TEXT,
+    created_by UUID REFERENCES users(id),
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(song_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_song_collaborators_song_id ON song_collaborators(song_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_song_collaborators_token ON song_collaborators(invite_token);
+
+ALTER TABLE song_collaborators ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Collaborators viewable by everyone" ON song_collaborators FOR SELECT USING (true);
+CREATE POLICY "Collaborators insertable by everyone" ON song_collaborators FOR INSERT WITH CHECK (true);
+CREATE POLICY "Collaborators updatable by everyone" ON song_collaborators FOR UPDATE USING (true);
+CREATE POLICY "Collaborators deletable by everyone" ON song_collaborators FOR DELETE USING (true);
+
+-- ============================================================================
 -- DONE! Your Daily Bars database is ready 🔥
 -- ============================================================================
