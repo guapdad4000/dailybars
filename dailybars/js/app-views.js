@@ -4500,6 +4500,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
 // ============================================================================
 
 const App = () => {
+    const ScratchLabViewComponent = window.ScratchLabView;
     const [user, setUser] = useState(null);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     // Initialize view from storage or default to feed
@@ -5326,9 +5327,9 @@ const App = () => {
                     {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
-                    {view === 'scratchlab' && window.ScratchLabView && (
+                    {view === 'scratchlab' && ScratchLabViewComponent && (
                         hasPremium || user?.username?.toLowerCase() === 'guap' ? (
-                            <window.ScratchLabView 
+                            <ScratchLabViewComponent 
                                 user={user} 
                                 isPremium={hasPremium} 
                                 onScrubStateChange={setIsScratchLabScrubbing}

@@ -29,6 +29,62 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [isPopped, setIsPopped] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     
+    // Metronome state
+    const [isMetronomeOn, setIsMetronomeOn] = useState(false);
+    const [bpm, setBpm] = useState(90);
+    const nextNoteTime = useRef(0);
+    const metronomeTimerId = useRef(null);
+    
+    // Metronome Scheduler
+    const scheduleMetronome = useCallback(() => {
+        const secondsPerBeat = 60.0 / bpm;
+        const lookahead = 0.1; // How far ahead to schedule audio (sec)
+        
+        while (nextNoteTime.current < audioContext.current.currentTime + lookahead) {
+            playMetronomeClick(nextNoteTime.current);
+            nextNoteTime.current += secondsPerBeat;
+        }
+    }, [bpm]);
+
+    const playMetronomeClick = (time) => {
+        const osc = audioContext.current.createOscillator();
+        const gain = audioContext.current.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.current.destination);
+        
+        // Soothing woodblock-ish click
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, time);
+        osc.frequency.exponentialRampToValueAtTime(400, time + 0.05);
+        
+        gain.gain.setValueAtTime(0.3, time); // Not too loud
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        
+        osc.start(time);
+        osc.stop(time + 0.05);
+    };
+
+    // Metronome Loop
+    useEffect(() => {
+        if (isRecording && isMetronomeOn) {
+            if (!metronomeTimerId.current) {
+                nextNoteTime.current = audioContext.current.currentTime + 0.05;
+                metronomeTimerId.current = setInterval(scheduleMetronome, 25);
+            }
+        } else {
+            if (metronomeTimerId.current) {
+                clearInterval(metronomeTimerId.current);
+                metronomeTimerId.current = null;
+            }
+        }
+        return () => {
+            if (metronomeTimerId.current) {
+                clearInterval(metronomeTimerId.current);
+                metronomeTimerId.current = null;
+            }
+        };
+    }, [isRecording, isMetronomeOn, scheduleMetronome]);
+
     // Real-time waveform data for recording visualization
     const [liveWaveform, setLiveWaveform] = useState(Array(45).fill(10));
     const [countdown, setCountdown] = useState(0);
@@ -36,6 +92,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [layers, setLayers] = useState([]);
     const [beat, setBeat] = useState(null);
     const [beatFile, setBeatFile] = useState(null);
+    const [beatWaveform, setBeatWaveform] = useState(null);
+    const [beatMuted, setBeatMuted] = useState(false);
     const [sessionActive, setSessionActive] = useState(false);
     const [showSaveModal, setShowSaveModal] = useState(false);
     const [hasStarted, setHasStarted] = useState(false);
@@ -470,6 +528,37 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setSessionActive(false);
     };
 
+    // Real-time volume/mute control
+    useEffect(() => {
+        if (!isPlaying) return;
+
+        const hasSolo = layers.some(l => l.solo);
+
+        // Update layers
+        layerSourceNodes.current.forEach(node => {
+            const layer = layers.find(l => l.id === node.layerId);
+            if (layer && node.gainNode) {
+                let targetGain = layer.volume / 100;
+                if (layer.muted || (hasSolo && !layer.solo)) {
+                    targetGain = 0;
+                }
+                // Smooth transition to avoid clicks
+                try {
+                    node.gainNode.gain.setTargetAtTime(targetGain, audioContext.current.currentTime, 0.05);
+                } catch(e) {}
+            }
+        });
+
+        // Update beat
+        if (beatSourceNode.current && beatSourceNode.current.gainNode) {
+            const targetGain = beatMuted ? 0 : 0.7;
+            try {
+                beatSourceNode.current.gainNode.gain.setTargetAtTime(targetGain, audioContext.current.currentTime, 0.05);
+            } catch(e) {}
+        }
+        
+    }, [layers, beatMuted, isPlaying]);
+
     // Playback all layers in PERFECT sync using master clock
     const playAllLayers = (startOffset = 0) => {
         if (layers.length === 0 && !beatAudioBuffer.current) return;
@@ -487,7 +576,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             beatSource.loopEnd = beatAudioBuffer.current.duration;
             
             const beatGain = audioContext.current.createGain();
-            beatGain.gain.value = 0.7;
+            beatGain.gain.value = beatMuted ? 0 : 0.7;
             
             beatSource.connect(beatGain);
             beatGain.connect(masterGainNode.current);
@@ -495,7 +584,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             // Start at exact same time with optional offset
             beatSource.start(masterStartTime, startOffset);
             
-            beatSourceNode.current = beatSource;
+            beatSourceNode.current = { source: beatSource, gainNode: beatGain };
             
             // Auto-stop beat after session duration if not looping vocals
             if (sessionDuration > 0) {
@@ -503,19 +592,22 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             }
         }
         
-        // Play all non-muted, non-solo layers (or only solo layers if any exist)
+        // Play all layers (create sources for muted ones too so we can unmute them)
         const hasSolo = layers.some(l => l.solo);
         
         layers.forEach((layer) => {
-            // Skip if muted, or if solo exists and this isn't solo
-            if (layer.muted || (hasSolo && !layer.solo)) return;
             if (!layer.audioBuffer) return;
             
             const source = audioContext.current.createBufferSource();
             source.buffer = layer.audioBuffer;
             
             const gainNode = audioContext.current.createGain();
-            gainNode.gain.value = layer.volume / 100;
+            
+            let initialGain = layer.volume / 100;
+            if (layer.muted || (hasSolo && !layer.solo)) {
+                initialGain = 0;
+            }
+            gainNode.gain.value = initialGain;
             
             const panNode = audioContext.current.createStereoPanner();
             panNode.pan.value = layer.pan || 0;
@@ -531,7 +623,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             // Auto-stop when layer ends
             source.stop(masterStartTime + layer.audioBuffer.duration - layerStartOffset);
             
-            layerSourceNodes.current.push({ source, layer });
+            layerSourceNodes.current.push({ source, gainNode, layerId: layer.id });
         });
         
         playbackStartTime.current = masterStartTime;
@@ -540,9 +632,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
     const stopAllAudio = () => {
         // Stop all layer sources
-        layerSourceNodes.current.forEach(source => {
+        layerSourceNodes.current.forEach(item => {
             try {
-                source.stop();
+                item.source.stop();
             } catch (e) {
                 // Already stopped
             }
@@ -552,7 +644,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         // Stop beat
         if (beatSourceNode.current) {
             try {
-                beatSourceNode.current.stop();
+                beatSourceNode.current.source.stop();
             } catch (e) {
                 // Already stopped
             }
@@ -682,8 +774,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
             beatAudioBuffer.current = audioBuffer;
             
+            // Generate waveform for beat
+            const waves = generateWaveformFromBuffer(audioBuffer);
+            setBeatWaveform(waves);
+            
             // Visual feedback
-            alert(`Beat loaded: "${file.name}" (${Math.round(audioBuffer.duration)}s)\n\nThe beat will play automatically when you start recording!`);
+            // Alert removed as requested
+            // alert(`Beat loaded: "${file.name}" (${Math.round(audioBuffer.duration)}s)\n\nThe beat will play automatically when you start recording!`);
         } catch (err) {
             console.error('Error loading beat:', err);
             setBeat(null);
@@ -1174,6 +1271,26 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             >
                                 <Icon name="Timer" size={18} />
                             </button>
+                            <button 
+                                onClick={() => setIsMetronomeOn(!isMetronomeOn)}
+                                style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 12,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    border: isMetronomeOn ? '1px solid var(--electric)' : '1px solid rgba(255,255,255,0.2)',
+                                    background: isMetronomeOn ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.1)',
+                                    backdropFilter: 'blur(10px)',
+                                    color: isMetronomeOn ? 'var(--electric)' : '#f5f5f5',
+                                    cursor: 'pointer'
+                                }}
+                                title="Toggle Metronome"
+                            >
+                                <Icon name="Activity" size={18} />
+                            </button>
                             <label style={{
                                 width: 40,
                                 height: 40,
@@ -1438,6 +1555,150 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     </div>
                 )}
 
+                {/* Beat Card */}
+                {beat && beatWaveform && (
+                    <div style={{ 
+                        background: 'rgba(255,255,255,0.95)', 
+                        borderRadius: 12, 
+                        padding: 12, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: 16, 
+                        border: '1px solid rgba(255,255,255,0.3)',
+                        boxShadow: '0 20px 40px -10px rgba(0,0,0,0.3)',
+                        transition: 'all 0.2s'
+                    }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            flexDirection: 'column', 
+                            alignItems: 'center', 
+                            flexShrink: 0 
+                        }}>
+                            <div style={{ 
+                                width: 32, 
+                                height: 32, 
+                                borderRadius: 8, 
+                                background: '#ff1744', 
+                                display: 'flex', 
+                                alignItems: 'center', 
+                                justifyContent: 'center', 
+                                color: 'white', 
+                                fontWeight: 900, 
+                                fontSize: 10,
+                            }}>
+                                B
+                            </div>
+                        </div>
+
+                        <div style={{ 
+                            flex: 1, 
+                            height: 64, 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 1, 
+                            position: 'relative', 
+                            overflow: 'hidden' 
+                        }}>
+                            <div style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                fontSize: 10,
+                                fontWeight: 900,
+                                color: '#ff1744',
+                                zIndex: 20,
+                                background: 'rgba(255,255,255,0.8)',
+                                padding: '2px 4px',
+                                borderRadius: 4,
+                                pointerEvents: 'none'
+                            }}>
+                                {beat}
+                            </div>
+
+                            {beatWaveform.map((h, i) => (
+                                <div 
+                                    key={i} 
+                                    style={{ 
+                                        flex: 1, 
+                                        borderRadius: 2,
+                                        transition: 'all 0.3s',
+                                        background: (isPlaying || isScrubbing) ? '#ffd700' : 'black',
+                                        height: `${Math.max(4, h)}%`,
+                                        opacity: 1
+                                    }}
+                                />
+                            ))}
+                            {(isPlaying || isScrubbing) && (
+                                <div style={{ 
+                                    position: 'absolute', 
+                                    top: 0, 
+                                    bottom: 0, 
+                                    width: 2, 
+                                    background: '#ff1744', 
+                                    zIndex: 10,
+                                    left: `${progress}%`
+                                }} />
+                            )}
+                        </div>
+
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: 6, 
+                            paddingLeft: 8, 
+                            borderLeft: '1px solid var(--gray-light)',
+                            flexShrink: 0 
+                        }}>
+                            <button 
+                                onClick={() => setBeatMuted(!beatMuted)}
+                                style={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: 'none',
+                                    background: beatMuted ? 'var(--black)' : 'transparent',
+                                    color: beatMuted ? 'white' : 'var(--gray)',
+                                    cursor: 'pointer',
+                                    fontSize: 7,
+                                    fontWeight: 900,
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                M
+                            </button>
+                            
+                            <button 
+                                onClick={() => {
+                                    setBeat(null);
+                                    setBeatFile(null);
+                                    setBeatWaveform(null);
+                                    beatAudioBuffer.current = null;
+                                }}
+                                style={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: 8,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: 'var(--gray-light)',
+                                    cursor: 'pointer',
+                                    transition: 'color 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.target.style.color = '#ff1744'}
+                                onMouseLeave={(e) => e.target.style.color = 'var(--gray-light)'}
+                            >
+                                <Icon name="Trash2" size={14} />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {layers.map((layer, index) => (
                     <div key={layer.id} style={{ 
                         background: 'rgba(255,255,255,0.95)', 
@@ -1483,7 +1744,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
                         <div style={{ 
                             flex: 1, 
-                            height: 32, 
+                            height: 64, 
                             display: 'flex', 
                             alignItems: 'center', 
                             gap: 1, 
@@ -1498,8 +1759,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         borderRadius: 2,
                                         transition: 'all 0.3s',
                                         background: (isPlaying || isScrubbing) ? 'var(--electric)' : 'var(--gray-light)',
-                                        height: (isPlaying || isScrubbing) ? `${Math.min(100, h * (1 + Math.random() * 0.1))}%` : `${h}%`,
-                                        opacity: 0.3 + (layer.volume / 100) * 0.7
+                                        height: (isPlaying || isScrubbing) ? `${Math.max(4, Math.min(100, h * (1 + Math.random() * 0.1)))}%` : `${Math.max(4, h)}%`,
+                                        opacity: 0.5 + (layer.volume / 100) * 0.5
                                     }}
                                 />
                             ))}
@@ -1519,8 +1780,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                         <div style={{ 
                             display: 'flex', 
                             alignItems: 'center', 
-                            gap: 12, 
-                            paddingLeft: 12, 
+                            gap: 6, 
+                            paddingLeft: 8, 
                             borderLeft: '1px solid var(--gray-light)',
                             flexShrink: 0 
                         }}>
@@ -1580,7 +1841,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         setLayers(next);
                                     }}
                                     style={{
-                                        width: 64,
+                                        width: 48,
                                         height: 4,
                                         background: 'var(--gray-light)',
                                         borderRadius: 8,
@@ -1643,7 +1904,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             {layers.length > 0 && !isRecording && (
                 <div style={{ 
                     position: 'fixed', 
-                    bottom: 0, 
+                    bottom: 80, 
                     left: 0, 
                     right: 0, 
                     padding: 24, 
