@@ -3256,6 +3256,384 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
 };
 
 // ============================================================================
+// USER PROFILE MODAL - Stats & Trophies
+// ============================================================================
+
+const UserProfileModal = ({ user, onClose, onLogout }) => {
+    const [trophies, setTrophies] = useState([]);
+    const [userTrophies, setUserTrophies] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedTrophies, setSelectedTrophies] = useState(user?.selectedTrophies || []);
+
+    useEffect(() => {
+        loadTrophies();
+    }, [user]);
+
+    const loadTrophies = async () => {
+        if (!user) return;
+        
+        try {
+            setLoading(true);
+            
+            // Fetch all trophies
+            const { data: allTrophies } = await api.get('trophies');
+            setTrophies(allTrophies || []);
+            
+            // Fetch user's earned trophies
+            const { data, error } = await supabase
+                .from('user_trophies')
+                .select('trophy_id, earned_at')
+                .eq('user_id', user.id);
+            
+            if (!error) {
+                setUserTrophies(data || []);
+            }
+            
+            setLoading(false);
+        } catch (error) {
+            console.error('Error loading trophies:', error);
+            setLoading(false);
+        }
+    };
+
+    const handleSelectTrophy = async (trophyId) => {
+        let newSelected = [...selectedTrophies];
+        
+        if (newSelected.includes(trophyId)) {
+            // Deselect
+            newSelected = newSelected.filter(id => id !== trophyId);
+        } else {
+            // Select (max 3)
+            if (newSelected.length < 3) {
+                newSelected.push(trophyId);
+            } else {
+                // Replace oldest selection
+                newSelected.shift();
+                newSelected.push(trophyId);
+            }
+        }
+        
+        setSelectedTrophies(newSelected);
+        
+        // Update in database
+        try {
+            await supabase
+                .from('users')
+                .update({ selected_trophies: newSelected })
+                .eq('id', user.id);
+        } catch (error) {
+            console.error('Error updating selected trophies:', error);
+        }
+    };
+
+    const earnedTrophyIds = userTrophies.map(ut => ut.trophy_id);
+    const displayTrophies = trophies.filter(t => earnedTrophyIds.includes(t.id));
+
+    return (
+        <div style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10000,
+            background: 'rgba(0,0,0,0.85)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20
+        }}>
+            <div style={{
+                background: 'url(/images/smooth-paper-texture.jpg)',
+                backgroundSize: 'cover',
+                maxWidth: 400,
+                width: '100%',
+                maxHeight: '90vh',
+                overflow: 'auto',
+                border: '2px solid var(--black)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+            }}>
+                {/* Header */}
+                <div style={{
+                    padding: 20,
+                    borderBottom: '2px solid var(--black)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start'
+                }}>
+                    <div>
+                        <div style={{
+                            fontSize: 24,
+                            fontFamily: 'Archivo Black',
+                            letterSpacing: '-0.02em',
+                            marginBottom: 4
+                        }}>
+                            @{user?.username?.toUpperCase()}
+                        </div>
+                        <div style={{
+                            fontSize: 9,
+                            fontFamily: 'IBM Plex Mono',
+                            letterSpacing: '0.1em',
+                            color: 'var(--gray)'
+                        }}>
+                            JOINED {formatDate(user?.created_at)}
+                        </div>
+                    </div>
+                    <button onClick={onClose} style={{
+                        background: 'transparent',
+                        border: 'none',
+                        fontSize: 20,
+                        cursor: 'pointer',
+                        padding: 0,
+                        lineHeight: 1
+                    }}>×</button>
+                </div>
+
+                {/* Stats Grid */}
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: 1,
+                    background: 'var(--black)'
+                }}>
+                    <div style={{
+                        background: 'rgba(255,255,255,0.9)',
+                        padding: 16,
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            fontSize: 28,
+                            fontFamily: 'Archivo Black',
+                            marginBottom: 4
+                        }}>
+                            {user?.xp || 0}
+                        </div>
+                        <div style={{
+                            fontSize: 9,
+                            fontFamily: 'IBM Plex Mono',
+                            letterSpacing: '0.1em',
+                            color: 'var(--gray)'
+                        }}>
+                            TOTAL XP
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.9)',
+                        padding: 16,
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            fontSize: 28,
+                            fontFamily: 'Archivo Black',
+                            marginBottom: 4
+                        }}>
+                            {user?.total_bars || 0}
+                        </div>
+                        <div style={{
+                            fontSize: 9,
+                            fontFamily: 'IBM Plex Mono',
+                            letterSpacing: '0.1em',
+                            color: 'var(--gray)'
+                        }}>
+                            BARS WRITTEN
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.9)',
+                        padding: 16,
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            fontSize: 28,
+                            fontFamily: 'Archivo Black',
+                            marginBottom: 4,
+                            color: '#EF4444'
+                        }}>
+                            {user?.current_streak || 0}
+                        </div>
+                        <div style={{
+                            fontSize: 9,
+                            fontFamily: 'IBM Plex Mono',
+                            letterSpacing: '0.1em',
+                            color: 'var(--gray)'
+                        }}>
+                            CURRENT STREAK
+                        </div>
+                    </div>
+                    
+                    <div style={{
+                        background: 'rgba(255,255,255,0.9)',
+                        padding: 16,
+                        textAlign: 'center'
+                    }}>
+                        <div style={{
+                            fontSize: 28,
+                            fontFamily: 'Archivo Black',
+                            marginBottom: 4,
+                            color: '#F59E0B'
+                        }}>
+                            {user?.longest_streak || 0}
+                        </div>
+                        <div style={{
+                            fontSize: 9,
+                            fontFamily: 'IBM Plex Mono',
+                            letterSpacing: '0.1em',
+                            color: 'var(--gray)'
+                        }}>
+                            LONGEST STREAK
+                        </div>
+                    </div>
+                </div>
+
+                {/* Selected Trophies Display */}
+                <div style={{
+                    padding: 20,
+                    borderBottom: '2px solid var(--black)'
+                }}>
+                    <div style={{
+                        fontSize: 11,
+                        fontFamily: 'IBM Plex Mono',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        marginBottom: 12
+                    }}>
+                        SHOWCASE (PICK UP TO 3)
+                    </div>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gap: 8
+                    }}>
+                        {[0, 1, 2].map(index => {
+                            const trophyId = selectedTrophies[index];
+                            const trophy = trophies.find(t => t.id === trophyId);
+                            
+                            return (
+                                <div key={index} style={{
+                                    aspectRatio: '1',
+                                    border: '2px solid var(--black)',
+                                    background: trophy ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 8
+                                }}>
+                                    {trophy ? (
+                                        <>
+                                            <div style={{ fontSize: 32, marginBottom: 4 }}>
+                                                {trophy.icon}
+                                            </div>
+                                            <div style={{
+                                                fontSize: 7,
+                                                fontFamily: 'IBM Plex Mono',
+                                                textAlign: 'center',
+                                                fontWeight: 700
+                                            }}>
+                                                {trophy.name}
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div style={{
+                                            fontSize: 24,
+                                            opacity: 0.2
+                                        }}>?</div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* All Trophies */}
+                <div style={{ padding: 20 }}>
+                    <div style={{
+                        fontSize: 11,
+                        fontFamily: 'IBM Plex Mono',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        marginBottom: 12
+                    }}>
+                        TROPHIES ({displayTrophies.length}/{trophies.length})
+                    </div>
+                    
+                    {loading ? (
+                        <div style={{ textAlign: 'center', padding: 20, color: 'var(--gray)' }}>
+                            Loading...
+                        </div>
+                    ) : (
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(3, 1fr)',
+                            gap: 8
+                        }}>
+                            {trophies.map(trophy => {
+                                const earned = earnedTrophyIds.includes(trophy.id);
+                                const isSelected = selectedTrophies.includes(trophy.id);
+                                
+                                return (
+                                    <button
+                                        key={trophy.id}
+                                        onClick={() => earned && handleSelectTrophy(trophy.id)}
+                                        disabled={!earned}
+                                        style={{
+                                            aspectRatio: '1',
+                                            border: `2px solid ${isSelected ? '#EAB308' : 'var(--black)'}`,
+                                            background: earned ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
+                                            opacity: earned ? 1 : 0.3,
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            padding: 8,
+                                            cursor: earned ? 'pointer' : 'default'
+                                        }}
+                                        title={earned ? trophy.description : `${trophy.description} (Locked)`}
+                                    >
+                                        <div style={{ fontSize: 28, marginBottom: 4, filter: earned ? 'none' : 'grayscale(1)' }}>
+                                            {trophy.icon}
+                                        </div>
+                                        <div style={{
+                                            fontSize: 7,
+                                            fontFamily: 'IBM Plex Mono',
+                                            textAlign: 'center',
+                                            fontWeight: 700,
+                                            lineHeight: 1.2
+                                        }}>
+                                            {trophy.name}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* Logout Button */}
+                <div style={{
+                    padding: 20,
+                    borderTop: '2px solid var(--black)'
+                }}>
+                    <button onClick={onLogout} style={{
+                        width: '100%',
+                        padding: 12,
+                        background: 'var(--black)',
+                        color: 'var(--white)',
+                        border: 'none',
+                        fontSize: 11,
+                        fontFamily: 'IBM Plex Mono',
+                        fontWeight: 700,
+                        letterSpacing: '0.1em',
+                        cursor: 'pointer'
+                    }}>
+                        LOGOUT
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ============================================================================
 // VIEWS - Will continue in app-views.js for size management
 // ============================================================================
 
@@ -3298,5 +3676,6 @@ window.DailyBarsApp = {
     analyzeRhymes,
     LOGO_SOLID,
     LOGO_HOLLOW,
-    RadioWidget: window.RadioWidget
+    RadioWidget: window.RadioWidget,
+    UserProfileModal
 };

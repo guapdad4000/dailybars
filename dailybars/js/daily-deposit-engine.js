@@ -217,19 +217,34 @@ const DailyDepositEngine = {
         }
     },
 
-    // Track user upvotes to prevent duplicates (uses localStorage + optional DB)
-    async upvotePost(postId, userId) {
-        const storageKey = `upvoted_posts_${userId || 'guest'}`;
+    // Track user upvotes to prevent duplicates (uses database with localStorage backup)
+    async upvotePost(postId, userId, username) {
+        if (!userId) {
+            console.warn('⚠️ Cannot upvote without user ID');
+            return { alreadyVoted: false, error: 'Must be logged in to upvote' };
+        }
         
         try {
-            // Check localStorage first (fast)
-            const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            if (upvotedPosts.includes(postId)) {
+            const client = this.getSupabase();
+            
+            // Check database first to see if user already upvoted
+            const { data: existingVote, error: checkError } = await client
+                .from('community_upvotes')
+                .select('id')
+                .eq('submission_id', postId)
+                .eq('user_id', userId)
+                .maybeSingle();
+            
+            if (checkError && checkError.code !== 'PGRST116') {
+                throw checkError;
+            }
+            
+            if (existingVote) {
+                console.log('⚠️ User already upvoted this post');
                 return { alreadyVoted: true };
             }
             
-            // Get current post
-            const client = this.getSupabase();
+            // Get current post likes
             const { data: post, error: fetchError } = await client
                 .from('community_submissions')
                 .select('likes')
@@ -238,32 +253,74 @@ const DailyDepositEngine = {
             
             if (fetchError) throw fetchError;
             
-            // Increment likes
-            const { data, error } = await client
+            // Record the upvote in community_upvotes table
+            const { error: insertError } = await client
+                .from('community_upvotes')
+                .insert({
+                    submission_id: postId,
+                    user_id: userId,
+                    username: username || 'Anonymous'
+                });
+            
+            if (insertError) {
+                // If unique constraint violation, user already voted
+                if (insertError.code === '23505') {
+                    return { alreadyVoted: true };
+                }
+                throw insertError;
+            }
+            
+            // Increment likes count on the submission
+            const { data: updatedPost, error: updateError } = await client
                 .from('community_submissions')
                 .update({ likes: (post.likes || 0) + 1 })
                 .eq('id', postId)
                 .select()
                 .single();
             
-            if (error) throw error;
+            if (updateError) throw updateError;
             
-            // Save to localStorage
-            upvotedPosts.push(postId);
-            localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
+            // Also save to localStorage as backup
+            const storageKey = `upvoted_posts_${userId}`;
+            const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            if (!upvotedPosts.includes(postId)) {
+                upvotedPosts.push(postId);
+                localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
+            }
             
-            return { success: true, newLikes: data.likes };
+            return { success: true, newLikes: updatedPost.likes };
         } catch (error) {
             console.error("❌ Failed to upvote:", error);
-            throw error;
+            return { error: error.message || 'Failed to upvote' };
         }
     },
 
-    // Check if user already upvoted a post
-    hasUpvoted(postId, userId) {
-        const storageKey = `upvoted_posts_${userId || 'guest'}`;
-        const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
-        return upvotedPosts.includes(postId);
+    // Check if user already upvoted a post (checks database)
+    async hasUpvoted(postId, userId) {
+        if (!userId) return false;
+        
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('community_upvotes')
+                .select('id')
+                .eq('submission_id', postId)
+                .eq('user_id', userId)
+                .maybeSingle();
+            
+            if (error && error.code !== 'PGRST116') {
+                console.error('Error checking upvote:', error);
+                // Fallback to localStorage
+                const storageKey = `upvoted_posts_${userId}`;
+                const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
+                return upvotedPosts.includes(postId);
+            }
+            
+            return !!data;
+        } catch (error) {
+            console.error('Error checking upvote:', error);
+            return false;
+        }
     },
 
     // ========================================================================

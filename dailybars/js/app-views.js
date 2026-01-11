@@ -16,7 +16,8 @@ const {
     SocialExportModal, IdeaCard, RhymePopup, QuickInput,
     RhymeTextarea, RhymeHighlightedText,
     RadioWidget,
-    LOGO_SOLID, LOGO_HOLLOW
+    LOGO_SOLID, LOGO_HOLLOW,
+    UserProfileModal
 } = window.DailyBarsApp;
 
 // ============================================================================
@@ -4024,7 +4025,7 @@ const SafeComponent = () => {
 // SYNDICATE VIEW
 // ============================================================================
 
-const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
+const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile }) => {
     const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars) or 'courses'
     const [loading, setLoading] = useState(false);
     const [feed, setFeed] = useState([]);
@@ -4034,6 +4035,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
     const [courseHtml, setCourseHtml] = useState('');
     const [courseTitle, setCourseTitle] = useState('');
     const [previewCourse, setPreviewCourse] = useState(null);
+    const [upvotedPosts, setUpvotedPosts] = useState(new Set());
     const toast = useToast();
 
     const courseStorageKey = useMemo(() => (
@@ -4063,6 +4065,19 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
         });
         
         setFeed(filtered);
+        
+        // Load upvote status for each post
+        if (user?.id && filtered.length > 0) {
+            const upvotedSet = new Set();
+            await Promise.all(filtered.map(async (post) => {
+                const hasVoted = await window.DailyDepositEngine.hasUpvoted(post.id, user.id);
+                if (hasVoted) {
+                    upvotedSet.add(post.id);
+                }
+            }));
+            setUpvotedPosts(upvotedSet);
+        }
+        
         setLoading(false);
     };
 
@@ -4271,7 +4286,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                         ) : (
                             <div style={{ display: 'grid', gap: 8, maxHeight: 400, overflowY: 'auto' }}>
                                 {feed.map((p, i) => {
-                                    const hasVoted = window.DailyDepositEngine.hasUpvoted(p.id, user?.id);
+                                    const hasVoted = upvotedPosts.has(p.id);
                                     return (
                                         <div key={p.id || i} className="animate-slide-up" style={{
                                             background: 'rgba(255,255,255,0.95)',
@@ -4296,7 +4311,26 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                                                 letterSpacing: '0.1em',
                                                 textTransform: 'uppercase'
                                             }}>
-                                                <span>@{p.author}</span>
+                                                <button
+                                                    onClick={() => {
+                                                        if (onShowProfile && p.author) {
+                                                            onShowProfile(p.author);
+                                                        }
+                                                    }}
+                                                    style={{
+                                                        background: 'transparent',
+                                                        border: 'none',
+                                                        padding: 0,
+                                                        cursor: 'pointer',
+                                                        fontSize: 9,
+                                                        color: 'var(--gray)',
+                                                        letterSpacing: '0.1em',
+                                                        textTransform: 'uppercase',
+                                                        textDecoration: 'underline'
+                                                    }}
+                                                >
+                                                    @{p.author}
+                                                </button>
                                                 <button
                                                     onClick={async () => {
                                                         if (hasVoted) {
@@ -4304,15 +4338,21 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction }) => {
                                                             return;
                                                         }
                                                         try {
-                                                            const result = await window.DailyDepositEngine.upvotePost(p.id, user?.id);
+                                                            const result = await window.DailyDepositEngine.upvotePost(p.id, user?.id, user?.username);
                                                             if (result.success) {
                                                                 // Update local state
                                                                 setFeed(prev => prev.map(item => 
                                                                     item.id === p.id ? { ...item, likes: result.newLikes } : item
                                                                 ));
+                                                                setUpvotedPosts(prev => new Set([...prev, p.id]));
                                                                 haptic('success');
                                                                 toast?.addToast('UPVOTED! +10 XP', 'success');
                                                                 if (onAction) onAction(10, 'UPVOTED PROMPT');
+                                                            } else if (result.alreadyVoted) {
+                                                                setUpvotedPosts(prev => new Set([...prev, p.id]));
+                                                                toast?.addToast('ALREADY UPVOTED', 'info');
+                                                            } else if (result.error) {
+                                                                toast?.addToast(result.error.toUpperCase(), 'error');
                                                             }
                                                         } catch (err) {
                                                             toast?.addToast('UPVOTE FAILED', 'error');
@@ -4538,6 +4578,8 @@ const App = () => {
     const [customerInfo, setCustomerInfo] = useState(null);
     const [revenueCatError, setRevenueCatError] = useState('');
     const [aiUsageCount, setAiUsageCount] = useState(0);
+    const [showProfileModal, setShowProfileModal] = useState(false);
+    const [profileModalUser, setProfileModalUser] = useState(null);
     const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
 
@@ -4646,6 +4688,13 @@ const App = () => {
             
             // API Update
             await api.update('users', user.id, { xp: newXp, level: newLevel });
+            
+            // Check and award XP trophies
+            try {
+                await supabase.rpc('check_xp_trophies', { p_user_id: user.id, p_xp: newXp });
+            } catch (trophyErr) {
+                console.warn('⚠️ Failed to check XP trophies:', trophyErr);
+            }
             
             // Visual feedback - show XP gain briefly
             haptic('light');
@@ -5134,6 +5183,26 @@ const App = () => {
             setBars(prev => [newBar, ...prev]);
             updateStreak();
             addExperience(5, 'BAR WRITTEN');
+            
+            // Update user stats in database (streak, total_bars)
+            if (user?.username) {
+                try {
+                    await supabase.rpc('update_user_stats', { p_username: user.username });
+                    
+                    // Refresh user data to get updated stats
+                    const { data: userData } = await supabase
+                        .from('users')
+                        .select('*')
+                        .eq('username', user.username)
+                        .single();
+                    
+                    if (userData) {
+                        setUser(prev => ({ ...prev, ...userData }));
+                    }
+                } catch (statsErr) {
+                    console.warn('⚠️ Failed to update user stats:', statsErr);
+                }
+            }
         } catch (err) { console.error(err); }
     };
     
@@ -5334,6 +5403,19 @@ const App = () => {
                             onTyping={handleTyping} 
                             onOpenStore={() => setShowXPStore(true)}
                             onAction={addExperience}
+                            onShowProfile={async (username) => {
+                                // Fetch user by username and show profile
+                                try {
+                                    const { data } = await api.get('users');
+                                    const targetUser = data.find(u => u.username?.toLowerCase() === username?.toLowerCase());
+                                    if (targetUser) {
+                                        setProfileModalUser(targetUser);
+                                        setShowProfileModal(true);
+                                    }
+                                } catch (error) {
+                                    console.error('Error fetching user:', error);
+                                }
+                            }}
                         />
                     )}
                     {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
@@ -5454,11 +5536,44 @@ const App = () => {
                 {premiumOverlay}
 
                 <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
-                    <button onClick={handleLogout} style={{
-                        background: 'var(--black)', color: 'var(--white)',
-                        padding: '4px 8px', fontSize: 8, fontWeight: 700, letterSpacing: '0.1em'
-                    }}>LOGOUT @{user.username.toUpperCase()}</button>
+                    <button onClick={() => {
+                        setProfileModalUser(user);
+                        setShowProfileModal(true);
+                    }} style={{
+                        background: 'var(--black)', 
+                        color: 'var(--white)',
+                        padding: '8px 12px', 
+                        fontSize: 10, 
+                        fontWeight: 700, 
+                        letterSpacing: '0.1em',
+                        border: '2px solid var(--black)',
+                        borderRadius: '50px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
+                    }}>
+                        <span style={{ fontSize: 16 }}>💎</span>
+                        @{user.username.toUpperCase()}
+                    </button>
                 </div>
+                
+                {/* User Profile Modal */}
+                {showProfileModal && profileModalUser && (
+                    <UserProfileModal
+                        user={profileModalUser}
+                        onClose={() => {
+                            setShowProfileModal(false);
+                            setProfileModalUser(null);
+                        }}
+                        onLogout={() => {
+                            setShowProfileModal(false);
+                            setProfileModalUser(null);
+                            handleLogout();
+                        }}
+                    />
+                )}
 
                 <BottomBar currentView={view} streak={streak} user={user} />
                 
