@@ -85,6 +85,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Metronome state
     const [isMetronomeOn, setIsMetronomeOn] = useState(false);
     const [bpm, setBpm] = useState(90);
+    const [showBpmPopup, setShowBpmPopup] = useState(false);
     const nextNoteTime = useRef(0);
     const metronomeTimerId = useRef(null);
     
@@ -117,13 +118,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         osc.stop(time + 0.05);
     };
 
-    // Metronome Loop
+    // Metronome Loop - plays whenever metronome is on (not just during recording)
     useEffect(() => {
-        if (isRecording && isMetronomeOn) {
+        const startMetronome = async () => {
+            // Ensure audio context exists and is running
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
+            }
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+            }
+            
             if (!metronomeTimerId.current) {
                 nextNoteTime.current = audioContext.current.currentTime + 0.05;
                 metronomeTimerId.current = setInterval(scheduleMetronome, 25);
             }
+        };
+        
+        if (isMetronomeOn) {
+            startMetronome();
         } else {
             if (metronomeTimerId.current) {
                 clearInterval(metronomeTimerId.current);
@@ -136,7 +151,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 metronomeTimerId.current = null;
             }
         };
-    }, [isRecording, isMetronomeOn, scheduleMetronome]);
+    }, [isMetronomeOn, scheduleMetronome]);
 
     // Real-time waveform data for recording visualization
     const [liveWaveform, setLiveWaveform] = useState(Array(45).fill(10));
@@ -773,11 +788,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     // Generate waveform from audio buffer (use the full padded one so waveform matches position)
                     const waves = generateWaveformFromBuffer(finalAudioBuffer);
                     
-                        // Auto-compensate latency for mobile devices
-                        // Mobile browsers often have ~100-150ms input latency
-                        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-                        const defaultLatency = isMobile ? -0.12 : 0;
-                        
+                        // No automatic latency offset - user can drag waveform to align
+                        // Visual position and playback position are linked via timeShift
                         const newLayer = {
                             id: Date.now(),
                             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -788,7 +800,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             muted: false,
                             solo: false,
                             pan: 0,
-                            timeShift: defaultLatency // Default latency compensation
+                            timeShift: 0 // User drags to align - visual and audio stay in sync
                         };
                         
                         setLayers(prev => [newLayer, ...prev]);
@@ -1078,12 +1090,34 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             source.connect(gainNode);
             outputNode.connect(masterGainNode.current);
             
-            // Start at EXACT same timestamp as beat
+            // Apply timeShift from user dragging waveform
+            // Same logic as playBackingTracks() for consistency
+            const shift = layer.timeShift || 0;
             const layerStartOffset = Math.min(startOffset, layer.audioBuffer.duration);
-            source.start(masterStartTime, layerStartOffset);
+            
+            let effectiveStartTime = masterStartTime;
+            let effectiveOffset = layerStartOffset;
+            
+            if (shift < 0) {
+                // Shift LEFT (earlier): Skip more of the beginning
+                effectiveOffset += Math.abs(shift);
+            } else {
+                // Shift RIGHT (later): Delay start
+                effectiveStartTime += shift;
+            }
+            
+            // Boundary check - skip if shifted past end
+            if (effectiveOffset > layer.audioBuffer.duration) {
+                return;
+            }
+            
+            source.start(effectiveStartTime, effectiveOffset);
             
             // Auto-stop when layer ends
-            source.stop(masterStartTime + layer.audioBuffer.duration - layerStartOffset);
+            const playDuration = layer.audioBuffer.duration - effectiveOffset;
+            if (playDuration > 0) {
+                source.stop(effectiveStartTime + playDuration);
+            }
             
             layerSourceNodes.current.push({ source, gainNode, layerId: layer.id });
         });
@@ -1343,6 +1377,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setIsPopped(false);
         setProgress(0);
         setScrubPosition(0);
+        setSessionActive(false); // Ensure no auto-recording triggers
+        setCountdown(0); // Reset countdown to prevent auto-start
         // Do NOT auto-start recording - user must tap to record
     };
 
@@ -1501,6 +1537,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
     const handleToggleMute = (layerId) => {
         setLayers(layers.map(l => l.id === layerId ? { ...l, muted: !l.muted } : l));
+    };
+
+    const handleToggleSolo = (layerId) => {
+        setLayers(layers.map(l => l.id === layerId ? { ...l, solo: !l.solo } : l));
     };
 
     const handleShiftLayer = (layerId, amount) => {
@@ -2077,26 +2117,6 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                         
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button 
-                                onClick={cycleAudioInput}
-                                style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s',
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    background: 'rgba(255,255,255,0.1)',
-                                    backdropFilter: 'blur(10px)',
-                                    color: '#f5f5f5',
-                                    cursor: 'pointer'
-                                }}
-                                title={selectedInputId ? "Switch Microphone" : "Default Microphone"}
-                            >
-                                <Icon name="Mic" size={18} />
-                            </button>
-                            <button 
                                 onClick={() => setShowLoadModal(true)}
                                 style={{
                                     width: 40,
@@ -2115,46 +2135,6 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 title="Load saved session"
                             >
                                 <Icon name="FolderOpen" size={18} />
-                            </button>
-                            <button 
-                                onClick={() => setUseCountdown(!useCountdown)}
-                                style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s',
-                                    border: useCountdown ? '1px solid var(--electric)' : '1px solid rgba(255,255,255,0.2)',
-                                    background: useCountdown ? 'rgba(234, 179, 8, 0.3)' : 'rgba(255,255,255,0.1)',
-                                    backdropFilter: 'blur(10px)',
-                                    color: useCountdown ? 'var(--electric)' : '#f5f5f5',
-                                    cursor: 'pointer'
-                                }}
-                                title="Toggle countdown"
-                            >
-                                <Icon name="Timer" size={18} />
-                            </button>
-                            <button 
-                                onClick={() => setIsMetronomeOn(!isMetronomeOn)}
-                                style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s',
-                                    border: isMetronomeOn ? '1px solid var(--electric)' : '1px solid rgba(255,255,255,0.2)',
-                                    background: isMetronomeOn ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.1)',
-                                    backdropFilter: 'blur(10px)',
-                                    color: isMetronomeOn ? 'var(--electric)' : '#f5f5f5',
-                                    cursor: 'pointer'
-                                }}
-                                title="Toggle Metronome"
-                            >
-                                <Icon name="Activity" size={18} />
                             </button>
                             <label style={{
                                 width: 40,
@@ -2238,6 +2218,51 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 <circle cx="12" cy="0" r="3" fill="#ff9100" className="led-blink-slow" />
                                 <circle cx="24" cy="0" r="3" fill="#2979ff" />
                             </g>
+                            
+                            {/* Wood Panel Controls - LEFT Side (opposite from tonearm) */}
+                            <g transform="translate(72, 115)" style={{ pointerEvents: 'auto' }}>
+                                {/* Mic Input Button - 17% bigger (66x66) */}
+                                <g 
+                                    transform="translate(0, 0)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); cycleAudioInput(); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill="#2a2218" />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill="#3a3028" />
+                                    <text x="33" y="45" textAnchor="middle" fill="#d4b896" fontSize="20" fontWeight="900" fontFamily="Arial, sans-serif">MIC</text>
+                                </g>
+                                
+                                {/* BPM/Metronome Button - 17% bigger - opens popup */}
+                                <g 
+                                    transform="translate(0, 80)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); setShowBpmPopup(true); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill={isMetronomeOn ? '#4a3f00' : '#2a2218'} />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill={isMetronomeOn ? '#eab308' : '#3a3028'} />
+                                    <text x="33" y="30" textAnchor="middle" fill={isMetronomeOn ? '#000' : '#d4b896'} fontSize="14" fontWeight="900" fontFamily="Arial, sans-serif">{bpm}</text>
+                                    <text x="33" y="48" textAnchor="middle" fill={isMetronomeOn ? '#000' : '#a08060'} fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif">BPM</text>
+                                    {/* LED indicator */}
+                                    <circle cx="57" cy="9" r="5" fill={isMetronomeOn ? '#fde047' : '#222'} className={isMetronomeOn ? 'led-blink' : ''} />
+                                </g>
+                                
+                                {/* Countdown Button - 17% bigger */}
+                                <g 
+                                    transform="translate(0, 160)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); setUseCountdown(!useCountdown); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill={useCountdown ? '#4a3f00' : '#2a2218'} />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill={useCountdown ? '#eab308' : '#3a3028'} />
+                                    <text x="33" y="32" textAnchor="middle" fill={useCountdown ? '#000' : '#d4b896'} fontSize="13" fontWeight="900" fontFamily="Arial, sans-serif">3-2-1</text>
+                                    <text x="33" y="50" textAnchor="middle" fill={useCountdown ? '#000' : '#a08060'} fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif">COUNT</text>
+                                    {/* LED indicator */}
+                                    <circle cx="57" cy="9" r="5" fill={useCountdown ? '#fde047' : '#222'} className={useCountdown ? 'led-blink-slow' : ''} />
+                                </g>
+                            </g>
 
                             <g transform="translate(100, 470)">
                                 <rect width="110" height="40" rx="4" fill="#000" />
@@ -2258,12 +2283,67 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
                             {/* Record Group */}
                             <g className={`record-group-transition ${isPopped ? 'record-popped' : ''}`}>
+                                {/* Enhanced glow effect for scrub mode */}
+                                {isPopped && (
+                                    <>
+                                        <defs>
+                                            <radialGradient id="scrub-glow" cx="50%" cy="50%" r="50%">
+                                                <stop offset="0%" stopColor="#ffd700" stopOpacity="0.5" />
+                                                <stop offset="40%" stopColor="#ff9100" stopOpacity="0.3" />
+                                                <stop offset="100%" stopColor="#000" stopOpacity="0" />
+                                            </radialGradient>
+                                            <filter id="vinyl-glow" x="-50%" y="-50%" width="200%" height="200%">
+                                                <feGaussianBlur stdDeviation="12" result="blur" />
+                                                <feMerge>
+                                                    <feMergeNode in="blur" />
+                                                    <feMergeNode in="SourceGraphic" />
+                                                </feMerge>
+                                            </filter>
+                                        </defs>
+                                        {/* Outer glow ring */}
+                                        <circle cx="400" cy="300" r="200" fill="url(#scrub-glow)" opacity="0.7" />
+                                    </>
+                                )}
                                 <g style={getRecordStyle()}>
-                                    <circle cx="400" cy="300" r="172" fill="url(#high-vinyl)" />
+                                    {/* Main vinyl - brighter in scrub mode */}
+                                    <circle 
+                                        cx="400" cy="300" r="172" 
+                                        fill={isPopped ? '#1f1f1f' : 'url(#high-vinyl)'} 
+                                        filter={isPopped ? 'url(#vinyl-glow)' : 'none'}
+                                    />
+                                    {/* Grooves - more visible in scrub mode */}
                                     {[160, 140, 120, 100, 80].map(r => (
-                                        <circle key={r} cx="400" cy="300" r={r} fill="none" stroke="#111" strokeWidth="1" opacity="0.8" />
+                                        <circle 
+                                            key={r} 
+                                            cx="400" cy="300" r={r} 
+                                            fill="none" 
+                                            stroke={isPopped ? '#383838' : '#111'} 
+                                            strokeWidth={isPopped ? 1.5 : 1} 
+                                            opacity={isPopped ? 1 : 0.8} 
+                                        />
                                     ))}
-                                    <circle cx="400" cy="300" r="60" fill={isRecording ? "#ff5252" : "#ff9100"} style={{ transition: 'fill 0.5s' }} />
+                                    {/* Highlight sheen on vinyl when popped */}
+                                    {isPopped && (
+                                        <ellipse 
+                                            cx="360" cy="260" rx="80" ry="40" 
+                                            fill="rgba(255,255,255,0.08)" 
+                                            transform="rotate(-30, 360, 260)" 
+                                        />
+                                    )}
+                                    {/* Label - brighter in scrub mode */}
+                                    <circle 
+                                        cx="400" cy="300" r="60" 
+                                        fill={isRecording ? "#ff5252" : isPopped ? "#ffb347" : "#ff9100"} 
+                                        style={{ transition: 'fill 0.5s' }} 
+                                    />
+                                    {/* Label highlight when popped */}
+                                    {isPopped && (
+                                        <ellipse 
+                                            cx="385" cy="285" rx="25" ry="15" 
+                                            fill="rgba(255,255,255,0.2)" 
+                                            transform="rotate(-30, 385, 285)" 
+                                        />
+                                    )}
                                     <text x="400" y="295" fontFamily="serif" fontSize="14" fill="white" textAnchor="middle" fontWeight="900" fontStyle="italic">SCRATCH</text>
                                     <text x="400" y="318" fontFamily="serif" fontSize="14" fill="white" textAnchor="middle" fontWeight="900" fontStyle="italic">LAB</text>
                                     <circle cx="400" cy="300" r="5" fill="#f5f5f5" />
@@ -3618,6 +3698,169 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* BPM Popup Modal */}
+            {showBpmPopup && (
+                <div 
+                    style={{ 
+                        position: 'fixed', 
+                        inset: 0, 
+                        zIndex: 100, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        padding: 20, 
+                        background: 'rgba(0,0,0,0.85)'
+                    }}
+                    onClick={() => setShowBpmPopup(false)}
+                >
+                    <div 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ 
+                            background: '#1a1a1a',
+                            border: '3px solid #333',
+                            borderRadius: 16,
+                            padding: 24, 
+                            width: '100%', 
+                            maxWidth: 280,
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                        }}
+                    >
+                        {/* Header */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 20
+                        }}>
+                            <span style={{ 
+                                fontSize: 12, 
+                                fontWeight: 900, 
+                                letterSpacing: '0.15em',
+                                color: '#fff',
+                                fontFamily: 'var(--font-mono)'
+                            }}>METRONOME</span>
+                            <button 
+                                onClick={() => setShowBpmPopup(false)}
+                                style={{ 
+                                    color: '#666', 
+                                    background: 'none', 
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: 4
+                                }}
+                            >
+                                <Icon name="X" size={20} />
+                            </button>
+                        </div>
+                        
+                        {/* BPM Display */}
+                        <div style={{
+                            textAlign: 'center',
+                            marginBottom: 20
+                        }}>
+                            <div style={{
+                                fontSize: 56,
+                                fontWeight: 900,
+                                color: isMetronomeOn ? '#eab308' : '#fff',
+                                fontFamily: 'var(--font-mono)',
+                                lineHeight: 1
+                            }}>{bpm}</div>
+                            <div style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: isMetronomeOn ? '#eab308' : '#666',
+                                letterSpacing: '0.2em',
+                                marginTop: 4
+                            }}>BPM</div>
+                        </div>
+                        
+                        {/* BPM Slider */}
+                        <div style={{ marginBottom: 20 }}>
+                            <input 
+                                type="range" 
+                                min="40" 
+                                max="200" 
+                                value={bpm}
+                                onChange={(e) => setBpm(parseInt(e.target.value))}
+                                style={{
+                                    width: '100%',
+                                    height: 8,
+                                    background: `linear-gradient(to right, #eab308 0%, #eab308 ${((bpm - 40) / 160) * 100}%, #333 ${((bpm - 40) / 160) * 100}%, #333 100%)`,
+                                    borderRadius: 8,
+                                    appearance: 'none',
+                                    cursor: 'pointer',
+                                    outline: 'none'
+                                }}
+                            />
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginTop: 8,
+                                fontSize: 10,
+                                color: '#666',
+                                fontFamily: 'var(--font-mono)'
+                            }}>
+                                <span>40</span>
+                                <span>200</span>
+                            </div>
+                        </div>
+                        
+                        {/* Preset BPM buttons */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gap: 8,
+                            marginBottom: 20
+                        }}>
+                            {[60, 80, 90, 100, 110, 120, 140, 160].map(preset => (
+                                <button
+                                    key={preset}
+                                    onClick={() => setBpm(preset)}
+                                    style={{
+                                        padding: '10px 0',
+                                        background: bpm === preset ? '#eab308' : '#2a2a2a',
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        color: bpm === preset ? '#000' : '#888',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s'
+                                    }}
+                                >
+                                    {preset}
+                                </button>
+                            ))}
+                        </div>
+                        
+                        {/* Toggle Metronome Button */}
+                        <button
+                            onClick={() => setIsMetronomeOn(!isMetronomeOn)}
+                            style={{
+                                width: '100%',
+                                padding: '14px 20px',
+                                background: isMetronomeOn ? '#eab308' : '#2a2a2a',
+                                border: isMetronomeOn ? '2px solid #fde047' : '2px solid #444',
+                                borderRadius: 12,
+                                color: isMetronomeOn ? '#000' : '#fff',
+                                fontSize: 12,
+                                fontWeight: 900,
+                                letterSpacing: '0.1em',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 10,
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            <Icon name={isMetronomeOn ? "Pause" : "Play"} size={16} />
+                            {isMetronomeOn ? 'STOP METRONOME' : 'START METRONOME'}
+                        </button>
                     </div>
                 </div>
             )}
