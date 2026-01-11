@@ -3484,7 +3484,7 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                     </div>
                 </div>
 
-                {/* Selected Trophies Display */}
+                {/* Selected Trophies Display - Only show the 3 picked trophies */}
                 <div style={{
                     padding: 20,
                     borderBottom: '2px solid var(--black)'
@@ -3506,6 +3506,7 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                         {[0, 1, 2].map(index => {
                             const trophyId = selectedTrophies[index];
                             const trophy = trophies.find(t => t.id === trophyId);
+                            const hasImage = trophy && (trophy.imageUrl || trophy.image_url);
                             
                             return (
                                 <div key={index} style={{
@@ -3516,22 +3517,35 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                                     flexDirection: 'column',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    padding: 8
+                                    padding: 4,
+                                    overflow: 'hidden'
                                 }}>
                                     {trophy ? (
-                                        <>
-                                            <div style={{ fontSize: 32, marginBottom: 4 }}>
-                                                {trophy.icon}
-                                            </div>
-                                            <div style={{
-                                                fontSize: 7,
-                                                fontFamily: 'IBM Plex Mono',
-                                                textAlign: 'center',
-                                                fontWeight: 700
-                                            }}>
-                                                {trophy.name}
-                                            </div>
-                                        </>
+                                        hasImage ? (
+                                            <img 
+                                                src={trophy.imageUrl || trophy.image_url} 
+                                                alt={trophy.name}
+                                                style={{
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    objectFit: 'contain'
+                                                }}
+                                            />
+                                        ) : (
+                                            <>
+                                                <div style={{ fontSize: 32, marginBottom: 4 }}>
+                                                    {trophy.icon}
+                                                </div>
+                                                <div style={{
+                                                    fontSize: 7,
+                                                    fontFamily: 'IBM Plex Mono',
+                                                    textAlign: 'center',
+                                                    fontWeight: 700
+                                                }}>
+                                                    {trophy.name}
+                                                </div>
+                                            </>
+                                        )
                                     ) : (
                                         <div style={{
                                             fontSize: 24,
