@@ -325,7 +325,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     }}
                 >
                     <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
-                        <rect x="6" y="10" width="52" height="46" rx="6" fill="#374151" stroke="#111827" strokeWidth="3" />
+                        <rect x="6" y="10" width="52" height="46" rx="6" fill="#FFFFFF" stroke="#111827" strokeWidth="3" />
                         <rect x="10" y="24" width="44" height="28" rx="2" fill="#111827" />
                         <circle cx="20" cy="32" r="2" fill="#4B5563" /> <circle cx="32" cy="32" r="2" fill="#4B5563" /> <circle cx="44" cy="32" r="2" fill="#4B5563" />
                         <circle cx="20" cy="42" r="2" fill="#4B5563" /> <circle cx="32" cy="42" r="2" fill="#EAB308" /> <circle cx="44" cy="42" r="2" fill="#4B5563" />
