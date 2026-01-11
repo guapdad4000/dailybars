@@ -310,7 +310,12 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         layers.forEach(layer => {
             if (layer.audioBuffer) {
-                maxDuration = Math.max(maxDuration, layer.audioBuffer.duration);
+                // Include timeShift in duration calculation
+                // If shift is positive (delay), end time is duration + shift
+                // If shift is negative (clip start), duration is effectively shorter, but we usually track "active audio range"
+                // For simplicity and to allow dragging "out of bounds", we track the max extent
+                const effectiveDuration = layer.audioBuffer.duration + (layer.timeShift || 0);
+                maxDuration = Math.max(maxDuration, effectiveDuration);
             }
         });
         
@@ -1511,6 +1516,71 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const toggleNudgeMode = (layerId) => {
         setNudgeMode(prev => ({ ...prev, [layerId]: !prev[layerId] }));
     };
+    
+    // --- DRAG TO SHIFT LOGIC ---
+    const [dragState, setDragState] = useState({ isDragging: false, layerId: null, startX: 0, startShift: 0, width: 0 });
+
+    const handleLayerDragStart = (e, layerId, currentShift) => {
+        // Only allow drag if nudge mode is active
+        if (!nudgeMode[layerId]) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const target = e.currentTarget;
+        const width = target.offsetWidth;
+        
+        setDragState({
+            isDragging: true,
+            layerId,
+            startX: clientX,
+            startShift: currentShift || 0,
+            width
+        });
+    };
+
+    const handleLayerDragMove = useCallback((e) => {
+        if (!dragState.isDragging) return;
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const deltaX = clientX - dragState.startX;
+        
+        // Convert px to seconds
+        if (sessionDuration <= 0) return;
+        
+        // Width represents sessionDuration
+        const pixelsPerSecond = dragState.width / sessionDuration;
+        const deltaSeconds = deltaX / pixelsPerSecond;
+        
+        const newShift = dragState.startShift + deltaSeconds;
+        
+        setLayers(prev => prev.map(l => {
+            if (l.id !== dragState.layerId) return l;
+            return { ...l, timeShift: newShift };
+        }));
+        
+    }, [dragState, sessionDuration]);
+
+    const handleLayerDragEnd = useCallback(() => {
+        setDragState(prev => ({ ...prev, isDragging: false }));
+    }, []);
+
+    // Attach global listeners for move/up when dragging
+    useEffect(() => {
+        if (dragState.isDragging) {
+            window.addEventListener('mousemove', handleLayerDragMove, { passive: false });
+            window.addEventListener('mouseup', handleLayerDragEnd);
+            window.addEventListener('touchmove', handleLayerDragMove, { passive: false });
+            window.addEventListener('touchend', handleLayerDragEnd);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleLayerDragMove);
+            window.removeEventListener('mouseup', handleLayerDragEnd);
+            window.removeEventListener('touchmove', handleLayerDragMove);
+            window.removeEventListener('touchend', handleLayerDragEnd);
+        };
+    }, [dragState.isDragging, handleLayerDragMove, handleLayerDragEnd]);
     
     // ============================================================================
     // EXPORT FUNCTIONS
@@ -2762,28 +2832,44 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             }}>{layer.timestamp}</span>
                         </div>
 
-                        <div style={{ 
-                            flex: 1, 
-                            height: 80, 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 1, 
-                            position: 'relative', 
-                            overflow: 'hidden' 
-                        }}>
-                            {layer.waves.map((h, i) => (
-                                <div 
-                                    key={i} 
-                                    style={{ 
-                                        flex: 1, 
-                                        borderRadius: 2,
-                                        transition: 'all 0.3s',
-                                        background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : 'black',
-                                        height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
-                                        opacity: 1
-                                    }}
-                                />
-                            ))}
+                        <div 
+                            style={{ 
+                                flex: 1, 
+                                height: 80, 
+                                position: 'relative', 
+                                overflow: 'hidden',
+                                cursor: nudgeMode[layer.id] ? 'ew-resize' : 'default',
+                                touchAction: nudgeMode[layer.id] ? 'none' : 'auto',
+                                border: nudgeMode[layer.id] ? '1px dashed rgba(255,255,255,0.3)' : 'none',
+                                borderRadius: 4
+                            }}
+                            onMouseDown={(e) => handleLayerDragStart(e, layer.id, layer.timeShift)}
+                            onTouchStart={(e) => handleLayerDragStart(e, layer.id, layer.timeShift)}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                height: '100%',
+                                width: '100%',
+                                transform: `translateX(${(layer.timeShift || 0) / sessionDuration * 100}%)`,
+                                transition: dragState.isDragging && dragState.layerId === layer.id ? 'none' : 'transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1)'
+                            }}>
+                                {layer.waves.map((h, i) => (
+                                    <div 
+                                        key={i} 
+                                        style={{ 
+                                            flex: 1, 
+                                            borderRadius: 2,
+                                            transition: 'background 0.3s, height 0.3s',
+                                            background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : (nudgeMode[layer.id] ? '#fff' : 'black'),
+                                            height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
+                                            opacity: 1
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                            
                             {(isPlaying || isScrubbing || showScrubActions) && (
                                 <div style={{ 
                                     position: 'absolute', 
@@ -2793,8 +2879,28 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                     background: showScrubActions ? '#ff1744' : 'var(--black)', 
                                     zIndex: 10,
                                     left: `${progress}%`,
-                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none'
+                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none',
+                                    pointerEvents: 'none'
                                 }} />
+                            )}
+                            
+                            {/* Nudge visual feedback */}
+                            {nudgeMode[layer.id] && (
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 4,
+                                    fontSize: 8,
+                                    fontWeight: 900,
+                                    color: 'var(--black)',
+                                    background: 'var(--white)',
+                                    padding: '1px 4px',
+                                    borderRadius: 4,
+                                    pointerEvents: 'none',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                }}>
+                                    {((layer.timeShift || 0) * 1000).toFixed(0)}ms
+                                </div>
                             )}
                         </div>
 
@@ -2868,56 +2974,33 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                     fontWeight: 900,
                                     transition: 'all 0.2s'
                                 }}
-                                title="Adjust Timing"
+                                title="Drag to Align"
                             >
                                 <Icon name="MoveHorizontal" size={12} />
                             </button>
 
-                            {nudgeMode[layer.id] ? (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <button 
-                                        onClick={() => handleShiftLayer(layer.id, -0.05)}
-                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
-                                    >{"<<"}</button>
-                                    <button 
-                                        onClick={() => handleShiftLayer(layer.id, -0.01)}
-                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
-                                    >{"<"}</button>
-                                    <span style={{ fontSize: 8, color: 'var(--gray)', width: 32, textAlign: 'center' }}>
-                                        {((layer.timeShift || 0) * 1000).toFixed(0)}ms
-                                    </span>
-                                    <button 
-                                        onClick={() => handleShiftLayer(layer.id, 0.01)}
-                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
-                                    >{">"}</button>
-                                    <button 
-                                        onClick={() => handleShiftLayer(layer.id, 0.05)}
-                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
-                                    >{">>"}</button>
-                                </div>
-                            ) : (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <Icon name="Volume2" size={12} color="var(--gray-light)" />
-                                    <input 
-                                        type="range" 
-                                        min="0" max="100" 
-                                        value={layer.volume}
-                                        onChange={(e) => {
-                                            const next = [...layers];
-                                            next[index].volume = parseInt(e.target.value);
-                                            setLayers(next);
-                                        }}
-                                        style={{
-                                            width: 48,
-                                            height: 4,
-                                            background: 'var(--gray-light)',
-                                            borderRadius: 8,
-                                            appearance: 'none',
-                                            cursor: 'pointer'
-                                        }}
-                                    />
-                                </div>
-                            )}
+                            {/* Volume Slider */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <Icon name="Volume2" size={12} color="var(--gray-light)" />
+                                <input 
+                                    type="range" 
+                                    min="0" max="100" 
+                                    value={layer.volume}
+                                    onChange={(e) => {
+                                        const next = [...layers];
+                                        next[index].volume = parseInt(e.target.value);
+                                        setLayers(next);
+                                    }}
+                                    style={{
+                                        width: 48,
+                                        height: 4,
+                                        background: 'var(--gray-light)',
+                                        borderRadius: 8,
+                                        appearance: 'none',
+                                        cursor: 'pointer'
+                                    }}
+                                />
+                            </div>
 
                             {index === 0 && !isRecording && (
                                 <button 
