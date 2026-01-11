@@ -3275,14 +3275,14 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
         try {
             setLoading(true);
             
-            // Fetch all trophies
+            // Fetch ALL trophies (both store and achievement types)
             const { data: allTrophies } = await api.get('trophies');
             setTrophies(allTrophies || []);
             
             // Fetch user's earned trophies
             const { data, error } = await supabase
                 .from('user_trophies')
-                .select('trophy_id, earned_at')
+                .select('trophy_id, earned_at, earned_via')
                 .eq('user_id', user.id);
             
             if (!error) {
@@ -3544,67 +3544,189 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                     </div>
                 </div>
 
-                {/* All Trophies */}
+                {/* All Trophies - Separated by Type */}
                 <div style={{ padding: 20 }}>
-                    <div style={{
-                        fontSize: 11,
-                        fontFamily: 'IBM Plex Mono',
-                        fontWeight: 700,
-                        letterSpacing: '0.1em',
-                        marginBottom: 12
-                    }}>
-                        TROPHIES ({displayTrophies.length}/{trophies.length})
-                    </div>
-                    
                     {loading ? (
                         <div style={{ textAlign: 'center', padding: 20, color: 'var(--gray)' }}>
                             Loading...
                         </div>
                     ) : (
-                        <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(3, 1fr)',
-                            gap: 8
-                        }}>
-                            {trophies.map(trophy => {
-                                const earned = earnedTrophyIds.includes(trophy.id);
-                                const isSelected = selectedTrophies.includes(trophy.id);
+                        <>
+                            {/* Achievement Trophies (Free milestones) */}
+                            {(() => {
+                                const achievementTrophies = trophies.filter(t => t.trophyType === 'achievement' || t.trophy_type === 'achievement');
+                                const earnedAchievements = achievementTrophies.filter(t => earnedTrophyIds.includes(t.id));
+                                
+                                if (achievementTrophies.length === 0) return null;
                                 
                                 return (
-                                    <button
-                                        key={trophy.id}
-                                        onClick={() => earned && handleSelectTrophy(trophy.id)}
-                                        disabled={!earned}
-                                        style={{
-                                            aspectRatio: '1',
-                                            border: `2px solid ${isSelected ? '#EAB308' : 'var(--black)'}`,
-                                            background: earned ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
-                                            opacity: earned ? 1 : 0.3,
+                                    <div style={{ marginBottom: 24 }}>
+                                        <div style={{
+                                            fontSize: 11,
+                                            fontFamily: 'IBM Plex Mono',
+                                            fontWeight: 700,
+                                            letterSpacing: '0.1em',
+                                            marginBottom: 12,
                                             display: 'flex',
-                                            flexDirection: 'column',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            padding: 8,
-                                            cursor: earned ? 'pointer' : 'default'
-                                        }}
-                                        title={earned ? trophy.description : `${trophy.description} (Locked)`}
-                                    >
-                                        <div style={{ fontSize: 28, marginBottom: 4, filter: earned ? 'none' : 'grayscale(1)' }}>
-                                            {trophy.icon}
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}>
+                                            <span>ACHIEVEMENTS</span>
+                                            <span style={{ fontSize: 9, color: 'var(--gray)' }}>
+                                                {earnedAchievements.length}/{achievementTrophies.length}
+                                            </span>
                                         </div>
                                         <div style={{
-                                            fontSize: 7,
-                                            fontFamily: 'IBM Plex Mono',
-                                            textAlign: 'center',
-                                            fontWeight: 700,
-                                            lineHeight: 1.2
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(3, 1fr)',
+                                            gap: 8
                                         }}>
-                                            {trophy.name}
+                                            {achievementTrophies.map(trophy => {
+                                                const earned = earnedTrophyIds.includes(trophy.id);
+                                                const isSelected = selectedTrophies.includes(trophy.id);
+                                                
+                                                return (
+                                                    <button
+                                                        key={trophy.id}
+                                                        onClick={() => earned && handleSelectTrophy(trophy.id)}
+                                                        disabled={!earned}
+                                                        style={{
+                                                            aspectRatio: '1',
+                                                            border: `2px solid ${isSelected ? '#EAB308' : 'var(--black)'}`,
+                                                            background: earned ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
+                                                            opacity: earned ? 1 : 0.3,
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            padding: 8,
+                                                            cursor: earned ? 'pointer' : 'default',
+                                                            position: 'relative'
+                                                        }}
+                                                        title={earned ? trophy.description : `${trophy.description} (Locked)`}
+                                                    >
+                                                        <div style={{ fontSize: 28, marginBottom: 4, filter: earned ? 'none' : 'grayscale(1)' }}>
+                                                            {trophy.icon}
+                                                        </div>
+                                                        <div style={{
+                                                            fontSize: 7,
+                                                            fontFamily: 'IBM Plex Mono',
+                                                            textAlign: 'center',
+                                                            fontWeight: 700,
+                                                            lineHeight: 1.2
+                                                        }}>
+                                                            {trophy.name}
+                                                        </div>
+                                                        {!earned && trophy.requirementType && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                bottom: 4,
+                                                                fontSize: 6,
+                                                                color: 'var(--gray)',
+                                                                fontFamily: 'IBM Plex Mono'
+                                                            }}>
+                                                                {trophy.requirementValue} {trophy.requirementType}
+                                                            </div>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
                                         </div>
-                                    </button>
+                                    </div>
                                 );
-                            })}
-                        </div>
+                            })()}
+                            
+                            {/* Store Trophies (Purchasable with XP) */}
+                            {(() => {
+                                const storeTrophies = trophies.filter(t => t.trophyType === 'store' || t.trophy_type === 'store' || (!t.trophyType && !t.trophy_type));
+                                const earnedStore = storeTrophies.filter(t => earnedTrophyIds.includes(t.id));
+                                
+                                if (storeTrophies.length === 0) return null;
+                                
+                                return (
+                                    <div>
+                                        <div style={{
+                                            fontSize: 11,
+                                            fontFamily: 'IBM Plex Mono',
+                                            fontWeight: 700,
+                                            letterSpacing: '0.1em',
+                                            marginBottom: 12,
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center'
+                                        }}>
+                                            <span>COLLECTION</span>
+                                            <span style={{ fontSize: 9, color: 'var(--gray)' }}>
+                                                {earnedStore.length}/{storeTrophies.length}
+                                            </span>
+                                        </div>
+                                        <div style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(3, 1fr)',
+                                            gap: 8,
+                                            maxHeight: 400,
+                                            overflowY: 'auto'
+                                        }}>
+                                            {storeTrophies.map(trophy => {
+                                                const earned = earnedTrophyIds.includes(trophy.id);
+                                                const isSelected = selectedTrophies.includes(trophy.id);
+                                                const hasImage = trophy.imageUrl || trophy.image_url;
+                                                
+                                                return (
+                                                    <button
+                                                        key={trophy.id}
+                                                        onClick={() => earned && handleSelectTrophy(trophy.id)}
+                                                        disabled={!earned}
+                                                        style={{
+                                                            aspectRatio: '1',
+                                                            border: `2px solid ${isSelected ? '#EAB308' : 'var(--black)'}`,
+                                                            background: earned ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
+                                                            opacity: earned ? 1 : 0.3,
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            padding: 4,
+                                                            cursor: earned ? 'pointer' : 'default',
+                                                            overflow: 'hidden'
+                                                        }}
+                                                        title={`${trophy.name}${trophy.xpCost ? ` - ${trophy.xpCost} XP` : ''}`}
+                                                    >
+                                                        {hasImage ? (
+                                                            <img 
+                                                                src={trophy.imageUrl || trophy.image_url} 
+                                                                alt={trophy.name}
+                                                                style={{
+                                                                    width: '100%',
+                                                                    height: '100%',
+                                                                    objectFit: 'contain',
+                                                                    filter: earned ? 'none' : 'grayscale(1) opacity(0.5)'
+                                                                }}
+                                                            />
+                                                        ) : (
+                                                            <>
+                                                                <div style={{ fontSize: 24, marginBottom: 4, filter: earned ? 'none' : 'grayscale(1)' }}>
+                                                                    {trophy.icon}
+                                                                </div>
+                                                                <div style={{
+                                                                    fontSize: 6,
+                                                                    fontFamily: 'IBM Plex Mono',
+                                                                    textAlign: 'center',
+                                                                    fontWeight: 700,
+                                                                    lineHeight: 1.2
+                                                                }}>
+                                                                    {trophy.name}
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </>
                     )}
                 </div>
 
