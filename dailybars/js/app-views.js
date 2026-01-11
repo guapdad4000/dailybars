@@ -314,7 +314,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     style={{
                         width: 54,
                         height: 54,
-                        background: '#FACC15',
+                        background: '#1F2937',
                         border: '2px solid var(--black)',
                         display: 'flex',
                         alignItems: 'center',
@@ -324,26 +324,12 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     }}
                 >
                     <svg width="34" height="34" viewBox="0 0 64 64" aria-hidden="true">
-                        <defs>
-                            <linearGradient id="calendar-gold" x1="0" x2="1">
-                                <stop offset="0%" stopColor="#FDE68A" />
-                                <stop offset="100%" stopColor="#F59E0B" />
-                            </linearGradient>
-                        </defs>
-                        <rect x="6" y="10" width="52" height="46" rx="6" fill="url(#calendar-gold)" stroke="#111827" strokeWidth="3" />
-                        <rect x="6" y="18" width="52" height="10" fill="#111827" />
-                        <rect x="14" y="6" width="8" height="10" rx="2" fill="#111827" />
-                        <rect x="42" y="6" width="8" height="10" rx="2" fill="#111827" />
-                        <circle cx="18" cy="36" r="4" fill="#111827" />
-                        <circle cx="32" cy="36" r="4" fill="#111827" />
-                        <circle cx="46" cy="36" r="4" fill="#111827" />
-                        <circle cx="18" cy="48" r="4" fill="#111827" />
-                        <circle cx="32" cy="48" r="4" fill="#111827" />
-                        <path d="M8 30H56" stroke="#111827" strokeWidth="2" />
-                        <path d="M8 42H56" stroke="#111827" strokeWidth="2" />
-                        <path d="M22 30V56" stroke="#111827" strokeWidth="2" />
-                        <path d="M38 30V56" stroke="#111827" strokeWidth="2" />
-                        <path d="M10 14H54" stroke="#FDE68A" strokeWidth="2" />
+                        <rect x="6" y="10" width="52" height="46" rx="6" fill="#374151" stroke="#111827" strokeWidth="3" />
+                        <rect x="10" y="24" width="44" height="28" rx="2" fill="#111827" />
+                        <circle cx="20" cy="32" r="2" fill="#4B5563" /> <circle cx="32" cy="32" r="2" fill="#4B5563" /> <circle cx="44" cy="32" r="2" fill="#4B5563" />
+                        <circle cx="20" cy="42" r="2" fill="#4B5563" /> <circle cx="32" cy="42" r="2" fill="#EAB308" /> <circle cx="44" cy="42" r="2" fill="#4B5563" />
+                        <rect x="14" y="6" width="8" height="8" rx="2" fill="#111827" />
+                        <rect x="42" y="6" width="8" height="8" rx="2" fill="#111827" />
                     </svg>
                 </button>
             </div>
@@ -378,168 +364,169 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     }}>
                         <div style={{
                             position: 'relative',
-                            background: 'rgba(255,255,255,0.9)',
-                            border: '3px solid var(--black)',
-                            boxShadow: '8px 8px 0 var(--black)'
+                            background: 'transparent',
+                            filter: 'drop-shadow(8px 8px 0 var(--black))'
                         }}>
-                            <svg viewBox="0 0 520 360" width="100%" height="auto" aria-hidden="true">
+                            <svg viewBox="0 0 520 380" width="100%" height="auto" aria-hidden="true">
                                 <defs>
-                                    <linearGradient id="calendar-header" x1="0" x2="1">
-                                        <stop offset="0%" stopColor="#FBBF24" />
-                                        <stop offset="100%" stopColor="#F59E0B" />
+                                    <linearGradient id="rack-metal" x1="0" x2="0" y1="0" y2="1">
+                                        <stop offset="0%" stopColor="#374151" />
+                                        <stop offset="100%" stopColor="#1F2937" />
                                     </linearGradient>
-                                    <linearGradient id="calendar-paper" x1="0" x2="0" y1="0" y2="1">
-                                        <stop offset="0%" stopColor="#FFF7D6" />
-                                        <stop offset="100%" stopColor="#FDE68A" />
-                                    </linearGradient>
+                                    <pattern id="grid-pattern" width="20" height="20" patternUnits="userSpaceOnUse">
+                                        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#4B5563" strokeWidth="0.5"/>
+                                    </pattern>
                                 </defs>
-                                <rect x="10" y="10" width="500" height="340" rx="18" fill="url(#calendar-paper)" stroke="#111827" strokeWidth="4" />
-                                <rect x="10" y="10" width="500" height="70" rx="18" fill="url(#calendar-header)" stroke="#111827" strokeWidth="4" />
-                                <rect x="10" y="70" width="500" height="12" fill="#111827" opacity="0.15" />
-                                <circle cx="52" cy="44" r="10" fill="#111827" />
-                                <circle cx="468" cy="44" r="10" fill="#111827" />
-                                <path d="M70 30H450" stroke="#111827" strokeWidth="3" strokeDasharray="8 6" />
-                                <rect x="36" y="26" width="28" height="36" rx="6" fill="#111827" />
-                                <rect x="456" y="26" width="28" height="36" rx="6" fill="#111827" />
-                                <path d="M46 34H58" stroke="#FBBF24" strokeWidth="2" />
-                                <path d="M466 34H478" stroke="#FBBF24" strokeWidth="2" />
-                                <path d="M36 120H484" stroke="#111827" strokeWidth="2" />
-                                <path d="M36 170H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M36 220H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M36 270H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M36 320H484" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M108 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M180 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M252 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M324 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M396 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M468 110V330" stroke="#111827" strokeWidth="1.5" opacity="0.4" />
-                                <path d="M78 92H170" stroke="#111827" strokeWidth="2" />
-                                <path d="M352 92H450" stroke="#111827" strokeWidth="2" />
-                                <circle cx="260" cy="92" r="16" fill="#111827" />
-                                <circle cx="260" cy="92" r="8" fill="#FBBF24" />
-                                <path d="M82 330C120 312 156 312 194 330" stroke="#111827" strokeWidth="2" fill="none" />
-                                <path d="M326 330C364 312 400 312 438 330" stroke="#111827" strokeWidth="2" fill="none" />
-                                <path d="M26 286L60 250" stroke="#111827" strokeWidth="2" />
-                                <path d="M494 286L460 250" stroke="#111827" strokeWidth="2" />
+                                
+                                {/* Main Chassis */}
+                                <rect x="2" y="2" width="516" height="376" rx="16" fill="#111827" stroke="#000" strokeWidth="2" />
+                                <rect x="10" y="10" width="500" height="360" rx="8" fill="url(#rack-metal)" stroke="#4B5563" strokeWidth="1" />
+                                
+                                {/* Screen Bezel */}
+                                <rect x="24" y="76" width="472" height="270" rx="4" fill="#000" stroke="#111827" strokeWidth="2" />
+                                
+                                {/* Screen Area */}
+                                <rect x="30" y="82" width="460" height="258" rx="2" fill="#1F2937" />
+                                <rect x="30" y="82" width="460" height="258" rx="2" fill="url(#grid-pattern)" opacity="0.2" />
+                                
+                                {/* Header / Top Panel */}
+                                <rect x="24" y="24" width="472" height="44" rx="4" fill="#111827" stroke="#000" strokeWidth="1" />
+                                
+                                {/* Decorative Screws */}
+                                <circle cx="20" cy="20" r="4" fill="#6B7280" /> <path d="M18 18L22 22M22 18L18 22" stroke="#374151" strokeWidth="1" />
+                                <circle cx="500" cy="20" r="4" fill="#6B7280" /> <path d="M498 18L502 22M502 18L498 22" stroke="#374151" strokeWidth="1" />
+                                <circle cx="20" cy="360" r="4" fill="#6B7280" /> <path d="M18 358L22 362M22 358L18 362" stroke="#374151" strokeWidth="1" />
+                                <circle cx="500" cy="360" r="4" fill="#6B7280" /> <path d="M498 358L502 362M502 358L498 362" stroke="#374151" strokeWidth="1" />
+                                
+                                {/* Label */}
+                                <text x="260" y="20" textAnchor="middle" fill="#4B5563" fontSize="6" fontFamily="monospace" letterSpacing="2">SEQUENCE CALENDAR</text>
                             </svg>
                             <div style={{
                                 position: 'absolute',
                                 inset: 0,
-                                padding: '20px 28px 24px',
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: 12
                             }}>
                                 <div style={{
+                                    height: '20%', // Rough approximation for header area
+                                    padding: '24px 28px 0',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    padding: '8px 14px',
-                                    marginTop: 8,
-                                    color: 'var(--black)'
+                                    justifyContent: 'space-between'
                                 }}>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}
                                         style={{
-                                            padding: '4px 8px',
-                                            border: '2px solid var(--black)',
-                                            background: 'var(--white)',
+                                            padding: '4px 12px',
+                                            borderRadius: 4,
+                                            background: '#374151',
+                                            color: '#E5E5E5',
                                             fontSize: 10,
-                                            fontWeight: 700
+                                            fontWeight: 700,
+                                            boxShadow: '0 2px 0 #000'
                                         }}
                                     >
                                         PREV
                                     </button>
-                                    <div className="font-display" style={{ fontSize: 14, fontWeight: 900, letterSpacing: '0.2em' }}>
+                                    <div className="font-display" style={{ fontSize: 16, fontWeight: 900, letterSpacing: '0.2em', color: '#EAB308', textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}>
                                         {calendarLabel}
                                     </div>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}
                                         style={{
-                                            padding: '4px 8px',
-                                            border: '2px solid var(--black)',
-                                            background: 'var(--white)',
+                                            padding: '4px 12px',
+                                            borderRadius: 4,
+                                            background: '#374151',
+                                            color: '#E5E5E5',
                                             fontSize: 10,
-                                            fontWeight: 700
+                                            fontWeight: 700,
+                                            boxShadow: '0 2px 0 #000'
                                         }}
                                     >
                                         NEXT
                                     </button>
                                 </div>
                                 <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(7, 1fr)',
-                                    gap: 6,
-                                    padding: '0 6px'
+                                    flex: 1,
+                                    padding: '16px 36px 36px',
                                 }}>
-                                    {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
-                                        <div key={day} className="font-mono" style={{
-                                            fontSize: 9,
-                                            letterSpacing: '0.1em',
-                                            textAlign: 'center',
-                                            fontWeight: 700
-                                        }}>
-                                            {day}
-                                        </div>
-                                    ))}
-                                    {calendarDays.map((day, index) => {
-                                        if (!day) {
-                                            return <div key={`blank-${index}`} />;
-                                        }
-                                        const dayDate = new Date(calendarYear, calendarMonthIndex, day);
-                                        const dayKey = `${calendarYear}-${calendarMonthIndex}-${day}`;
-                                        const count = songsByDay.get(dayKey) || 0;
-                                        const isActive = isSameDay(dayDate, activeDate);
-                                        return (
-                                            <button
-                                                key={day}
-                                                onClick={() => setActiveDate(dayDate)}
-                                                style={{
-                                                    position: 'relative',
-                                                    padding: '10px 0',
-                                                    border: '2px solid var(--black)',
-                                                    background: isActive ? 'var(--electric)' : 'var(--white)',
-                                                    fontSize: 10,
-                                                    fontWeight: 700
-                                                }}
-                                            >
+                                    <div style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(7, 1fr)',
+                                        gap: 6,
+                                        height: '100%',
+                                        alignContent: 'start'
+                                    }}>
+                                        {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
+                                            <div key={day} className="font-mono" style={{
+                                                fontSize: 9,
+                                                letterSpacing: '0.1em',
+                                                textAlign: 'center',
+                                                fontWeight: 700,
+                                                color: '#6B7280'
+                                            }}>
                                                 {day}
-                                                {count > 0 && (
-                                                    <span style={{
-                                                        position: 'absolute',
-                                                        top: 2,
-                                                        right: 4,
-                                                        width: 14,
-                                                        height: 14,
-                                                        borderRadius: '50%',
-                                                        background: 'var(--black)',
-                                                        color: 'var(--electric)',
-                                                        fontSize: 8,
+                                            </div>
+                                        ))}
+                                        {calendarDays.map((day, index) => {
+                                            if (!day) {
+                                                return <div key={`blank-${index}`} />;
+                                            }
+                                            const dayDate = new Date(calendarYear, calendarMonthIndex, day);
+                                            const dayKey = `${calendarYear}-${calendarMonthIndex}-${day}`;
+                                            const count = songsByDay.get(dayKey) || 0;
+                                            const isActive = isSameDay(dayDate, activeDate);
+                                            return (
+                                                <button
+                                                    key={day}
+                                                    onClick={() => setActiveDate(dayDate)}
+                                                    style={{
+                                                        position: 'relative',
+                                                        aspectRatio: '1',
                                                         display: 'flex',
                                                         alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}>
-                                                        {count}
-                                                    </span>
-                                                )}
-                                            </button>
-                                        );
-                                    })}
+                                                        justifyContent: 'center',
+                                                        borderRadius: 4,
+                                                        background: isActive ? '#EAB308' : (count > 0 ? '#374151' : 'transparent'),
+                                                        color: isActive ? '#000' : (count > 0 ? '#fff' : '#9CA3AF'),
+                                                        border: isActive ? 'none' : '1px solid #374151',
+                                                        fontSize: 12,
+                                                        fontWeight: 700,
+                                                        transition: 'all 0.2s ease'
+                                                    }}
+                                                >
+                                                    {day}
+                                                    {count > 0 && !isActive && (
+                                                        <span style={{
+                                                            position: 'absolute',
+                                                            top: 4,
+                                                            right: 4,
+                                                            width: 4,
+                                                            height: 4,
+                                                            borderRadius: '50%',
+                                                            background: '#EAB308',
+                                                            boxShadow: '0 0 4px #EAB308'
+                                                        }} />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         <div style={{
-                            background: 'rgba(255,255,255,0.9)',
-                            border: '3px solid var(--black)',
+                            background: '#1F2937',
+                            border: '2px solid #000',
                             boxShadow: '6px 6px 0 var(--black)',
-                            padding: 16
+                            padding: 16,
+                            borderRadius: 8
                         }}>
-                            <div className="font-display" style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', marginBottom: 10 }}>
+                            <div className="font-display" style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em', marginBottom: 10, color: '#EAB308' }}>
                                 {activeDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                             </div>
                             {activeSongs.length === 0 ? (
-                                <div className="font-mono" style={{ fontSize: 10, color: 'var(--gray)' }}>
+                                <div className="font-mono" style={{ fontSize: 10, color: '#9CA3AF' }}>
                                     NO SONGS LOGGED FOR THIS DAY.
                                 </div>
                             ) : (
@@ -556,14 +543,15 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                                 justifyContent: 'space-between',
                                                 alignItems: 'center',
                                                 padding: '10px 12px',
-                                                border: '2px solid var(--black)',
-                                                background: 'var(--white)',
+                                                border: '1px solid #4B5563',
+                                                background: '#111827',
+                                                color: '#fff',
                                                 fontSize: 11,
                                                 fontWeight: 700
                                             }}
                                         >
                                             <span>{song.title || 'UNTITLED EDITION'}</span>
-                                            <span className="font-mono" style={{ fontSize: 9, color: 'var(--gray)' }}>
+                                            <span className="font-mono" style={{ fontSize: 9, color: '#6B7280' }}>
                                                 {formatTime(song.updated_at || song.created_at)}
                                             </span>
                                         </button>
@@ -576,12 +564,14 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                             style={{
                                 alignSelf: 'center',
                                 padding: '10px 16px',
-                                border: '2px solid var(--black)',
-                                background: 'var(--black)',
-                                color: 'var(--white)',
+                                borderRadius: 20,
+                                background: '#EAB308',
+                                color: '#000',
+                                border: '2px solid #000',
                                 fontSize: 10,
-                                fontWeight: 700,
-                                letterSpacing: '0.1em'
+                                fontWeight: 900,
+                                letterSpacing: '0.1em',
+                                boxShadow: '0 4px 0 rgba(0,0,0,0.5)'
                             }}
                         >
                             CLOSE CALENDAR
