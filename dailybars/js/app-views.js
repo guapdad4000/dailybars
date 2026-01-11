@@ -4581,6 +4581,170 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
 };
 
 // ============================================================================
+// CASSETTE BUTTON COMPONENT
+// ============================================================================
+
+const CassetteButton = ({ user, onClick }) => {
+    const [isUnspooling, setIsUnspooling] = useState(false);
+    
+    const toggleUnspool = (e) => {
+        e.stopPropagation();
+        setIsUnspooling(!isUnspooling);
+        if (onClick) onClick();
+    };
+
+    return (
+        <>
+            <style>
+                {`
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
+                }
+                @keyframes shake {
+                    0% { transform: translate(1px, 1px) rotate(0deg); }
+                    10% { transform: translate(-1px, -2px) rotate(-1deg); }
+                    20% { transform: translate(-3px, 0px) rotate(1deg); }
+                    30% { transform: translate(3px, 2px) rotate(0deg); }
+                    40% { transform: translate(1px, -1px) rotate(1deg); }
+                    50% { transform: translate(-1px, 2px) rotate(-1deg); }
+                }
+                .unspooling .reel-spinner {
+                    animation: spin 1s linear infinite;
+                    transform-origin: 0 0;
+                }
+                .unspooling #tape-mess {
+                    stroke-dashoffset: 0 !important;
+                }
+                .unspooling-shake {
+                    animation: shake 0.5s infinite;
+                }
+                `}
+            </style>
+            <div 
+                className={`canvas-container ${isUnspooling ? 'unspooling-shake' : ''}`}
+                style={{
+                    position: 'fixed',
+                    bottom: 44,
+                    left: 16,
+                    zIndex: 100,
+                    pointerEvents: 'none'
+                }}
+            >
+                <svg 
+                    id="cassette-svg" 
+                    className={isUnspooling ? 'unspooling' : ''}
+                    width="450" 
+                    height="300" 
+                    viewBox="0 0 450 300" 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    onClick={toggleUnspool}
+                    style={{
+                        cursor: 'pointer',
+                        overflow: 'visible',
+                        width: '100px',
+                        height: 'auto',
+                        pointerEvents: 'auto'
+                    }}
+                >
+                    <defs>
+                        <linearGradient id="bodyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                            <stop offset="0%" style={{stopColor:'#3a3a3a', stopOpacity:1}} />
+                            <stop offset="100%" style={{stopColor:'#1a1a1a', stopOpacity:1}} />
+                        </linearGradient>
+                        
+                        <filter id="innerShadow">
+                            <feOffset dx="0" dy="2"/>
+                            <feGaussianBlur stdDeviation="2" result="offset-blur"/>
+                            <feComposite operator="out" in="SourceAlpha" in2="offset-blur" result="inverse"/>
+                            <feFlood floodColor="black" floodOpacity="0.8" result="color"/>
+                            <feComposite operator="in" in="color" in2="inverse" result="shadow"/>
+                            <feComposite operator="over" in="shadow" in2="SourceGraphic"/>
+                        </filter>
+                    </defs>
+
+                    {/* Unspooling Tape Mess */}
+                    <path id="tape-mess" d="M190 25 C 150 -50, 300 -80, 225 -150 C 150 -220, 100 -100, 50 -180 C 200 -300, 400 -200, 380 -350" 
+                          fill="none" stroke="#3d2b1f" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" opacity="0.9"
+                          style={{
+                              strokeDasharray: 1000,
+                              strokeDashoffset: 1000,
+                              transition: 'stroke-dashoffset 2s ease-in-out',
+                              pointerEvents: 'none'
+                          }}
+                    />
+
+                    {/* Main Shell */}
+                    <rect x="25" y="25" width="400" height="250" rx="15" fill="url(#bodyGrad)" stroke="#111" strokeWidth="2" />
+                    
+                    {/* Bottom Indent Section */}
+                    <path d="M70 240 L380 240 L360 275 L90 275 Z" fill="#222" stroke="#111" />
+                    <circle cx="120" cy="257" r="8" fill="#111" />
+                    <circle cx="330" cy="257" r="8" fill="#111" />
+                    <rect x="190" y="250" width="70" height="15" rx="3" fill="#111" />
+
+                    {/* The Label Area */}
+                    <rect x="50" y="50" width="350" height="170" rx="8" fill="#fdf6e3" />
+                    
+                    {/* Retro Stripes on Label */}
+                    <rect x="50" y="50" width="350" height="15" rx="8" fill="#ff4d4d" opacity="0.8" />
+                    <rect x="50" y="65" width="350" height="10" fill="#4d94ff" opacity="0.8" />
+                    
+                    {/* Centered Label Text */}
+                    <text x="225" y="115" textAnchor="middle" fontFamily="Arial, sans-serif" fontSize="64" fontWeight="bold" fill="#222">
+                        {user?.username ? user.username.toUpperCase() : 'USER'}
+                    </text>
+                    <text x="70" y="95" fontFamily="Arial" fontSize="12" fontWeight="bold" fill="#666">SIDE A</text>
+                    
+                    {/* The Clear Window */}
+                    <rect x="110" y="125" width="230" height="70" rx="5" fill="#1a1a1a" filter="url(#innerShadow)" />
+                    
+                    {/* Tape Visible Inside */}
+                    <rect x="130" y="145" width="190" height="30" fill="#3d2b1f" opacity="0.6" />
+
+                    {/* Left Reel */}
+                    <g transform="translate(155, 160)">
+                        <g className="reel-spinner">
+                            <circle cx="0" cy="0" r="30" fill="white" stroke="#ccc" strokeWidth="1" />
+                            <circle cx="0" cy="0" r="10" fill="#1a1a1a" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(60)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(120)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(180)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(240)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(300)" />
+                        </g>
+                    </g>
+
+                    {/* Right Reel */}
+                    <g transform="translate(295, 160)">
+                        <g className="reel-spinner">
+                            <circle cx="0" cy="0" r="30" fill="white" stroke="#ccc" strokeWidth="1" />
+                            <circle cx="0" cy="0" r="10" fill="#1a1a1a" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(30)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(90)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(150)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(210)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(270)" />
+                            <path d="M-3 -12 L3 -12 L2 -8 L-2 -8 Z" fill="#333" transform="rotate(330)" />
+                        </g>
+                    </g>
+
+                    {/* Screws */}
+                    <circle cx="45" cy="45" r="5" fill="#555" stroke="#333" />
+                    <circle cx="405" cy="45" r="5" fill="#555" stroke="#333" />
+                    <circle cx="45" cy="255" r="5" fill="#555" stroke="#333" />
+                    <circle cx="405" cy="255" r="5" fill="#555" stroke="#333" />
+
+                    {/* Tape Progress Markers */}
+                    <line x1="180" y1="185" x2="270" y2="185" stroke="#444" strokeWidth="1" strokeDasharray="2,5" />
+                </svg>
+            </div>
+        </>
+    );
+};
+
+// ============================================================================
 // MAIN APP
 // ============================================================================
 
@@ -5598,32 +5762,13 @@ const App = () => {
 
                 {premiumOverlay}
 
-                <div style={{ position: 'fixed', bottom: 44, left: 16, zIndex: 100 }}>
-                    <button onClick={() => {
+                <CassetteButton 
+                    user={user} 
+                    onClick={() => {
                         setProfileModalUser(user);
                         setShowProfileModal(true);
-                    }} style={{
-                        background: 'var(--black)', 
-                        color: 'var(--white)',
-                        padding: '8px 12px', 
-                        fontSize: 10, 
-                        fontWeight: 700, 
-                        letterSpacing: '0.1em',
-                        border: '2px solid var(--black)',
-                        borderRadius: '50px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                    }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="8" r="5"/>
-                            <path d="M20 21a8 8 0 1 0-16 0"/>
-                        </svg>
-                        @{user.username.toUpperCase()}
-                    </button>
-                </div>
+                    }} 
+                />
                 
                 {/* User Profile Modal */}
                 {showProfileModal && profileModalUser && (
