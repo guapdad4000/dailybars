@@ -4584,12 +4584,18 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
 // CASSETTE BUTTON COMPONENT
 // ============================================================================
 
-const CassetteButton = ({ user, onClick }) => {
-    const [isUnspooling, setIsUnspooling] = useState(false);
+const CassetteButton = ({ user, onClick, isOpen }) => {
+    // Rely on isOpen prop if available for unspooling state, otherwise use internal state
+    const [internalUnspooling, setInternalUnspooling] = useState(false);
+    
+    // Determine if unspooling based on prop (controlled) or internal state (uncontrolled)
+    const isUnspooling = isOpen !== undefined ? isOpen : internalUnspooling;
     
     const toggleUnspool = (e) => {
         e.stopPropagation();
-        setIsUnspooling(!isUnspooling);
+        if (isOpen === undefined) {
+            setInternalUnspooling(!internalUnspooling);
+        }
         if (onClick) onClick();
     };
 
@@ -4642,7 +4648,7 @@ const CassetteButton = ({ user, onClick }) => {
                     style={{
                         cursor: 'pointer',
                         overflow: 'visible',
-                        width: '100px',
+                        width: '75px',
                         height: 'auto',
                         pointerEvents: 'auto'
                     }}
@@ -4688,7 +4694,7 @@ const CassetteButton = ({ user, onClick }) => {
                     
                     {/* Retro Stripes on Label */}
                     <rect x="50" y="50" width="350" height="15" rx="8" fill="#ff4d4d" opacity="0.8" />
-                    <rect x="50" y="65" width="350" height="10" fill="#4d94ff" opacity="0.8" />
+                    <rect x="50" y="65" width="350" height="10" fill="#EAB308" opacity="0.8" />
                     
                     {/* Centered Label Text */}
                     <text x="225" y="115" textAnchor="middle" fontFamily="Arial, sans-serif" fontSize="64" fontWeight="bold" fill="#222">
@@ -5764,6 +5770,7 @@ const App = () => {
 
                 <CassetteButton 
                     user={user} 
+                    isOpen={showProfileModal}
                     onClick={() => {
                         setProfileModalUser(user);
                         setShowProfileModal(true);
