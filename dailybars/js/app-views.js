@@ -4631,9 +4631,9 @@ const CassetteButton = ({ user, onClick, isOpen }) => {
                 className={`canvas-container ${isUnspooling ? 'unspooling-shake' : ''}`}
                 style={{
                     position: 'fixed',
-                    bottom: 44,
+                    bottom: 80, // Moved up to avoid mobile bottom bar issues
                     left: 16,
-                    zIndex: 100,
+                    zIndex: 150, // Increased z-index to be above bottom bar
                     pointerEvents: 'none'
                 }}
             >
