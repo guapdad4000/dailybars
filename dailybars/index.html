@@ -135,10 +135,10 @@
                     const registrations = await navigator.serviceWorker.getRegistrations();
                     
                     // Register with cache-busting
-                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=26', {
+                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=27', {
                         updateViaCache: 'none' // Never use cached SW
                     });
-                    console.log('✅ Service Worker v26 registered:', registration.scope);
+                    console.log('✅ Service Worker v27 registered:', registration.scope);
                     
                     // Force check for updates
                     registration.update();

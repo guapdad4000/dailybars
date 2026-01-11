@@ -29,6 +29,56 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [isPopped, setIsPopped] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     
+    // Audio Input State
+    const [audioInputs, setAudioInputs] = useState([]);
+    const [selectedInputId, setSelectedInputId] = useState('');
+
+    // Fetch audio input devices
+    const refreshAudioInputs = useCallback(async () => {
+        try {
+            // Ensure permission first - usually this is called after first getUserMedia
+            // or if we already have permission
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(d => d.kind === 'audioinput');
+            setAudioInputs(inputs);
+            
+            // Set default if not set
+            if (!selectedInputId && inputs.length > 0) {
+                // Try to find "default" or first one
+                const defaultInput = inputs.find(i => i.deviceId === 'default') || inputs[0];
+                setSelectedInputId(defaultInput.deviceId);
+            }
+        } catch (e) {
+            console.warn('Error fetching devices:', e);
+        }
+    }, [selectedInputId]);
+
+    // Initial fetch
+    useEffect(() => {
+        refreshAudioInputs();
+        // Also listen for device changes
+        navigator.mediaDevices.addEventListener('devicechange', refreshAudioInputs);
+        return () => navigator.mediaDevices.removeEventListener('devicechange', refreshAudioInputs);
+    }, [refreshAudioInputs]);
+
+    // Cycle through available inputs
+    const cycleAudioInput = () => {
+        if (audioInputs.length <= 1) {
+            alert('No other microphones found.');
+            return;
+        }
+        
+        const currentIndex = audioInputs.findIndex(i => i.deviceId === selectedInputId);
+        const nextIndex = (currentIndex + 1) % audioInputs.length;
+        const nextInput = audioInputs[nextIndex];
+        
+        setSelectedInputId(nextInput.deviceId);
+        
+        // Show brief toast/alert about the switch
+        const label = nextInput.label || `Microphone ${nextIndex + 1}`;
+        alert(`Switched Input: ${label}`);
+    };
+    
     // Audio status for iOS indicator (state so it triggers re-render)
     const [audioReady, setAudioReady] = useState(false);
     
@@ -135,7 +185,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     
     // Track if audio has been unlocked on mobile
     const audioUnlocked = useRef(false);
-    const isIOS = useRef(/iPhone|iPad|iPod/i.test(navigator.userAgent));
+    const isIOS = useRef(/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
     
     // Initialize Audio Context - but DON'T create it until user interaction on iOS
     useEffect(() => {
@@ -182,50 +232,68 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Helper to unlock audio on mobile devices
     // Must be called from a user interaction event (touch/click)
     const unlockMobileAudio = async () => {
-        if (audioUnlocked.current) return true;
+        // Remove this check to force unlock every time
+        // if (audioUnlocked.current) return true; 
         
         try {
             console.log('[ScratchLab] Unlocking mobile audio... iOS:', isIOS.current);
             
-            // Ensure context exists and is running
-            const contextReady = await ensureAudioContext();
-            if (!contextReady) {
-                console.warn('[ScratchLab] Audio context not ready after resume');
+            // 1. Ensure context exists
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
             }
             
-            // iOS-specific: Play an actual audible sound briefly to fully unlock
-            // Silent buffers don't always work on iOS 15+
-            if (isIOS.current) {
-                const osc = audioContext.current.createOscillator();
-                const gain = audioContext.current.createGain();
+            // 2. Resume Context
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+            }
+
+            // 3. Play Silent HTML5 Audio (Silent Switch Bypass)
+            // Always do this on touch devices to ensure active session
+            const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            
+            if (isTouch || isIOS.current) {
+                const silentAudio = new Audio();
+                silentAudio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjIwLjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD//////////////////////////////////////////////////////////////////wAAAP7/zEAAABAAAAOFAAAAAAABEmgAAABEAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//OEAAABAAAAOFAAAAAAABEmgAAABEAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+                silentAudio.volume = 0.01;
                 
-                osc.connect(gain);
-                gain.connect(audioContext.current.destination);
+                // We don't await this because we don't want to block if it fails
+                // But we need to trigger it in the user gesture
+                const playPromise = silentAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('[ScratchLab] Silent HTML5 audio played');
+                        // Keep it playing for a moment to establish session
+                        setTimeout(() => {
+                            silentAudio.pause();
+                            silentAudio.src = '';
+                            silentAudio.remove();
+                        }, 500);
+                    }).catch(error => {
+                        console.warn('[ScratchLab] Silent HTML5 audio failed:', error);
+                    });
+                }
                 
-                // Very short, very quiet beep - almost inaudible but enough to unlock
-                osc.frequency.value = 1; // Sub-bass, nearly inaudible
-                gain.gain.value = 0.001; // Extremely quiet
-                
-                osc.start(audioContext.current.currentTime);
-                osc.stop(audioContext.current.currentTime + 0.001);
-                
-                console.log('[ScratchLab] iOS audio unlock beep played');
-            } else {
-                // Non-iOS: silent buffer is fine
-                const silentBuffer = audioContext.current.createBuffer(1, 1, 22050);
-                const source = audioContext.current.createBufferSource();
-                source.buffer = silentBuffer;
-                source.connect(audioContext.current.destination);
-                source.start(0);
+                // 4. Web Audio Oscillator Kick (Double tap)
+                try {
+                    const osc = audioContext.current.createOscillator();
+                    const gain = audioContext.current.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioContext.current.destination);
+                    osc.frequency.value = 400; 
+                    gain.gain.value = 0.001; 
+                    osc.start(audioContext.current.currentTime);
+                    osc.stop(audioContext.current.currentTime + 0.01);
+                } catch(e) { console.warn('Oscillator kick failed', e); }
             }
             
             audioUnlocked.current = true;
-            setAudioReady(true); // Update state for UI indicator
-            console.log('[ScratchLab] Mobile audio unlocked successfully, context state:', audioContext.current.state);
+            setAudioReady(true); 
             return true;
         } catch (err) {
-            console.error('[ScratchLab] Failed to unlock mobile audio:', err);
-            setAudioReady(false);
+            console.error('[ScratchLab] Unlock failed:', err);
             return false;
         }
     };
@@ -294,8 +362,128 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         onScrubStateChange?.(isScrubbing || isPopped || isRecording);
     }, [isScrubbing, isPopped, isRecording, onScrubStateChange]);
 
+    const playBackingTracks = (startOffset = 0) => {
+        if (layers.length === 0 && !beatAudioBuffer.current) return;
+        
+        // Use a slightly longer schedule ahead for recording to ensure sync
+        const scheduleAhead = isIOS.current ? 0.05 : 0.01;
+        const masterStartTime = audioContext.current.currentTime + scheduleAhead;
+        
+        // Only clear this if we aren't appending (we're starting fresh here)
+        layerSourceNodes.current = [];
+        
+        // 1. Play Beat (if loaded)
+        if (beatAudioBuffer.current) {
+            const beatSource = audioContext.current.createBufferSource();
+            beatSource.buffer = beatAudioBuffer.current;
+            beatSource.loop = true;
+            beatSource.loopStart = 0;
+            beatSource.loopEnd = beatAudioBuffer.current.duration;
+            
+            const beatGain = audioContext.current.createGain();
+            beatGain.gain.value = beatMuted ? 0 : 0.7;
+            
+            beatSource.connect(beatGain);
+            beatGain.connect(masterGainNode.current); // Use master gain for consistency
+            
+            beatSource.start(masterStartTime, startOffset);
+            
+            // We store it in beatSourceNode for volume control, but also need to stop it
+            beatSourceNode.current = { source: beatSource, gainNode: beatGain };
+        }
+        
+        // 2. Play Layers (Overdub)
+        const hasSolo = layers.some(l => l.solo);
+        
+        layers.forEach((layer) => {
+            if (!layer.audioBuffer) return;
+            
+            const source = audioContext.current.createBufferSource();
+            source.buffer = layer.audioBuffer;
+            
+            const gainNode = audioContext.current.createGain();
+            let initialGain = layer.volume / 100;
+            if (layer.muted || (hasSolo && !layer.solo)) {
+                initialGain = 0;
+            }
+            gainNode.gain.value = initialGain;
+            
+            // Pan
+            let outputNode = gainNode;
+            if (audioContext.current.createStereoPanner && (layer.pan || 0) !== 0) {
+                try {
+                    const panNode = audioContext.current.createStereoPanner();
+                    panNode.pan.value = layer.pan || 0;
+                    gainNode.connect(panNode);
+                    outputNode = panNode;
+                } catch (e) {}
+            }
+            
+            source.connect(gainNode);
+            outputNode.connect(masterGainNode.current);
+            
+            // Calculate correct start time based on offset AND latency shift
+            // If timeShift is negative (move left/earlier), we skip more of the buffer start (increase offset)
+            // If timeShift is positive (move right/later), we delay the start time
+            
+            const shift = layer.timeShift || 0;
+            const layerStartOffset = Math.min(startOffset, layer.audioBuffer.duration);
+            
+            let effectiveStartTime = masterStartTime;
+            let effectiveOffset = layerStartOffset;
+            
+            if (shift < 0) {
+                // Shift LEFT (earlier): Skip more of the beginning
+                // We add the magnitude of the negative shift to the offset
+                effectiveOffset += Math.abs(shift);
+            } else {
+                // Shift RIGHT (later): Delay start
+                effectiveStartTime += shift;
+            }
+            
+            // Boundary checks
+            if (effectiveOffset > layer.audioBuffer.duration) {
+                // Shifted past end
+                return; 
+            }
+            
+            source.start(effectiveStartTime, effectiveOffset);
+            
+            // Auto stop when this layer ends
+            // Duration is original duration minus whatever we skipped
+            const playDuration = layer.audioBuffer.duration - effectiveOffset;
+            if (playDuration > 0) {
+                source.stop(effectiveStartTime + playDuration);
+            }
+            
+            layerSourceNodes.current.push({ source, gainNode, layerId: layer.id });
+        });
+        
+        // Setup playback timing for progress bar
+        playbackStartTime.current = masterStartTime - startOffset;
+        
+        // We don't set isPlaying=true here necessarily, as we are in recording state
+        // But we DO want the progress bar to move. 
+        // The recording logic currently updates `liveWaveform` but not `progress`.
+        // We should start the progress updater if not already running.
+        if (!playbackInterval.current) {
+             const updateProgress = () => {
+                if (!isRecording && !isPlaying) return; // Stop if neither
+                
+                const elapsed = audioContext.current.currentTime - playbackStartTime.current;
+                // Use a large duration for recording mode if unknown, or sessionDuration
+                const currentDuration = sessionDuration > 0 ? sessionDuration : 300; 
+                const newProgress = Math.min(100, (elapsed / currentDuration) * 100);
+                
+                setProgress(newProgress);
+                playbackInterval.current = requestAnimationFrame(updateProgress);
+            };
+            playbackInterval.current = requestAnimationFrame(updateProgress);
+        }
+    };
+
     // Request microphone access and start recording
-    const startRecording = async () => {
+    const startRecording = async (startOffset = 0) => {
         try {
             // CRITICAL FOR iOS: Unlock audio IMMEDIATELY in user gesture
             // BEFORE any async operations like getUserMedia
@@ -365,21 +553,26 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             let constraints;
             if (isIOS) {
-                // iOS Safari needs minimal constraints
-                constraints = { audio: true };
+                // iOS Safari needs minimal constraints but we can try deviceId if specific one selected
+                // Note: iOS often overrides this anyway, but worth a shot if multiple inputs exist
+                constraints = { 
+                    audio: selectedInputId ? { deviceId: { exact: selectedInputId } } : true 
+                };
             } else if (isMobile) {
-                // Android Chrome can use some constraints
+                // Android Chrome
                 constraints = {
                     audio: {
+                        deviceId: selectedInputId ? { exact: selectedInputId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: true // Help with mobile mic sensitivity
                     }
                 };
             } else {
-                // Desktop can use full constraints
+                // Desktop
                 constraints = {
                     audio: {
+                        deviceId: selectedInputId ? { exact: selectedInputId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: false
@@ -391,6 +584,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             mediaStream.current = stream;
+            
+            // Refresh device list now that we have permission (labels will appear)
+            refreshAudioInputs();
             
             // Verify we got audio tracks
             const audioTracks = stream.getAudioTracks();
@@ -440,30 +636,38 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             animationFrame.current = requestAnimationFrame(updateWaveform);
             
-            // Setup MediaRecorder with proper MIME type for mobile
-            // iOS Safari supports audio/mp4, Chrome supports audio/webm
-            let mimeType;
-            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                mimeType = 'audio/webm;codecs=opus';
-            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                mimeType = 'audio/webm';
-            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                mimeType = 'audio/mp4';
-            } else if (MediaRecorder.isTypeSupported('audio/aac')) {
-                mimeType = 'audio/aac';
+            // iOS Safari needs audio/mp4 for best compatibility
+            let mimeType = '';
+            
+            if (isIOS.current) {
+                if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+                    mimeType = 'audio/aac';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    // Fallback to webm on newer iOS if mp4 unavailable
+                    mimeType = 'audio/webm';
+                }
             } else {
-                // Fallback - let browser choose
-                mimeType = '';
+                // Android/Desktop - prefer WebM opus
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    mimeType = 'audio/webm';
+                }
             }
             
-            console.log('[ScratchLab] Using MIME type:', mimeType || 'browser default');
+            console.log('[ScratchLab] Selected MIME type:', mimeType || 'browser default');
             
             const recorderOptions = mimeType ? { mimeType } : {};
             mediaRecorder.current = new MediaRecorder(stream, recorderOptions);
             audioChunks.current = [];
             
+            // On mobile, timeslice can cause header issues in some browsers
+            // Safer to record one big chunk unless we need streaming
+            // We only use chunks at the end, so no timeslice needed
+            
             mediaRecorder.current.ondataavailable = (event) => {
-                console.log('[ScratchLab] Data available:', event.data.size, 'bytes');
                 if (event.data.size > 0) {
                     audioChunks.current.push(event.data);
                 }
@@ -492,16 +696,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     return;
                 }
                 
-                // Use the actual MIME type from the recorder
-                const actualMimeType = mediaRecorder.current.mimeType || mimeType || 'audio/webm';
+                // Use the actual MIME type from the recorder or fallback
+                const actualMimeType = mediaRecorder.current.mimeType || mimeType || '';
                 console.log('[ScratchLab] Creating blob with type:', actualMimeType);
                 
-                const audioBlob = new Blob(audioChunks.current, { type: actualMimeType });
+                // Create blob - if type is empty, browser handles it
+                const blobOptions = actualMimeType ? { type: actualMimeType } : undefined;
+                const audioBlob = new Blob(audioChunks.current, blobOptions);
                 console.log('[ScratchLab] Audio blob size:', audioBlob.size, 'bytes');
                 
                 if (audioBlob.size < 100) {
-                    console.error('[ScratchLab] Audio blob too small, likely no audio captured');
-                    alert('Recording appears to be empty. Please ensure your microphone is working and permissions are granted.');
+                    console.error('[ScratchLab] Audio blob too small');
+                    alert('Recording appears to be empty. Microphone might be muted or blocked.');
                     return;
                 }
                 
@@ -512,30 +718,80 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     const arrayBuffer = await audioBlob.arrayBuffer();
                     console.log('[ScratchLab] Array buffer size:', arrayBuffer.byteLength);
                     
+                    // Safari/iOS decodeAudioData requires callback or promise
+                    // We use the promise syntax which is standard now
                     const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
+                    
+                    // Check for silent buffer
+                    const pcm = audioBuffer.getChannelData(0);
+                    let isSilent = true;
+                    for (let i = 0; i < pcm.length; i++) {
+                        if (Math.abs(pcm[i]) > 0.01) {
+                            isSilent = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isSilent) {
+                        console.warn('[ScratchLab] Decoded buffer is silent');
+                        // Don't error, just warn - might be user intent
+                    }
+
                     console.log('[ScratchLab] Decoded audio buffer:', audioBuffer.duration, 'seconds');
                     
-                    // Generate waveform from audio buffer
-                    const waves = generateWaveformFromBuffer(audioBuffer);
+                    let finalAudioBuffer = audioBuffer;
                     
-                    const newLayer = {
-                        id: Date.now(),
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        volume: 80,
-                        waves: waves,
-                        audioBuffer: audioBuffer,
-                        audioUrl: audioUrl,
-                        muted: false,
-                        solo: false,
-                        pan: 0
-                    };
+                    // If we recorded with an offset (overdub), we need to pad the start with silence
+                    if (recordingStartOffset.current > 0) {
+                        const offset = recordingStartOffset.current;
+                        console.log('[ScratchLab] Padding recording with silence:', offset, 'seconds');
+                        
+                        const totalSamples = Math.ceil((audioBuffer.duration + offset) * audioBuffer.sampleRate);
+                        const newBuffer = audioContext.current.createBuffer(
+                            audioBuffer.numberOfChannels,
+                            totalSamples,
+                            audioBuffer.sampleRate
+                        );
+                        
+                        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                            const channelData = newBuffer.getChannelData(channel);
+                            // Copy recorded data at offset index
+                            const recordedData = audioBuffer.getChannelData(channel);
+                            const startSample = Math.floor(offset * audioBuffer.sampleRate);
+                            channelData.set(recordedData, startSample);
+                        }
+                        
+                        finalAudioBuffer = newBuffer;
+                        console.log('[ScratchLab] New padded duration:', finalAudioBuffer.duration);
+                    }
                     
-                    setLayers(prev => [newLayer, ...prev]);
+                    // Generate waveform from audio buffer (use the full padded one so waveform matches position)
+                    const waves = generateWaveformFromBuffer(finalAudioBuffer);
+                    
+                        // Auto-compensate latency for mobile devices
+                        // Mobile browsers often have ~100-150ms input latency
+                        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                        const defaultLatency = isMobile ? -0.12 : 0;
+                        
+                        const newLayer = {
+                            id: Date.now(),
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            volume: 80,
+                            waves: waves,
+                            audioBuffer: finalAudioBuffer,
+                            audioUrl: audioUrl, 
+                            muted: false,
+                            solo: false,
+                            pan: 0,
+                            timeShift: defaultLatency // Default latency compensation
+                        };
+                        
+                        setLayers(prev => [newLayer, ...prev]);
                     setIsPopped(true);
                     console.log('[ScratchLab] Layer added successfully');
                 } catch (decodeErr) {
                     console.error('[ScratchLab] Failed to decode recorded audio:', decodeErr);
-                    alert('Recording saved but could not be processed. The audio format may not be supported. Try again.');
+                    alert('Failed to process recording. The audio format may not be supported by this device.');
                 }
                 
                 // Stop stream
@@ -545,18 +801,20 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 }
             };
             
-            // Start recording with timeslice for continuous data
-            // Use smaller chunks on mobile for better compatibility
-            const timeslice = isMobile ? 250 : 100;
-            console.log('[ScratchLab] Starting MediaRecorder with timeslice:', timeslice);
-            mediaRecorder.current.start(timeslice);
-            setIsRecording(true);
+            // Start recording WITH playback (Overdubbing)
+            console.log('[ScratchLab] Starting Overdub at offset:', startOffset);
             
-            // Play beat while recording if loaded (only if not already started)
-            if (beatAudioBuffer.current && !beatStarted) {
-                console.log('[ScratchLab] Beat not started early, starting now...');
-                playBeatDuringRecording();
-            }
+            // Store the offset for the stop handler to use
+            recordingStartOffset.current = startOffset;
+            
+            // Play existing tracks (beat + layers)
+            playBackingTracks(startOffset);
+            
+            // Start recording WITHOUT timeslice for maximum compatibility
+            // This ensures we get a single clean blob with proper headers
+            console.log('[ScratchLab] Starting MediaRecorder (no timeslice)');
+            mediaRecorder.current.start();
+            setIsRecording(true);
             
         } catch (err) {
             console.error('[ScratchLab] Microphone access error:', err);
@@ -668,18 +926,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         if (useCountdown) {
             setCountdown(3);
         } else {
-            startRecording();
+            startRecording(0);
         }
         setHasStarted(true);
         setSessionActive(true);
     };
 
+    const recordingStartOffset = useRef(0);
+
+    // Stop session logic
     const stopSession = () => {
         setIsRecording(false);
         
         // Stop waveform animation
         if (animationFrame.current) {
             cancelAnimationFrame(animationFrame.current);
+        }
+        
+        // Stop playback interval
+        if (playbackInterval.current) {
+            cancelAnimationFrame(playbackInterval.current);
+            playbackInterval.current = null;
         }
         
         // Reset live waveform
@@ -689,15 +956,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             mediaRecorder.current.stop();
         }
         
-        // Stop beat playback during recording
-        if (beatSourceNode.current) {
-            try {
-                beatSourceNode.current.stop();
-            } catch (e) {
-                // Already stopped
-            }
-            beatSourceNode.current = null;
-        }
+        // Stop all backing tracks (Beat + Layers)
+        stopAllAudio();
         
         setSessionActive(false);
     };
@@ -1052,21 +1312,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setShowScrubActions(false);
         setIsPopped(false);
         
-        // Start playback of existing layers from scrub position
-        // while also recording new audio
-        const startOffset = scrubPosition;
-        
-        // Play existing layers as reference
-        if (layers.length > 0 || beatAudioBuffer.current) {
-            await playAllLayers(startOffset);
-        }
-        
-        // Start recording (countdown optional)
+        // Start recording from scrub position
+        // The startRecording function now handles playing backing tracks from this offset
         setTimeout(() => {
             if (useCountdown) {
                 setCountdown(3);
             } else {
-                startRecording();
+                startRecording(scrubPosition);
             }
             setHasStarted(true);
             setSessionActive(true);
@@ -1209,11 +1461,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         } else if (countdown === 0 && sessionActive && !isRecording) {
             // Play final "GO" click
             playCountdownClick(0);
-            startRecording();
+            
+            // Check if we are starting from scrub or top
+            // If sessionActive is true but we haven't started recording, 
+            // it means countdown finished. 
+            // We need to know where to start. 
+            // For now, if we use countdown, we likely start from 0 or scrubPosition.
+            // But startSession resets scrubPosition to 0. 
+            // recordFromScrubPosition sets sessionActive too.
+            // If scrubPosition is > 0, we use it.
+            const startOffset = scrubPosition > 0 ? scrubPosition : 0;
+            startRecording(startOffset);
             setSessionActive(false);
         }
         return () => clearTimeout(timer);
-    }, [countdown, sessionActive, isRecording, playCountdownClick]);
+    }, [countdown, sessionActive, isRecording, playCountdownClick, scrubPosition]);
 
     const getRecordStyle = () => {
         if (isScrubbing || isPopped) {
@@ -1236,8 +1498,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setLayers(layers.map(l => l.id === layerId ? { ...l, muted: !l.muted } : l));
     };
 
-    const handleToggleSolo = (layerId) => {
-        setLayers(layers.map(l => l.id === layerId ? { ...l, solo: !l.solo } : l));
+    const handleShiftLayer = (layerId, amount) => {
+        setLayers(prev => prev.map(l => {
+            if (l.id !== layerId) return l;
+            return { ...l, timeShift: (l.timeShift || 0) + amount };
+        }));
+    };
+
+    // Toggle Nudge Mode
+    const [nudgeMode, setNudgeMode] = useState({}); // { [layerId]: boolean }
+
+    const toggleNudgeMode = (layerId) => {
+        setNudgeMode(prev => ({ ...prev, [layerId]: !prev[layerId] }));
     };
     
     // ============================================================================
@@ -1632,6 +1904,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             userSelect: 'none',
             paddingBottom: 80 // Extra padding for fixed bottom elements
         }}>
+            {/* Headphone Recommendation Banner */}
+            <div style={{
+                background: '#eab308',
+                color: '#422006',
+                padding: '8px 12px',
+                textAlign: 'center',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                position: 'relative',
+                zIndex: 40
+            }}>
+                <Icon name="Headphones" size={14} />
+                <span>Headphones Recommended for Best Quality</span>
+            </div>
+
             <style>{`
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
                 
@@ -1713,6 +2006,26 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                         </div>
                         
                         <div style={{ display: 'flex', gap: 8 }}>
+                            <button 
+                                onClick={cycleAudioInput}
+                                style={{
+                                    width: 40,
+                                    height: 40,
+                                    borderRadius: 12,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    transition: 'all 0.2s',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    background: 'rgba(255,255,255,0.1)',
+                                    backdropFilter: 'blur(10px)',
+                                    color: '#f5f5f5',
+                                    cursor: 'pointer'
+                                }}
+                                title={selectedInputId ? "Switch Microphone" : "Default Microphone"}
+                            >
+                                <Icon name="Mic" size={18} />
+                            </button>
                             <button 
                                 onClick={() => setShowLoadModal(true)}
                                 style={{
@@ -2537,27 +2850,74 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 S
                             </button>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <Icon name="Volume2" size={12} color="var(--gray-light)" />
-                                <input 
-                                    type="range" 
-                                    min="0" max="100" 
-                                    value={layer.volume}
-                                    onChange={(e) => {
-                                        const next = [...layers];
-                                        next[index].volume = parseInt(e.target.value);
-                                        setLayers(next);
-                                    }}
-                                    style={{
-                                        width: 48,
-                                        height: 4,
-                                        background: 'var(--gray-light)',
-                                        borderRadius: 8,
-                                        appearance: 'none',
-                                        cursor: 'pointer'
-                                    }}
-                                />
-                            </div>
+                            {/* Nudge/Shift Toggle */}
+                            <button 
+                                onClick={() => toggleNudgeMode(layer.id)}
+                                style={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: 'none',
+                                    background: nudgeMode[layer.id] ? 'var(--white)' : 'transparent',
+                                    color: nudgeMode[layer.id] ? 'var(--black)' : 'var(--gray)',
+                                    cursor: 'pointer',
+                                    fontSize: 7,
+                                    fontWeight: 900,
+                                    transition: 'all 0.2s'
+                                }}
+                                title="Adjust Timing"
+                            >
+                                <Icon name="MoveHorizontal" size={12} />
+                            </button>
+
+                            {nudgeMode[layer.id] ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <button 
+                                        onClick={() => handleShiftLayer(layer.id, -0.05)}
+                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
+                                    >{"<<"}</button>
+                                    <button 
+                                        onClick={() => handleShiftLayer(layer.id, -0.01)}
+                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
+                                    >{"<"}</button>
+                                    <span style={{ fontSize: 8, color: 'var(--gray)', width: 32, textAlign: 'center' }}>
+                                        {((layer.timeShift || 0) * 1000).toFixed(0)}ms
+                                    </span>
+                                    <button 
+                                        onClick={() => handleShiftLayer(layer.id, 0.01)}
+                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
+                                    >{">"}</button>
+                                    <button 
+                                        onClick={() => handleShiftLayer(layer.id, 0.05)}
+                                        style={{ width: 24, height: 24, borderRadius: 4, background: '#333', color: 'white', border: 'none', fontSize: 10, cursor: 'pointer' }}
+                                    >{">>"}</button>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Icon name="Volume2" size={12} color="var(--gray-light)" />
+                                    <input 
+                                        type="range" 
+                                        min="0" max="100" 
+                                        value={layer.volume}
+                                        onChange={(e) => {
+                                            const next = [...layers];
+                                            next[index].volume = parseInt(e.target.value);
+                                            setLayers(next);
+                                        }}
+                                        style={{
+                                            width: 48,
+                                            height: 4,
+                                            background: 'var(--gray-light)',
+                                            borderRadius: 8,
+                                            appearance: 'none',
+                                            cursor: 'pointer'
+                                        }}
+                                    />
+                                </div>
+                            )}
 
                             {index === 0 && !isRecording && (
                                 <button 
