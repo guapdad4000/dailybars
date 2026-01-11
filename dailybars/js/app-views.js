@@ -365,9 +365,10 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         <div style={{
                             position: 'relative',
                             background: 'transparent',
-                            filter: 'drop-shadow(8px 8px 0 var(--black))'
+                            filter: 'drop-shadow(8px 8px 0 var(--black))',
+                            width: '100%'
                         }}>
-                            <svg viewBox="0 0 520 380" width="100%" height="auto" aria-hidden="true">
+                            <svg viewBox="0 0 520 400" width="100%" height="auto" aria-hidden="true" style={{ display: 'block' }}>
                                 <defs>
                                     <linearGradient id="rack-metal" x1="0" x2="0" y1="0" y2="1">
                                         <stop offset="0%" stopColor="#374151" />
@@ -379,15 +380,15 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                 </defs>
                                 
                                 {/* Main Chassis */}
-                                <rect x="2" y="2" width="516" height="376" rx="16" fill="#111827" stroke="#000" strokeWidth="2" />
-                                <rect x="10" y="10" width="500" height="360" rx="8" fill="url(#rack-metal)" stroke="#4B5563" strokeWidth="1" />
+                                <rect x="2" y="2" width="516" height="396" rx="16" fill="#111827" stroke="#000" strokeWidth="2" />
+                                <rect x="10" y="10" width="500" height="380" rx="8" fill="url(#rack-metal)" stroke="#4B5563" strokeWidth="1" />
                                 
                                 {/* Screen Bezel */}
-                                <rect x="24" y="76" width="472" height="270" rx="4" fill="#000" stroke="#111827" strokeWidth="2" />
+                                <rect x="24" y="80" width="472" height="300" rx="4" fill="#000" stroke="#111827" strokeWidth="2" />
                                 
                                 {/* Screen Area */}
-                                <rect x="30" y="82" width="460" height="258" rx="2" fill="#1F2937" />
-                                <rect x="30" y="82" width="460" height="258" rx="2" fill="url(#grid-pattern)" opacity="0.2" />
+                                <rect x="32" y="88" width="456" height="284" rx="2" fill="#1F2937" />
+                                <rect x="32" y="88" width="456" height="284" rx="2" fill="url(#grid-pattern)" opacity="0.2" />
                                 
                                 {/* Header / Top Panel */}
                                 <rect x="24" y="24" width="472" height="44" rx="4" fill="#111827" stroke="#000" strokeWidth="1" />
@@ -395,123 +396,144 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                 {/* Decorative Screws */}
                                 <circle cx="20" cy="20" r="4" fill="#6B7280" /> <path d="M18 18L22 22M22 18L18 22" stroke="#374151" strokeWidth="1" />
                                 <circle cx="500" cy="20" r="4" fill="#6B7280" /> <path d="M498 18L502 22M502 18L498 22" stroke="#374151" strokeWidth="1" />
-                                <circle cx="20" cy="360" r="4" fill="#6B7280" /> <path d="M18 358L22 362M22 358L18 362" stroke="#374151" strokeWidth="1" />
-                                <circle cx="500" cy="360" r="4" fill="#6B7280" /> <path d="M498 358L502 362M502 358L498 362" stroke="#374151" strokeWidth="1" />
+                                <circle cx="20" cy="380" r="4" fill="#6B7280" /> <path d="M18 378L22 382M22 378L18 382" stroke="#374151" strokeWidth="1" />
+                                <circle cx="500" cy="380" r="4" fill="#6B7280" /> <path d="M498 378L502 382M502 378L498 382" stroke="#374151" strokeWidth="1" />
                                 
                                 {/* Label */}
                                 <text x="260" y="20" textAnchor="middle" fill="#4B5563" fontSize="6" fontFamily="monospace" letterSpacing="2">SEQUENCE CALENDAR</text>
                             </svg>
+                            
+                            {/* Screen Content Container - Absolutely positioned to match the screen rect */}
                             <div style={{
                                 position: 'absolute',
-                                inset: 0,
+                                top: '22%',    // 88 / 400
+                                left: '6.15%', // 32 / 520
+                                width: '87.7%', // 456 / 520
+                                height: '71%',  // 284 / 400
                                 display: 'flex',
                                 flexDirection: 'column',
+                                overflow: 'hidden',
+                                padding: '4% 4% 2%' // Internal padding
                             }}>
+                                {/* Controls Row */}
                                 <div style={{
-                                    height: '20%', // Rough approximation for header area
-                                    padding: '24px 28px 0',
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between'
+                                    justifyContent: 'space-between',
+                                    marginBottom: '4%'
                                 }}>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}
                                         style={{
-                                            padding: '4px 12px',
+                                            padding: '2% 5%',
                                             borderRadius: 4,
                                             background: '#374151',
                                             color: '#E5E5E5',
-                                            fontSize: 10,
+                                            fontSize: 'clamp(8px, 2vw, 10px)',
                                             fontWeight: 700,
-                                            boxShadow: '0 2px 0 #000'
+                                            boxShadow: '0 2px 0 #000',
+                                            border: 'none',
+                                            cursor: 'pointer'
                                         }}
                                     >
                                         PREV
                                     </button>
-                                    <div className="font-display" style={{ fontSize: 16, fontWeight: 900, letterSpacing: '0.2em', color: '#EAB308', textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' }}>
+                                    <div className="font-display" style={{ 
+                                        fontSize: 'clamp(12px, 3.5vw, 16px)', 
+                                        fontWeight: 900, 
+                                        letterSpacing: '0.2em', 
+                                        color: '#EAB308', 
+                                        textShadow: '0 0 10px rgba(234, 179, 8, 0.5)' 
+                                    }}>
                                         {calendarLabel}
                                     </div>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}
                                         style={{
-                                            padding: '4px 12px',
+                                            padding: '2% 5%',
                                             borderRadius: 4,
                                             background: '#374151',
                                             color: '#E5E5E5',
-                                            fontSize: 10,
+                                            fontSize: 'clamp(8px, 2vw, 10px)',
                                             fontWeight: 700,
-                                            boxShadow: '0 2px 0 #000'
+                                            boxShadow: '0 2px 0 #000',
+                                            border: 'none',
+                                            cursor: 'pointer'
                                         }}
                                     >
                                         NEXT
                                     </button>
                                 </div>
+                                
+                                {/* Calendar Grid */}
                                 <div style={{
                                     flex: 1,
-                                    padding: '16px 36px 36px',
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(7, 1fr)',
+                                    gridTemplateRows: 'auto repeat(6, 1fr)', // Header row + up to 6 weeks
+                                    gap: '1%',
+                                    height: '100%',
+                                    alignContent: 'start'
                                 }}>
-                                    <div style={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(7, 1fr)',
-                                        gap: 6,
-                                        height: '100%',
-                                        alignContent: 'start'
-                                    }}>
-                                        {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map(day => (
-                                            <div key={day} className="font-mono" style={{
-                                                fontSize: 9,
-                                                letterSpacing: '0.1em',
-                                                textAlign: 'center',
-                                                fontWeight: 700,
-                                                color: '#6B7280'
-                                            }}>
+                                    {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map(day => (
+                                        <div key={day} className="font-mono" style={{
+                                            fontSize: 'clamp(8px, 2vw, 10px)',
+                                            letterSpacing: '0.1em',
+                                            textAlign: 'center',
+                                            fontWeight: 700,
+                                            color: '#6B7280',
+                                            alignSelf: 'end',
+                                            paddingBottom: 4
+                                        }}>
+                                            {day}
+                                        </div>
+                                    ))}
+                                    {calendarDays.map((day, index) => {
+                                        if (!day) {
+                                            return <div key={`blank-${index}`} />;
+                                        }
+                                        const dayDate = new Date(calendarYear, calendarMonthIndex, day);
+                                        const dayKey = `${calendarYear}-${calendarMonthIndex}-${day}`;
+                                        const count = songsByDay.get(dayKey) || 0;
+                                        const isActive = isSameDay(dayDate, activeDate);
+                                        return (
+                                            <button
+                                                key={day}
+                                                onClick={() => setActiveDate(dayDate)}
+                                                style={{
+                                                    position: 'relative',
+                                                    width: '100%',
+                                                    height: '100%',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    borderRadius: 4,
+                                                    background: isActive ? '#EAB308' : (count > 0 ? '#374151' : 'transparent'),
+                                                    color: isActive ? '#000' : (count > 0 ? '#fff' : '#9CA3AF'),
+                                                    border: isActive ? 'none' : '1px solid #374151',
+                                                    fontSize: 'clamp(9px, 2.5vw, 12px)',
+                                                    fontWeight: 700,
+                                                    transition: 'all 0.2s ease',
+                                                    padding: 0,
+                                                    cursor: 'pointer'
+                                                }}
+                                            >
                                                 {day}
-                                            </div>
-                                        ))}
-                                        {calendarDays.map((day, index) => {
-                                            if (!day) {
-                                                return <div key={`blank-${index}`} />;
-                                            }
-                                            const dayDate = new Date(calendarYear, calendarMonthIndex, day);
-                                            const dayKey = `${calendarYear}-${calendarMonthIndex}-${day}`;
-                                            const count = songsByDay.get(dayKey) || 0;
-                                            const isActive = isSameDay(dayDate, activeDate);
-                                            return (
-                                                <button
-                                                    key={day}
-                                                    onClick={() => setActiveDate(dayDate)}
-                                                    style={{
-                                                        position: 'relative',
-                                                        aspectRatio: '1',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        borderRadius: 4,
-                                                        background: isActive ? '#EAB308' : (count > 0 ? '#374151' : 'transparent'),
-                                                        color: isActive ? '#000' : (count > 0 ? '#fff' : '#9CA3AF'),
-                                                        border: isActive ? 'none' : '1px solid #374151',
-                                                        fontSize: 12,
-                                                        fontWeight: 700,
-                                                        transition: 'all 0.2s ease'
-                                                    }}
-                                                >
-                                                    {day}
-                                                    {count > 0 && !isActive && (
-                                                        <span style={{
-                                                            position: 'absolute',
-                                                            top: 4,
-                                                            right: 4,
-                                                            width: 4,
-                                                            height: 4,
-                                                            borderRadius: '50%',
-                                                            background: '#EAB308',
-                                                            boxShadow: '0 0 4px #EAB308'
-                                                        }} />
-                                                    )}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
+                                                {count > 0 && !isActive && (
+                                                    <span style={{
+                                                        position: 'absolute',
+                                                        top: '10%',
+                                                        right: '10%',
+                                                        width: '15%',
+                                                        height: '15%',
+                                                        borderRadius: '50%',
+                                                        background: '#EAB308',
+                                                        boxShadow: '0 0 4px #EAB308'
+                                                    }} />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
