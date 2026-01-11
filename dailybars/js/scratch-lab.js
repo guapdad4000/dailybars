@@ -1298,6 +1298,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
 
+    // Track if we just closed the vinyl (to prevent auto-record on same click)
+    const justClosedVinyl = useRef(false);
+    
     const handleInteractionEnd = (e) => {
         if (!isScrubbing) return;
         // Prevent swipe gesture from parent
@@ -1319,6 +1322,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         if (!dragThreshold.current) {
             // Simple tap on vinyl - just close it, DON'T auto-record
             // User can tap the center of platter to start new recording
+            justClosedVinyl.current = true; // Prevent handleMainClick from starting recording
             closeVinylToPlatter();
         } else {
             // Actual scrubbing happened - show action menu with options
@@ -1388,6 +1392,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     };
 
     const handleMainClick = () => {
+        // If we just closed the vinyl from a tap, don't do anything else
+        // This prevents auto-starting a new recording on the same click
+        if (justClosedVinyl.current) {
+            justClosedVinyl.current = false;
+            return;
+        }
+        
         // Close scrub actions if open (tap outside)
         if (showScrubActions) {
             setShowScrubActions(false);
