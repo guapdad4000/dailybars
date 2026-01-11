@@ -1,10 +1,10 @@
 // ============================================================================
-// DAILY BARS SERVICE WORKER - v25
+// DAILY BARS SERVICE WORKER - v27
 // NETWORK-FIRST strategy - NOW WITH SUPABASE + APP STORE READY 🔥
 // ============================================================================
 
-const CACHE_NAME = 'daily-bars-v25';
-const CACHE_VERSION = 25;
+const CACHE_NAME = 'daily-bars-v27';
+const CACHE_VERSION = 31;
 
 const urlsToCache = [
   '/',

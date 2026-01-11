@@ -29,6 +29,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [isPopped, setIsPopped] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     
+    // Audio status for iOS indicator (state so it triggers re-render)
+    const [audioReady, setAudioReady] = useState(false);
+    
     // Metronome state
     const [isMetronomeOn, setIsMetronomeOn] = useState(false);
     const [bpm, setBpm] = useState(90);
@@ -127,12 +130,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [showLoadModal, setShowLoadModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
 
-    // Initialize Audio Context
+    // Helper to generate IDs
+    const generateId = () => Math.random().toString(36).substring(2, 9);
+    
+    // Track if audio has been unlocked on mobile
+    const audioUnlocked = useRef(false);
+    const isIOS = useRef(/iPhone|iPad|iPod/i.test(navigator.userAgent));
+    
+    // Initialize Audio Context - but DON'T create it until user interaction on iOS
     useEffect(() => {
-        if (!audioContext.current) {
+        // On desktop, create immediately
+        if (!isIOS.current && !audioContext.current) {
             audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
             masterGainNode.current = audioContext.current.createGain();
             masterGainNode.current.connect(audioContext.current.destination);
+            console.log('[ScratchLab] Audio context created (desktop)');
         }
         
         return () => {
@@ -141,6 +153,82 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             }
         };
     }, []);
+    
+    // Ensure audio context exists and is running
+    // MUST be called from user interaction on iOS
+    const ensureAudioContext = async () => {
+        // Create audio context if it doesn't exist (iOS requires this in user gesture)
+        if (!audioContext.current) {
+            console.log('[ScratchLab] Creating audio context (first user interaction)...');
+            audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+            masterGainNode.current = audioContext.current.createGain();
+            masterGainNode.current.connect(audioContext.current.destination);
+        }
+        
+        // Resume if suspended
+        if (audioContext.current.state === 'suspended') {
+            console.log('[ScratchLab] Resuming suspended audio context...');
+            try {
+                await audioContext.current.resume();
+                console.log('[ScratchLab] Audio context resumed, state:', audioContext.current.state);
+            } catch (err) {
+                console.error('[ScratchLab] Failed to resume audio context:', err);
+            }
+        }
+        
+        return audioContext.current.state === 'running';
+    };
+    
+    // Helper to unlock audio on mobile devices
+    // Must be called from a user interaction event (touch/click)
+    const unlockMobileAudio = async () => {
+        if (audioUnlocked.current) return true;
+        
+        try {
+            console.log('[ScratchLab] Unlocking mobile audio... iOS:', isIOS.current);
+            
+            // Ensure context exists and is running
+            const contextReady = await ensureAudioContext();
+            if (!contextReady) {
+                console.warn('[ScratchLab] Audio context not ready after resume');
+            }
+            
+            // iOS-specific: Play an actual audible sound briefly to fully unlock
+            // Silent buffers don't always work on iOS 15+
+            if (isIOS.current) {
+                const osc = audioContext.current.createOscillator();
+                const gain = audioContext.current.createGain();
+                
+                osc.connect(gain);
+                gain.connect(audioContext.current.destination);
+                
+                // Very short, very quiet beep - almost inaudible but enough to unlock
+                osc.frequency.value = 1; // Sub-bass, nearly inaudible
+                gain.gain.value = 0.001; // Extremely quiet
+                
+                osc.start(audioContext.current.currentTime);
+                osc.stop(audioContext.current.currentTime + 0.001);
+                
+                console.log('[ScratchLab] iOS audio unlock beep played');
+            } else {
+                // Non-iOS: silent buffer is fine
+                const silentBuffer = audioContext.current.createBuffer(1, 1, 22050);
+                const source = audioContext.current.createBufferSource();
+                source.buffer = silentBuffer;
+                source.connect(audioContext.current.destination);
+                source.start(0);
+            }
+            
+            audioUnlocked.current = true;
+            setAudioReady(true); // Update state for UI indicator
+            console.log('[ScratchLab] Mobile audio unlocked successfully, context state:', audioContext.current.state);
+            return true;
+        } catch (err) {
+            console.error('[ScratchLab] Failed to unlock mobile audio:', err);
+            setAudioReady(false);
+            return false;
+        }
+    };
 
     // Calculate session duration whenever layers change
     useEffect(() => {
@@ -209,10 +297,67 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Request microphone access and start recording
     const startRecording = async () => {
         try {
-            // Resume audio context if suspended (required for iOS/Safari)
+            // CRITICAL FOR iOS: Unlock audio IMMEDIATELY in user gesture
+            // BEFORE any async operations like getUserMedia
+            // This ensures audio is unlocked within the user tap context
+            // Must happen even for acapella-only recording (no beat)
+            
+            console.log('[ScratchLab] Unlocking audio in user gesture...');
+            
+            // Ensure audio context is ready - ALWAYS do this in gesture
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
+                console.log('[ScratchLab] Audio context created in gesture');
+            }
             if (audioContext.current.state === 'suspended') {
                 await audioContext.current.resume();
+                console.log('[ScratchLab] Audio context resumed in gesture');
             }
+            
+            // Play a silent buffer to fully unlock iOS audio
+            // This is critical for acapella playback to work later
+            try {
+                const silentBuffer = audioContext.current.createBuffer(1, 1, 22050);
+                const silentSource = audioContext.current.createBufferSource();
+                silentSource.buffer = silentBuffer;
+                silentSource.connect(audioContext.current.destination);
+                silentSource.start(0);
+                console.log('[ScratchLab] Silent unlock buffer played');
+            } catch (e) {
+                console.warn('[ScratchLab] Silent unlock failed:', e);
+            }
+            
+            // Now start beat if loaded
+            const hasBeatToPlay = beatAudioBuffer.current && !beatMuted;
+            let beatStarted = false;
+            
+            if (hasBeatToPlay) {
+                console.log('[ScratchLab] Starting beat in user gesture...');
+                try {
+                    // Start beat NOW before getUserMedia breaks the gesture chain
+                    const beatSource = audioContext.current.createBufferSource();
+                    beatSource.buffer = beatAudioBuffer.current;
+                    beatSource.loop = true;
+                    
+                    const beatGain = audioContext.current.createGain();
+                    beatGain.gain.value = 0.7;
+                    
+                    beatSource.connect(beatGain);
+                    beatGain.connect(audioContext.current.destination);
+                    beatSource.start(0);
+                    beatSourceNode.current = { source: beatSource, gainNode: beatGain };
+                    beatStarted = true;
+                    console.log('[ScratchLab] Beat started BEFORE getUserMedia!');
+                } catch (beatErr) {
+                    console.error('[ScratchLab] Failed to start beat early:', beatErr);
+                }
+            }
+            
+            // Mark audio as unlocked for later playback
+            audioUnlocked.current = true;
+            setAudioReady(true);
             
             // Mobile-optimized constraints - Safari/iOS needs simpler constraints
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -407,8 +552,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             mediaRecorder.current.start(timeslice);
             setIsRecording(true);
             
-            // Play beat while recording if loaded
-            if (beatAudioBuffer.current) {
+            // Play beat while recording if loaded (only if not already started)
+            if (beatAudioBuffer.current && !beatStarted) {
+                console.log('[ScratchLab] Beat not started early, starting now...');
                 playBeatDuringRecording();
             }
             
@@ -447,10 +593,23 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     };
     
     // Play beat during recording (separate from layer playback)
-    const playBeatDuringRecording = () => {
+    const playBeatDuringRecording = async () => {
         if (!beatAudioBuffer.current) return;
         
         try {
+            // Ensure audio context is running (critical for mobile)
+            if (audioContext.current.state === 'suspended') {
+                console.log('[ScratchLab] Resuming audio context before beat playback...');
+                await audioContext.current.resume();
+            }
+            
+            // Double-check audio context is active
+            if (audioContext.current.state !== 'running') {
+                console.warn('[ScratchLab] Audio context not running:', audioContext.current.state);
+                // Try one more time
+                await audioContext.current.resume();
+            }
+            
             const beatSource = audioContext.current.createBufferSource();
             beatSource.buffer = beatAudioBuffer.current;
             beatSource.loop = true;
@@ -461,10 +620,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             beatSource.connect(beatGain);
             beatGain.connect(audioContext.current.destination); // Direct to output, not through master
             
+            // On mobile, we need to start() immediately within the user gesture context
             beatSource.start(0);
             beatSourceNode.current = beatSource;
+            
+            console.log('[ScratchLab] Beat playback started successfully, context state:', audioContext.current.state);
         } catch (err) {
-            console.error('Failed to play beat during recording:', err);
+            console.error('[ScratchLab] Failed to play beat during recording:', err);
         }
     };
 
@@ -496,7 +658,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         return waves.map(amp => Math.min(100, Math.max(5, amp * normalizeFactor * 100)));
     };
 
-    const startSession = () => {
+    const startSession = async () => {
+        // Unlock mobile audio on first user interaction
+        await unlockMobileAudio();
+        
         setIsPopped(false);
         setIsPlaying(false);
         setProgress(0);
@@ -569,11 +734,25 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     }, [layers, beatMuted, isPlaying]);
 
     // Playback all layers in PERFECT sync using master clock
-    const playAllLayers = (startOffset = 0) => {
+    const playAllLayers = async (startOffset = 0) => {
         if (layers.length === 0 && !beatAudioBuffer.current) return;
         
+        console.log('[ScratchLab] playAllLayers called, startOffset:', startOffset);
+        
+        // CRITICAL FOR iOS: Ensure audio context is ready
+        const contextReady = await ensureAudioContext();
+        if (!contextReady) {
+            console.error('[ScratchLab] Audio context not ready, cannot play');
+            // Try one more unlock attempt
+            await unlockMobileAudio();
+        }
+        
+        console.log('[ScratchLab] Audio context state:', audioContext.current.state);
+        
         // CRITICAL: All sources must start at EXACT same timestamp
-        const masterStartTime = audioContext.current.currentTime + 0.01; // Small buffer
+        // Use slightly longer buffer for iOS to ensure scheduling works
+        const scheduleAhead = isIOS.current ? 0.05 : 0.01;
+        const masterStartTime = audioContext.current.currentTime + scheduleAhead;
         layerSourceNodes.current = [];
         
         // Play beat if loaded (with looping)
@@ -618,12 +797,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             }
             gainNode.gain.value = initialGain;
             
-            const panNode = audioContext.current.createStereoPanner();
-            panNode.pan.value = layer.pan || 0;
+            // StereoPanner might not be supported on older iOS - use fallback
+            let outputNode = gainNode;
+            if (audioContext.current.createStereoPanner && (layer.pan || 0) !== 0) {
+                try {
+                    const panNode = audioContext.current.createStereoPanner();
+                    panNode.pan.value = layer.pan || 0;
+                    gainNode.connect(panNode);
+                    outputNode = panNode;
+                } catch (e) {
+                    console.warn('[ScratchLab] StereoPanner not supported, skipping pan');
+                }
+            }
             
             source.connect(gainNode);
-            gainNode.connect(panNode);
-            panNode.connect(masterGainNode.current);
+            outputNode.connect(masterGainNode.current);
             
             // Start at EXACT same timestamp as beat
             const layerStartOffset = Math.min(startOffset, layer.audioBuffer.duration);
@@ -663,7 +851,35 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setIsPlaying(false);
     };
 
-    // --- SCRUBBER LOGIC ---
+    // --- ENHANCED SCRUBBER LOGIC ---
+    // Scrub state for action menu
+    const [showScrubActions, setShowScrubActions] = useState(false);
+    const [scrubPosition, setScrubPosition] = useState(0); // Position in seconds
+    const scrubAudioSource = useRef(null);
+    const lastScrubTime = useRef(0);
+    const scrubVelocity = useRef(0);
+    
+    // Format time as MM:SS.ms
+    const formatScrubTime = (seconds) => {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        const ms = Math.floor((seconds % 1) * 100);
+        return `${mins}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
+    };
+    
+    // Haptic feedback for mobile
+    const triggerHaptic = (style = 'light') => {
+        if ('vibrate' in navigator) {
+            const patterns = {
+                light: [10],
+                medium: [20],
+                heavy: [30],
+                tick: [5]
+            };
+            navigator.vibrate(patterns[style] || patterns.light);
+        }
+    };
+
     const handleInteractionStart = (e) => {
         if (!isPopped) return;
         // Prevent swipe gesture from parent
@@ -672,8 +888,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         lastX.current = clientX;
+        lastScrubTime.current = Date.now();
+        scrubVelocity.current = 0;
         setIsScrubbing(true);
+        setShowScrubActions(false);
         dragThreshold.current = false;
+        
+        // Stop any playing audio when starting to scrub
+        if (isPlaying) {
+            stopAllAudio();
+        }
+        
+        triggerHaptic('medium');
     };
 
     const handleInteractionMove = (e) => {
@@ -684,52 +910,90 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         const clientX = e.touches ? e.touches[0].clientX : e.clientX;
         const deltaX = clientX - lastX.current;
+        const now = Date.now();
+        const deltaTime = now - lastScrubTime.current;
         
         if (Math.abs(deltaX) > 5) {
             dragThreshold.current = true;
         }
 
-        const sensitivity = 3; 
+        // Calculate velocity for speed-based sensitivity
+        const velocity = deltaTime > 0 ? Math.abs(deltaX) / deltaTime : 0;
+        scrubVelocity.current = velocity;
+        
+        // Dynamic sensitivity: faster scrub = bigger jumps (for quick navigation)
+        // Slow scrub = fine control (for precise positioning)
+        const baseSensitivity = 3;
+        const speedMultiplier = Math.min(3, 1 + velocity * 2); // Up to 3x faster
+        const sensitivity = baseSensitivity / speedMultiplier;
+        
         setProgress(prev => {
             const next = prev + (deltaX / sensitivity);
             return Math.max(0, Math.min(100, next));
         });
         
         lastX.current = clientX;
+        lastScrubTime.current = now;
         
-        // Play audio snippet at scrub position
+        // Update scrub position in seconds
+        if (sessionDuration > 0) {
+            const newPosition = (progress / 100) * sessionDuration;
+            setScrubPosition(newPosition);
+            
+            // Haptic tick at beat boundaries (every ~0.5 seconds)
+            if (Math.abs(newPosition - Math.round(newPosition * 2) / 2) < 0.05) {
+                triggerHaptic('tick');
+            }
+        }
+        
+        // Play audio snippet at scrub position (throttled)
         if (dragThreshold.current && sessionDuration > 0) {
             const offsetSeconds = (progress / 100) * sessionDuration;
-            
-            // Stop current playback
-            stopAllAudio();
-            
-            // Play short snippet at this position (0.1 seconds)
             playScrubbingAudio(offsetSeconds);
         }
     };
     
-    // Play tiny audio snippet during scrubbing
+    // Play continuous audio during scrubbing with proper cleanup
     const playScrubbingAudio = (offsetSeconds) => {
-        if (layers.length === 0 || !layers[0].audioBuffer) return;
+        if (layers.length === 0 && !beatAudioBuffer.current) return;
+        
+        // Stop previous scrub audio
+        if (scrubAudioSource.current) {
+            try {
+                scrubAudioSource.current.stop();
+            } catch (e) {}
+            scrubAudioSource.current = null;
+        }
         
         try {
-            // Just play first non-muted layer for scrubbing preview
-            const previewLayer = layers.find(l => !l.muted);
-            if (!previewLayer || !previewLayer.audioBuffer) return;
+            // Find audio to preview (prefer first non-muted layer, fallback to beat)
+            let buffer = null;
+            const previewLayer = layers.find(l => !l.muted && l.audioBuffer);
+            if (previewLayer) {
+                buffer = previewLayer.audioBuffer;
+            } else if (beatAudioBuffer.current) {
+                buffer = beatAudioBuffer.current;
+            }
+            
+            if (!buffer) return;
             
             const source = audioContext.current.createBufferSource();
-            source.buffer = previewLayer.audioBuffer;
+            source.buffer = buffer;
             
             const gainNode = audioContext.current.createGain();
-            gainNode.gain.value = 0.3; // Quieter during scrub
+            // Velocity-based volume: slower = quieter preview, faster = louder
+            const velocityVolume = Math.min(0.5, 0.2 + scrubVelocity.current * 0.3);
+            gainNode.gain.value = velocityVolume;
             
             source.connect(gainNode);
             gainNode.connect(masterGainNode.current);
             
-            // Play 0.1 second snippet at this position
-            const startTime = Math.min(offsetSeconds, previewLayer.audioBuffer.duration - 0.1);
-            source.start(audioContext.current.currentTime, startTime, 0.1);
+            // Play snippet at this position
+            const startTime = Math.max(0, Math.min(offsetSeconds, buffer.duration - 0.15));
+            const snippetDuration = 0.15; // Slightly longer for better preview
+            source.start(audioContext.current.currentTime, startTime, snippetDuration);
+            
+            scrubAudioSource.current = source;
         } catch (e) {
             // Ignore scrubbing audio errors
         }
@@ -743,21 +1007,106 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             if (e.cancelable) e.preventDefault();
         }
         
+        // Stop scrub audio
+        if (scrubAudioSource.current) {
+            try {
+                scrubAudioSource.current.stop();
+            } catch (e) {}
+            scrubAudioSource.current = null;
+        }
+        
         setIsScrubbing(false);
 
         if (!dragThreshold.current) {
-            handleReturnToPlatter();
+            // Simple tap on vinyl - just close it, DON'T auto-record
+            // User can tap the center of platter to start new recording
+            closeVinylToPlatter();
+        } else {
+            // Actual scrubbing happened - show action menu with options
+            const finalPosition = (progress / 100) * sessionDuration;
+            setScrubPosition(finalPosition);
+            setShowScrubActions(true);
+            triggerHaptic('heavy');
         }
     };
-
-    const handleReturnToPlatter = () => {
+    
+    // Play from scrub position
+    const playFromScrubPosition = async () => {
+        console.log('[ScratchLab] playFromScrubPosition:', scrubPosition);
+        
+        // Ensure audio is ready (critical for iOS)
+        await unlockMobileAudio();
+        
+        setShowScrubActions(false);
+        const startOffset = scrubPosition;
+        await playAllLayers(startOffset);
+        
+        // Adjust progress tracking for offset start
+        if (audioContext.current) {
+            playbackStartTime.current = audioContext.current.currentTime - startOffset;
+        }
+    };
+    
+    // Record from scrub position (punch-in recording)
+    const recordFromScrubPosition = async () => {
+        setShowScrubActions(false);
         setIsPopped(false);
+        
+        // Start playback of existing layers from scrub position
+        // while also recording new audio
+        const startOffset = scrubPosition;
+        
+        // Play existing layers as reference
+        if (layers.length > 0 || beatAudioBuffer.current) {
+            await playAllLayers(startOffset);
+        }
+        
+        // Start recording (countdown optional)
         setTimeout(() => {
-            startSession();
-        }, 600);
+            if (useCountdown) {
+                setCountdown(3);
+            } else {
+                startRecording();
+            }
+            setHasStarted(true);
+            setSessionActive(true);
+        }, 300);
+    };
+    
+    // Cancel scrub and reset - just close menu and reset position
+    const cancelScrubAction = () => {
+        setShowScrubActions(false);
+        setProgress(0);
+        setScrubPosition(0);
+    };
+    
+    // Close vinyl and return to platter WITHOUT auto-starting recording
+    const closeVinylToPlatter = () => {
+        setShowScrubActions(false);
+        setIsPopped(false);
+        setProgress(0);
+        setScrubPosition(0);
+        // Do NOT auto-start recording - user must tap to record
+    };
+
+    // Legacy function - now just closes vinyl, doesn't auto-record
+    const handleReturnToPlatter = () => {
+        closeVinylToPlatter();
     };
 
     const handleMainClick = () => {
+        // Close scrub actions if open (tap outside)
+        if (showScrubActions) {
+            setShowScrubActions(false);
+            return;
+        }
+        
+        // If vinyl is popped but not showing actions, close it
+        if (isPopped && !isScrubbing) {
+            closeVinylToPlatter();
+            return;
+        }
+        
         if (isRecording) {
             stopSession();
         } else if (!isPopped) {
@@ -770,9 +1119,15 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         const file = e.target.files[0];
         if (!file) return;
         
-        // Resume audio context if needed (for iOS)
-        if (audioContext.current.state === 'suspended') {
-            await audioContext.current.resume();
+        // Unlock mobile audio on user interaction (file input is a user gesture)
+        // This also ensures audioContext exists
+        await unlockMobileAudio();
+        
+        // Double-check audio context exists after unlock
+        if (!audioContext.current) {
+            console.error('[ScratchLab] Audio context still not available after unlock');
+            alert('Audio system not ready. Please try again.');
+            return;
         }
         
         setBeatFile(file);
@@ -780,7 +1135,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         try {
             const arrayBuffer = await file.arrayBuffer();
+            console.log('[ScratchLab] Decoding beat file:', file.name, arrayBuffer.byteLength, 'bytes');
             const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
+            console.log('[ScratchLab] Beat decoded:', audioBuffer.duration, 'seconds');
             beatAudioBuffer.current = audioBuffer;
             
             // Generate waveform for beat
@@ -799,16 +1156,64 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
 
+    // Play countdown click sound
+    const playCountdownClick = useCallback(async (countNum) => {
+        console.log('[ScratchLab] playCountdownClick:', countNum, 'audioContext:', !!audioContext.current);
+        
+        if (!audioContext.current) {
+            console.warn('[ScratchLab] No audio context for countdown click');
+            return;
+        }
+        
+        try {
+            // Resume audio context if needed (for mobile)
+            if (audioContext.current.state === 'suspended') {
+                console.log('[ScratchLab] Resuming audio context for countdown...');
+                await audioContext.current.resume();
+            }
+            
+            console.log('[ScratchLab] Audio context state for countdown:', audioContext.current.state);
+            
+            const osc = audioContext.current.createOscillator();
+            const gain = audioContext.current.createGain();
+            osc.connect(gain);
+            gain.connect(audioContext.current.destination);
+            
+            // Different pitch for final count vs others
+            // 3, 2, 1 = lower pitch, GO = higher pitch
+            const baseFreq = countNum === 0 ? 1200 : 800;
+            
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(baseFreq, audioContext.current.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, audioContext.current.currentTime + 0.08);
+            
+            // Louder for countdown
+            gain.gain.setValueAtTime(0.5, audioContext.current.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioContext.current.currentTime + 0.1);
+            
+            osc.start(audioContext.current.currentTime);
+            osc.stop(audioContext.current.currentTime + 0.1);
+            
+            console.log('[ScratchLab] Countdown click:', countNum);
+        } catch (e) {
+            console.error('[ScratchLab] Countdown click error:', e);
+        }
+    }, []);
+
     useEffect(() => {
         let timer;
         if (countdown > 0) {
+            // Play metronome click for countdown (3, 2, 1)
+            playCountdownClick(countdown);
             timer = setTimeout(() => setCountdown(prev => prev - 1), 1000);
         } else if (countdown === 0 && sessionActive && !isRecording) {
+            // Play final "GO" click
+            playCountdownClick(0);
             startRecording();
             setSessionActive(false);
         }
         return () => clearTimeout(timer);
-    }, [countdown, sessionActive, isRecording]);
+    }, [countdown, sessionActive, isRecording, playCountdownClick]);
 
     const getRecordStyle = () => {
         if (isScrubbing || isPopped) {
@@ -990,9 +1395,11 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // SUPABASE INTEGRATION
     // ============================================================================
     
-    // Upload audio blob to Supabase Storage
+    // Upload audio blob to Supabase Storage (Mocked for LocalStorage fallback)
     const uploadAudioToStorage = async (audioBlob, filename) => {
         try {
+            // Try Supabase first (will fail if bucket missing)
+            /*
             const { data, error } = await window.supabase.storage
                 .from('scratch-lab')
                 .upload(`${user.username}/${filename}`, audioBlob, {
@@ -1002,19 +1409,29 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             if (error) throw error;
             
-            // Get public URL
             const { data: urlData } = window.supabase.storage
                 .from('scratch-lab')
                 .getPublicUrl(`${user.username}/${filename}`);
             
             return urlData.publicUrl;
+            */
+           
+            // LocalStorage Fallback: Convert to Base64
+            // Note: This is heavy for localStorage but works for small clips in dev
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(audioBlob);
+            });
+
         } catch (err) {
             console.error('Error uploading audio:', err);
             throw err;
         }
     };
     
-    // Save session to Supabase
+    // Save session to Supabase (Mocked for LocalStorage fallback)
     const saveSessionToSupabase = async () => {
         if (layers.length === 0) {
             alert('No layers to save!');
@@ -1024,20 +1441,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setIsSaving(true);
         
         try {
+            const sessionId = generateId(); // Use local ID generator
+            
             // 1. Create session record
             const sessionData = {
+                id: sessionId,
                 username: user.username,
                 user_id: user.id,
                 title: sessionTitle,
                 beat_url: beat || null,
-                beat_title: beatFile?.name || null
+                beat_title: beatFile?.name || null,
+                created_at: new Date().toISOString()
             };
             
+            /*
             const { data: session, error: sessionError } = await api.create('scratch_sessions', sessionData);
-            
             if (sessionError) throw sessionError;
+            */
             
             // 2. Upload each layer and save metadata
+            const savedLayers = [];
+            
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
                 
@@ -1045,13 +1469,14 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 const response = await fetch(layer.audioUrl);
                 const audioBlob = await response.blob();
                 
-                // Upload audio file
-                const filename = `${session.id}_layer_${i + 1}_${Date.now()}.webm`;
+                // Upload audio file (returns Base64 in fallback)
+                const filename = `${sessionId}_layer_${i + 1}_${Date.now()}.webm`;
                 const audioUrl = await uploadAudioToStorage(audioBlob, filename);
                 
                 // Save layer metadata
                 const layerData = {
-                    session_id: session.id,
+                    id: generateId(),
+                    session_id: sessionId,
                     layer_number: layers.length - i, // Newest = 1
                     audio_url: audioUrl,
                     waveform_data: layer.waves,
@@ -1059,13 +1484,24 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     pan: layer.pan || 0,
                     muted: layer.muted || false,
                     solo: layer.solo || false,
-                    duration_seconds: layer.audioBuffer.duration
+                    duration_seconds: layer.audioBuffer.duration,
+                    created_at: new Date().toISOString()
                 };
                 
-                await api.create('scratch_layers', layerData);
+                savedLayers.push(layerData);
+                // await api.create('scratch_layers', layerData);
             }
             
-            alert(`Session "${sessionTitle}" saved successfully!`);
+            // LOCAL STORAGE SAVE
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            localSessions.push(sessionData);
+            localStorage.setItem('scratch_sessions_local', JSON.stringify(localSessions));
+            
+            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
+            localLayers.push(...savedLayers);
+            localStorage.setItem('scratch_layers_local', JSON.stringify(localLayers));
+            
+            alert(`Session "${sessionTitle}" saved successfully! (Local Storage)`);
             setShowSaveModal(false);
             
             // Reload saved sessions list
@@ -1079,11 +1515,17 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
     
-    // Load saved sessions from Supabase
+    // Load saved sessions from Supabase (Mocked for LocalStorage fallback)
     const loadSavedSessions = async () => {
         try {
+            // Local Storage Load
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            const userSessions = localSessions.filter(s => s.username === user.username);
+            
+            /*
             const response = await api.get('scratch_sessions', { limit: 100 });
             const userSessions = response.data.filter(s => s.username === user.username);
+            */
             
             // Sort by most recent
             userSessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -1094,14 +1536,19 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
     };
     
-    // Load a specific session
+    // Load a specific session (Mocked for LocalStorage fallback)
     const loadSession = async (sessionId) => {
         try {
             setShowLoadModal(false);
             
             // Get session metadata
+            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+            const session = localSessions.find(s => s.id === sessionId);
+            
+            /*
             const sessionResponse = await api.get('scratch_sessions', { limit: 1000 });
             const session = sessionResponse.data.find(s => s.id === sessionId);
+            */
             
             if (!session) {
                 alert('Session not found');
@@ -1109,8 +1556,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             }
             
             // Get layers for this session
+            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
+            const sessionLayers = localLayers.filter(l => l.session_id === sessionId);
+            
+            /*
             const layersResponse = await api.get('scratch_layers', { limit: 1000 });
             const sessionLayers = layersResponse.data.filter(l => l.session_id === sessionId);
+            */
             
             // Sort by layer number
             sessionLayers.sort((a, b) => b.layer_number - a.layer_number);
@@ -1120,7 +1572,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             for (const layerData of sessionLayers) {
                 try {
-                    // Fetch audio file
+                    // Fetch audio file (works with Base64 data URLs too)
                     const audioResponse = await fetch(layerData.audio_url);
                     const audioBlob = await audioResponse.blob();
                     const audioUrl = URL.createObjectURL(audioBlob);
@@ -1228,16 +1680,37 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                         alignItems: 'center', 
                         marginBottom: 24 
                     }}>
-                        <h1 style={{ 
-                            fontSize: 24, 
-                            fontFamily: 'Playfair Display, serif',
-                            fontWeight: 900,
-                            fontStyle: 'italic',
-                            letterSpacing: '-0.02em',
-                            color: '#f5f5f5',
-                            margin: 0,
-                            textShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                        }}>SCRATCH LAB</h1>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <h1 style={{ 
+                                fontSize: 24, 
+                                fontFamily: 'Playfair Display, serif',
+                                fontWeight: 900,
+                                fontStyle: 'italic',
+                                letterSpacing: '-0.02em',
+                                color: '#f5f5f5',
+                                margin: 0,
+                                textShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                            }}>SCRATCH LAB</h1>
+                            {/* Audio status indicator - helpful for iOS debugging */}
+                            {isIOS.current && (
+                                <div 
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
+                                        await unlockMobileAudio();
+                                    }}
+                                    style={{
+                                        width: 10,
+                                        height: 10,
+                                        borderRadius: '50%',
+                                        background: audioReady ? '#00e676' : '#ff1744',
+                                        boxShadow: audioReady ? '0 0 8px #00e676' : '0 0 8px #ff1744',
+                                        cursor: 'pointer',
+                                        transition: 'all 0.3s'
+                                    }}
+                                    title={audioReady ? 'Audio ready' : 'Tap to enable audio'}
+                                />
+                            )}
+                        </div>
                         
                         <div style={{ display: 'flex', gap: 8 }}>
                             <button 
@@ -1465,7 +1938,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             </div>
                         )}
                         
-                        {isPopped && (
+                        {/* Scrub hint when popped but not scrubbing */}
+                        {isPopped && !isScrubbing && !showScrubActions && (
                             <div style={{ 
                                 position: 'absolute', 
                                 top: '85%', 
@@ -1478,6 +1952,223 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 textShadow: '0 1px 2px rgba(0,0,0,0.5)'
                             }}>
                                 Drag to Scrub • Tap to Close
+                            </div>
+                        )}
+                        
+                        {/* Live scrub position indicator */}
+                        {isScrubbing && sessionDuration > 0 && (
+                            <div style={{ 
+                                position: 'absolute', 
+                                top: '10%', 
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                background: 'rgba(0,0,0,0.85)', 
+                                backdropFilter: 'blur(10px)',
+                                padding: '12px 24px',
+                                borderRadius: 16,
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                pointerEvents: 'none',
+                                textAlign: 'center',
+                                minWidth: 140
+                            }}>
+                                <div style={{ 
+                                    fontSize: 28, 
+                                    fontFamily: 'monospace',
+                                    fontWeight: 900, 
+                                    color: '#ffd700',
+                                    letterSpacing: '0.05em',
+                                    textShadow: '0 0 20px rgba(255,215,0,0.5)'
+                                }}>
+                                    {formatScrubTime(scrubPosition)}
+                                </div>
+                                <div style={{ 
+                                    fontSize: 8, 
+                                    color: 'rgba(255,255,255,0.5)',
+                                    marginTop: 4,
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    {scrubVelocity.current > 0.5 ? '⚡ FAST SEEK' : 'FINE CONTROL'}
+                                </div>
+                            </div>
+                        )}
+                        
+                        {/* Scrub action menu after scrubbing */}
+                        {showScrubActions && (
+                            <div 
+                                style={{ 
+                                    position: 'absolute', 
+                                    top: '50%', 
+                                    left: '50%',
+                                    transform: 'translate(-50%, -50%)',
+                                    background: 'rgba(0,0,0,0.95)', 
+                                    backdropFilter: 'blur(20px)',
+                                    padding: 20,
+                                    borderRadius: 20,
+                                    border: '2px solid rgba(255,255,255,0.1)',
+                                    textAlign: 'center',
+                                    minWidth: 220,
+                                    boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                {/* Time display */}
+                                <div style={{ 
+                                    fontSize: 32, 
+                                    fontFamily: 'monospace',
+                                    fontWeight: 900, 
+                                    color: '#fff',
+                                    marginBottom: 4
+                                }}>
+                                    {formatScrubTime(scrubPosition)}
+                                </div>
+                                <div style={{ 
+                                    fontSize: 9, 
+                                    color: 'rgba(255,255,255,0.4)',
+                                    marginBottom: 20,
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    of {formatScrubTime(sessionDuration)}
+                                </div>
+                                
+                                {/* Action buttons */}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                    {/* Play from here */}
+                                    <button
+                                        onClick={playFromScrubPosition}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 10,
+                                            padding: '14px 20px',
+                                            background: 'linear-gradient(135deg, #00e676, #00c853)',
+                                            border: 'none',
+                                            borderRadius: 12,
+                                            color: '#000',
+                                            fontWeight: 900,
+                                            fontSize: 11,
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase',
+                                            cursor: 'pointer',
+                                            transition: 'transform 0.1s, box-shadow 0.1s',
+                                            boxShadow: '0 4px 15px rgba(0,230,118,0.3)'
+                                        }}
+                                        onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
+                                        onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <Icon name="Play" size={16} />
+                                        Play From Here
+                                    </button>
+                                    
+                                    {/* Record from here (punch-in) */}
+                                    <button
+                                        onClick={recordFromScrubPosition}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 10,
+                                            padding: '14px 20px',
+                                            background: 'linear-gradient(135deg, #ff1744, #d50000)',
+                                            border: 'none',
+                                            borderRadius: 12,
+                                            color: '#fff',
+                                            fontWeight: 900,
+                                            fontSize: 11,
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase',
+                                            cursor: 'pointer',
+                                            transition: 'transform 0.1s, box-shadow 0.1s',
+                                            boxShadow: '0 4px 15px rgba(255,23,68,0.3)'
+                                        }}
+                                        onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.98)'}
+                                        onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <Icon name="Mic" size={16} />
+                                        Record From Here
+                                    </button>
+                                    
+                                    {/* Cancel / go back to start */}
+                                    <button
+                                        onClick={cancelScrubAction}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 8,
+                                            padding: '12px 16px',
+                                            background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,0.2)',
+                                            borderRadius: 10,
+                                            color: 'rgba(255,255,255,0.6)',
+                                            fontWeight: 700,
+                                            fontSize: 10,
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                                            e.currentTarget.style.color = '#fff';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'transparent';
+                                            e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
+                                        }}
+                                    >
+                                        <Icon name="RotateCcw" size={14} />
+                                        Reset to Start
+                                    </button>
+                                    
+                                    {/* Close vinyl and go back */}
+                                    <button
+                                        onClick={closeVinylToPlatter}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            gap: 8,
+                                            padding: '12px 16px',
+                                            background: 'transparent',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: 10,
+                                            color: 'rgba(255,255,255,0.4)',
+                                            fontWeight: 700,
+                                            fontSize: 10,
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase',
+                                            cursor: 'pointer',
+                                            transition: 'all 0.2s'
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+                                            e.currentTarget.style.color = 'rgba(255,255,255,0.6)';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            e.currentTarget.style.background = 'transparent';
+                                            e.currentTarget.style.color = 'rgba(255,255,255,0.4)';
+                                        }}
+                                    >
+                                        <Icon name="X" size={14} />
+                                        Close
+                                    </button>
+                                </div>
+                                
+                                {/* Close hint */}
+                                <div style={{ 
+                                    marginTop: 12,
+                                    fontSize: 8, 
+                                    color: 'rgba(255,255,255,0.25)',
+                                    letterSpacing: '0.1em',
+                                    textTransform: 'uppercase'
+                                }}>
+                                    Tap outside to close
+                                </div>
                             </div>
                         )}
                     </div>
@@ -1637,21 +2328,22 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         flex: 1, 
                                         borderRadius: 2,
                                         transition: 'all 0.3s',
-                                        background: (isPlaying || isScrubbing) ? '#ffd700' : 'black',
+                                        background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : 'black',
                                         height: `${Math.max(4, h)}%`,
                                         opacity: 1
                                     }}
                                 />
                             ))}
-                            {(isPlaying || isScrubbing) && (
+                            {(isPlaying || isScrubbing || showScrubActions) && (
                                 <div style={{ 
                                     position: 'absolute', 
                                     top: 0, 
                                     bottom: 0, 
-                                    width: 2, 
+                                    width: showScrubActions ? 3 : 2, 
                                     background: '#ff1744', 
                                     zIndex: 10,
-                                    left: `${progress}%`
+                                    left: `${progress}%`,
+                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none'
                                 }} />
                             )}
                         </div>
@@ -1773,21 +2465,22 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                         flex: 1, 
                                         borderRadius: 2,
                                         transition: 'all 0.3s',
-                                        background: (isPlaying || isScrubbing) ? '#ffd700' : 'black',
+                                        background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : 'black',
                                         height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
                                         opacity: 1
                                     }}
                                 />
                             ))}
-                            {(isPlaying || isScrubbing) && (
+                            {(isPlaying || isScrubbing || showScrubActions) && (
                                 <div style={{ 
                                     position: 'absolute', 
                                     top: 0, 
                                     bottom: 0, 
-                                    width: 2, 
-                                    background: 'var(--black)', 
+                                    width: showScrubActions ? 3 : 2, 
+                                    background: showScrubActions ? '#ff1744' : 'var(--black)', 
                                     zIndex: 10,
-                                    left: `${progress}%`
+                                    left: `${progress}%`,
+                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none'
                                 }} />
                             )}
                         </div>
@@ -1940,10 +2633,12 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                         boxShadow: '0 20px 40px -10px rgba(0,0,0,0.1)'
                     }}>
                         <button 
-                            onClick={() => { 
+                            onClick={async () => { 
                                 if (isPlaying) {
                                     stopAllAudio();
                                 } else {
+                                    // Unlock audio first (critical for iOS)
+                                    await unlockMobileAudio();
                                     setProgress(0);
                                     playAllLayers();
                                 }
@@ -1969,7 +2664,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             {isPlaying ? <Icon name="Pause" size={18} fill="currentColor" /> : <Icon name="Play" size={18} fill="currentColor" />}
                         </button>
                         
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6, padding: '0 8px' }}>
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, padding: '0 8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ 
                                     fontSize: 7, 
@@ -1978,18 +2673,64 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                     color: 'var(--gray)', 
                                     textTransform: 'uppercase' 
                                 }}>Master Feed</span>
+                                <span style={{ 
+                                    fontSize: 10, 
+                                    fontFamily: 'monospace',
+                                    fontWeight: 700, 
+                                    color: isPlaying ? 'var(--black)' : 'var(--gray)',
+                                    letterSpacing: '0.05em'
+                                }}>
+                                    {formatScrubTime((progress / 100) * sessionDuration)} / {formatScrubTime(sessionDuration)}
+                                </span>
                             </div>
-                            <div style={{ 
-                                height: 4, 
-                                background: 'var(--paper)', 
-                                borderRadius: 8, 
-                                overflow: 'hidden' 
-                            }}>
+                            {/* Clickable seek bar */}
+                            <div 
+                                style={{ 
+                                    height: 8, 
+                                    background: 'var(--paper)', 
+                                    borderRadius: 8, 
+                                    overflow: 'hidden',
+                                    cursor: 'pointer',
+                                    position: 'relative'
+                                }}
+                                onClick={(e) => {
+                                    if (sessionDuration === 0) return;
+                                    const rect = e.currentTarget.getBoundingClientRect();
+                                    const clickX = e.clientX - rect.left;
+                                    const newProgress = (clickX / rect.width) * 100;
+                                    const newPosition = (newProgress / 100) * sessionDuration;
+                                    
+                                    setProgress(Math.max(0, Math.min(100, newProgress)));
+                                    setScrubPosition(newPosition);
+                                    
+                                    // If playing, restart from new position
+                                    if (isPlaying) {
+                                        stopAllAudio();
+                                        playAllLayers(newPosition);
+                                    }
+                                }}
+                            >
                                 <div style={{ 
                                     height: '100%', 
-                                    background: 'var(--black)', 
+                                    background: isPlaying ? '#00e676' : 'var(--black)', 
                                     transition: 'width 0.075s',
-                                    width: `${progress}%`
+                                    width: `${progress}%`,
+                                    borderRadius: 8
+                                }} />
+                                {/* Seek handle */}
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '50%',
+                                    left: `${progress}%`,
+                                    transform: 'translate(-50%, -50%)',
+                                    width: 12,
+                                    height: 12,
+                                    borderRadius: '50%',
+                                    background: 'var(--black)',
+                                    border: '2px solid white',
+                                    boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+                                    opacity: isPlaying || progress > 0 ? 1 : 0,
+                                    transition: 'opacity 0.2s'
                                 }} />
                             </div>
                         </div>
@@ -2020,275 +2761,418 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 </div>
             )}
 
-            {/* Export Modal */}
+            {/* Export Modal - Brutalist Newspaper Style */}
             {showSaveModal && (
-                <div style={{ 
-                    position: 'fixed', 
-                    inset: 0, 
-                    zIndex: 100, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    padding: 32, 
-                    background: 'rgba(0,0,0,0.4)', 
-                    backdropFilter: 'blur(4px)' 
-                }}>
-                    <div style={{ 
-                        background: 'var(--white)', 
-                        borderRadius: 24, 
-                        padding: 32, 
-                        width: '100%', 
-                        maxWidth: 384, 
-                        textAlign: 'center',
-                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-                    }}>
-                        <div style={{ 
-                            width: 64, 
-                            height: 64, 
-                            background: 'linear-gradient(135deg, #7C3AED 0%, #A78BFA 100%)', 
-                            color: 'white', 
-                            borderRadius: '50%', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            margin: '0 auto 24px',
-                            boxShadow: '0 10px 20px rgba(124, 58, 237, 0.3)'
-                        }}>
-                            <Icon name="Download" size={32} />
-                        </div>
-                        <h2 style={{ 
-                            fontSize: 20, 
-                            fontFamily: 'Playfair Display, serif',
-                            fontWeight: 900, 
-                            fontStyle: 'italic',
-                            color: 'var(--black)', 
-                            marginBottom: 8,
-                            letterSpacing: '-0.01em'
-                        }}>Export Wax</h2>
-                        <p style={{ 
-                            color: 'var(--gray)', 
-                            marginBottom: 24, 
-                            fontSize: 10, 
-                            lineHeight: 1.6,
-                            textTransform: 'uppercase', 
-                            letterSpacing: '0.1em' 
-                        }}>Export {layers.length} layer{layers.length !== 1 ? 's' : ''} as master mix</p>
-                        
-                        <input
-                            type="text"
-                            value={sessionTitle}
-                            onChange={(e) => setSessionTitle(e.target.value)}
-                            placeholder="Session title..."
-                            style={{
-                                width: '100%',
-                                padding: 16,
-                                borderRadius: 12,
-                                border: '1px solid var(--gray-light)',
-                                fontSize: 14,
-                                fontFamily: 'inherit',
-                                marginBottom: 24,
-                                textAlign: 'center',
-                                outline: 'none'
-                            }}
-                            onFocus={(e) => e.target.style.borderColor = '#7C3AED'}
-                            onBlur={(e) => e.target.style.borderColor = 'var(--gray-light)'}
-                        />
-                        
-                        {/* Download to Device */}
-                        <button 
-                            onClick={exportMasterToDevice}
-                            disabled={isSaving}
-                            style={{
-                                width: '100%',
-                                background: isSaving ? 'var(--gray)' : 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
-                                color: 'white',
-                                padding: 16,
-                                borderRadius: 12,
-                                fontWeight: 900,
-                                letterSpacing: '0.15em',
-                                textTransform: 'uppercase',
-                                fontSize: 10,
-                                border: 'none',
-                                cursor: isSaving ? 'not-allowed' : 'pointer',
-                                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.3)',
-                                transition: 'transform 0.1s',
-                                transform: 'scale(1)',
-                                marginBottom: 12,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 8
-                            }}
-                            onMouseDown={(e) => !isSaving && (e.currentTarget.style.transform = 'scale(0.95)')}
-                            onMouseUp={(e) => !isSaving && (e.currentTarget.style.transform = 'scale(1)')}
-                        >
-                            <Icon name="Download" size={14} />
-                            {isSaving ? 'Exporting...' : 'Download to Device (WAV)'}
-                        </button>
-                        
-                        {/* Save to Database */}
-                        <button 
-                            onClick={saveSessionToSupabase}
-                            disabled={isSaving}
-                            style={{
-                                width: '100%',
-                                background: isSaving ? 'var(--gray)' : 'linear-gradient(135deg, #7C3AED 0%, #A78BFA 100%)',
-                                color: 'white',
-                                padding: 16,
-                                borderRadius: 12,
-                                fontWeight: 900,
-                                letterSpacing: '0.15em',
-                                textTransform: 'uppercase',
-                                fontSize: 10,
-                                border: 'none',
-                                cursor: isSaving ? 'not-allowed' : 'pointer',
-                                boxShadow: '0 4px 6px rgba(124, 58, 237, 0.3)',
-                                transition: 'transform 0.1s',
-                                transform: 'scale(1)',
-                                marginBottom: 12,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 8
-                            }}
-                            onMouseDown={(e) => !isSaving && (e.currentTarget.style.transform = 'scale(0.95)')}
-                            onMouseUp={(e) => !isSaving && (e.currentTarget.style.transform = 'scale(1)')}
-                        >
-                            <Icon name="Cloud" size={14} />
-                            {isSaving ? 'Saving...' : 'Save to Database'}
-                        </button>
-                        
-                        <button 
-                            onClick={() => setShowSaveModal(false)} 
-                            disabled={isSaving}
-                            style={{ 
-                                width: '100%', 
-                                fontSize: 8, 
-                                fontWeight: 900, 
-                                letterSpacing: '0.15em', 
-                                color: 'var(--gray-light)',
-                                textTransform: 'uppercase',
-                                background: 'none',
-                                border: 'none',
-                                cursor: isSaving ? 'not-allowed' : 'pointer',
-                                padding: 12
-                            }}
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </div>
-            )}
-            
-            {/* Load Sessions Modal */}
-            {showLoadModal && (
-                <div style={{ 
-                    position: 'fixed', 
-                    inset: 0, 
-                    zIndex: 100, 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    padding: 32, 
-                    background: 'rgba(0,0,0,0.4)', 
-                    backdropFilter: 'blur(4px)' 
-                }}>
-                    <div style={{ 
-                        background: 'var(--white)', 
-                        borderRadius: 24, 
-                        padding: 32, 
-                        width: '100%', 
-                        maxWidth: 480, 
-                        maxHeight: '80vh',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
-                    }}>
-                        <div style={{ 
+                <div 
+                    className="animate-fade-in"
+                    style={{ 
+                        position: 'fixed', 
+                        inset: 0, 
+                        zIndex: 100, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        padding: 20, 
+                        background: 'rgba(0,0,0,0.85)'
+                    }}
+                    onClick={() => !isSaving && setShowSaveModal(false)}
+                >
+                    <div 
+                        className="animate-slide-up"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ 
+                            backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            border: '4px solid var(--black)',
+                            padding: 0, 
+                            width: '100%', 
+                            maxWidth: 340,
+                            boxShadow: '8px 8px 0 var(--black)'
+                        }}
+                    >
+                        {/* Header */}
+                        <div style={{
+                            background: 'var(--black)',
+                            color: 'var(--white)',
+                            padding: '12px 16px',
                             display: 'flex',
-                            alignItems: 'center',
                             justifyContent: 'space-between',
-                            marginBottom: 24
+                            alignItems: 'center'
                         }}>
-                            <h2 style={{ 
-                                fontSize: 18, 
-                                fontFamily: 'Playfair Display, serif',
+                            <span style={{ 
+                                fontSize: 10, 
                                 fontWeight: 900, 
-                                fontStyle: 'italic',
-                                color: 'var(--black)', 
-                                margin: 0,
-                                letterSpacing: '-0.01em'
-                            }}>Saved Sessions</h2>
-                            <button
-                                onClick={() => setShowLoadModal(false)}
-                                style={{
-                                    width: 32,
-                                    height: 32,
-                                    borderRadius: 8,
+                                letterSpacing: '0.2em',
+                                fontFamily: 'IBM Plex Mono, monospace'
+                            }}>EXPORT WAX</span>
+                            <button 
+                                onClick={() => !isSaving && setShowSaveModal(false)}
+                                disabled={isSaving}
+                                style={{ 
+                                    color: 'var(--white)', 
+                                    background: 'none', 
                                     border: 'none',
-                                    background: 'transparent',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
+                                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                                    padding: 4,
+                                    opacity: isSaving ? 0.5 : 1
                                 }}
                             >
                                 <Icon name="X" size={18} />
                             </button>
                         </div>
                         
+                        {/* Content */}
+                        <div style={{ padding: 24 }}>
+                            {/* Vinyl Icon */}
+                            <div style={{
+                                width: 72,
+                                height: 72,
+                                background: 'var(--black)',
+                                borderRadius: '50%',
+                                margin: '0 auto 20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                position: 'relative',
+                                boxShadow: '4px 4px 0 var(--gray)'
+                            }}>
+                                <div style={{
+                                    width: 20,
+                                    height: 20,
+                                    background: 'var(--beat-purple)',
+                                    borderRadius: '50%'
+                                }} />
+                                <div style={{
+                                    position: 'absolute',
+                                    width: 50,
+                                    height: 50,
+                                    border: '1px solid rgba(255,255,255,0.15)',
+                                    borderRadius: '50%'
+                                }} />
+                            </div>
+                            
+                            <h2 style={{ 
+                                fontSize: 24, 
+                                fontFamily: 'Playfair Display, Georgia, serif',
+                                fontWeight: 900, 
+                                fontStyle: 'italic',
+                                color: 'var(--black)', 
+                                marginBottom: 8,
+                                textAlign: 'center',
+                                letterSpacing: '-0.02em'
+                            }}>Press Your Wax</h2>
+                            
+                            <p style={{ 
+                                color: 'var(--gray)', 
+                                marginBottom: 20, 
+                                fontSize: 10, 
+                                lineHeight: 1.6,
+                                textTransform: 'uppercase', 
+                                letterSpacing: '0.1em',
+                                textAlign: 'center',
+                                fontFamily: 'IBM Plex Mono, monospace'
+                            }}>{layers.length} LAYER{layers.length !== 1 ? 'S' : ''} • MASTER MIX</p>
+                            
+                            {/* Title Input */}
+                            <div style={{ marginBottom: 20 }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: 9,
+                                    fontWeight: 700,
+                                    letterSpacing: '0.15em',
+                                    marginBottom: 8,
+                                    color: 'var(--gray)',
+                                    fontFamily: 'IBM Plex Mono, monospace'
+                                }}>SESSION TITLE</label>
+                                <input
+                                    type="text"
+                                    value={sessionTitle}
+                                    onChange={(e) => setSessionTitle(e.target.value)}
+                                    placeholder="Untitled Session"
+                                    style={{
+                                        width: '100%',
+                                        padding: '14px 16px',
+                                        border: '2px solid var(--black)',
+                                        fontSize: 14,
+                                        fontFamily: 'Playfair Display, Georgia, serif',
+                                        fontStyle: 'italic',
+                                        background: 'var(--white)',
+                                        outline: 'none',
+                                        boxSizing: 'border-box'
+                                    }}
+                                />
+                            </div>
+                            
+                            {/* Download to Device */}
+                            <button 
+                                onClick={exportMasterToDevice}
+                                disabled={isSaving}
+                                style={{
+                                    width: '100%',
+                                    background: isSaving ? 'var(--gray)' : 'var(--brand-green)',
+                                    color: 'var(--white)',
+                                    padding: '14px 16px',
+                                    fontWeight: 900,
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase',
+                                    fontSize: 10,
+                                    border: '2px solid var(--black)',
+                                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                                    marginBottom: 10,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 10,
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    boxShadow: isSaving ? 'none' : '3px 3px 0 var(--black)',
+                                    transform: 'translate(0, 0)',
+                                    transition: 'transform 0.1s, box-shadow 0.1s'
+                                }}
+                                onMouseDown={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(3px, 3px)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }
+                                }}
+                                onMouseUp={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(0, 0)';
+                                        e.currentTarget.style.boxShadow = '3px 3px 0 var(--black)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(0, 0)';
+                                        e.currentTarget.style.boxShadow = '3px 3px 0 var(--black)';
+                                    }
+                                }}
+                            >
+                                <Icon name="Download" size={14} />
+                                {isSaving ? 'PRESSING...' : 'DOWNLOAD WAV'}
+                            </button>
+                            
+                            {/* Save to Database */}
+                            <button 
+                                onClick={saveSessionToSupabase}
+                                disabled={isSaving}
+                                style={{
+                                    width: '100%',
+                                    background: isSaving ? 'var(--gray)' : 'var(--beat-purple)',
+                                    color: 'var(--white)',
+                                    padding: '14px 16px',
+                                    fontWeight: 900,
+                                    letterSpacing: '0.15em',
+                                    textTransform: 'uppercase',
+                                    fontSize: 10,
+                                    border: '2px solid var(--black)',
+                                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                                    marginBottom: 16,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 10,
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    boxShadow: isSaving ? 'none' : '3px 3px 0 var(--black)',
+                                    transform: 'translate(0, 0)',
+                                    transition: 'transform 0.1s, box-shadow 0.1s'
+                                }}
+                                onMouseDown={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(3px, 3px)';
+                                        e.currentTarget.style.boxShadow = 'none';
+                                    }
+                                }}
+                                onMouseUp={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(0, 0)';
+                                        e.currentTarget.style.boxShadow = '3px 3px 0 var(--black)';
+                                    }
+                                }}
+                                onMouseLeave={(e) => {
+                                    if (!isSaving) {
+                                        e.currentTarget.style.transform = 'translate(0, 0)';
+                                        e.currentTarget.style.boxShadow = '3px 3px 0 var(--black)';
+                                    }
+                                }}
+                            >
+                                <Icon name="Cloud" size={14} />
+                                {isSaving ? 'SAVING...' : 'SAVE TO CLOUD'}
+                            </button>
+                            
+                            {/* Cancel Link */}
+                            <button 
+                                onClick={() => setShowSaveModal(false)} 
+                                disabled={isSaving}
+                                style={{ 
+                                    width: '100%', 
+                                    fontSize: 9, 
+                                    fontWeight: 700, 
+                                    letterSpacing: '0.15em', 
+                                    color: 'var(--gray)',
+                                    textTransform: 'uppercase',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                                    padding: 8,
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    opacity: isSaving ? 0.5 : 1
+                                }}
+                            >
+                                NEVERMIND
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Load Sessions Modal - Brutalist Style */}
+            {showLoadModal && (
+                <div 
+                    className="animate-fade-in"
+                    style={{ 
+                        position: 'fixed', 
+                        inset: 0, 
+                        zIndex: 100, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        padding: 20, 
+                        background: 'rgba(0,0,0,0.85)'
+                    }}
+                    onClick={() => setShowLoadModal(false)}
+                >
+                    <div 
+                        className="animate-slide-up"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ 
+                            backgroundImage: 'url(images/smooth-paper-texture.jpg)',
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            border: '4px solid var(--black)',
+                            width: '100%', 
+                            maxWidth: 400, 
+                            maxHeight: '80vh',
+                            overflow: 'hidden',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            boxShadow: '8px 8px 0 var(--black)'
+                        }}
+                    >
+                        {/* Header */}
+                        <div style={{
+                            background: 'var(--black)',
+                            color: 'var(--white)',
+                            padding: '12px 16px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <span style={{ 
+                                fontSize: 10, 
+                                fontWeight: 900, 
+                                letterSpacing: '0.2em',
+                                fontFamily: 'IBM Plex Mono, monospace'
+                            }}>SAVED SESSIONS</span>
+                            <button
+                                onClick={() => setShowLoadModal(false)}
+                                style={{
+                                    color: 'var(--white)',
+                                    background: 'none',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: 4
+                                }}
+                            >
+                                <Icon name="X" size={18} />
+                            </button>
+                        </div>
+                        
+                        {/* Content */}
                         <div style={{ 
                             flex: 1, 
                             overflowY: 'auto',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 12
+                            padding: 16
                         }}>
                             {savedSessions.length === 0 ? (
                                 <div style={{
                                     padding: 48,
                                     textAlign: 'center',
-                                    color: 'var(--gray)',
-                                    fontSize: 10,
-                                    textTransform: 'uppercase',
-                                    letterSpacing: '0.1em'
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: 16
                                 }}>
-                                    No saved sessions yet
+                                    <div style={{
+                                        width: 48,
+                                        height: 48,
+                                        background: 'var(--light-gray)',
+                                        borderRadius: '50%',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}>
+                                        <Icon name="Disc" size={24} />
+                                    </div>
+                                    <span style={{
+                                        color: 'var(--gray)',
+                                        fontSize: 10,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.15em',
+                                        fontFamily: 'IBM Plex Mono, monospace'
+                                    }}>
+                                        NO SAVED SESSIONS YET
+                                    </span>
                                 </div>
                             ) : (
-                                savedSessions.map(session => (
-                                    <button
-                                        key={session.id}
-                                        onClick={() => loadSession(session.id)}
-                                        style={{
-                                            background: 'var(--paper)',
-                                            border: '1px solid var(--gray-light)',
-                                            borderRadius: 12,
-                                            padding: 16,
-                                            cursor: 'pointer',
-                                            textAlign: 'left',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => e.target.style.borderColor = '#7C3AED'}
-                                        onMouseLeave={(e) => e.target.style.borderColor = 'var(--gray-light)'}
-                                    >
-                                        <div style={{
-                                            fontSize: 14,
-                                            fontWeight: 700,
-                                            marginBottom: 4
-                                        }}>{session.title}</div>
-                                        <div style={{
-                                            fontSize: 10,
-                                            color: 'var(--gray)',
-                                            textTransform: 'uppercase',
-                                            letterSpacing: '0.05em'
-                                        }}>
-                                            {new Date(session.created_at).toLocaleDateString()}
-                                            {session.beat_title && ` • Beat: ${session.beat_title}`}
-                                        </div>
-                                    </button>
-                                ))
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    {savedSessions.map(session => (
+                                        <button
+                                            key={session.id}
+                                            onClick={() => loadSession(session.id)}
+                                            style={{
+                                                background: 'var(--white)',
+                                                border: '2px solid var(--black)',
+                                                padding: 14,
+                                                cursor: 'pointer',
+                                                textAlign: 'left',
+                                                boxShadow: '2px 2px 0 var(--black)',
+                                                transform: 'translate(0, 0)',
+                                                transition: 'transform 0.1s, box-shadow 0.1s'
+                                            }}
+                                            onMouseDown={(e) => {
+                                                e.currentTarget.style.transform = 'translate(2px, 2px)';
+                                                e.currentTarget.style.boxShadow = 'none';
+                                            }}
+                                            onMouseUp={(e) => {
+                                                e.currentTarget.style.transform = 'translate(0, 0)';
+                                                e.currentTarget.style.boxShadow = '2px 2px 0 var(--black)';
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                e.currentTarget.style.transform = 'translate(0, 0)';
+                                                e.currentTarget.style.boxShadow = '2px 2px 0 var(--black)';
+                                            }}
+                                        >
+                                            <div style={{
+                                                fontSize: 14,
+                                                fontWeight: 700,
+                                                marginBottom: 4,
+                                                fontFamily: 'Playfair Display, Georgia, serif',
+                                                fontStyle: 'italic'
+                                            }}>{session.title}</div>
+                                            <div style={{
+                                                fontSize: 9,
+                                                color: 'var(--gray)',
+                                                textTransform: 'uppercase',
+                                                letterSpacing: '0.1em',
+                                                fontFamily: 'IBM Plex Mono, monospace'
+                                            }}>
+                                                {new Date(session.created_at).toLocaleDateString()}
+                                                {session.beat_title && ` • ${session.beat_title}`}
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
                             )}
                         </div>
                     </div>
