@@ -306,7 +306,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         letterSpacing: '0.05em',
                         textTransform: 'uppercase' 
                     }}>
-                        START NEW EDITION
+                        START NEW SONG
                     </span>
                 </button>
                 <button
@@ -315,7 +315,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     style={{
                         width: 54,
                         height: 54,
-                        background: '#1F2937',
+                        background: 'var(--white)',
                         border: '2px solid var(--black)',
                         display: 'flex',
                         alignItems: 'center',
@@ -573,7 +573,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                                 fontWeight: 700
                                             }}
                                         >
-                                            <span>{song.title || 'UNTITLED EDITION'}</span>
+                                            <span>{song.title || 'UNTITLED SONG'}</span>
                                             <span className="font-mono" style={{ fontSize: 9, color: '#6B7280' }}>
                                                 {formatTime(song.updated_at || song.created_at)}
                                             </span>
@@ -711,7 +711,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                             textAlign: 'left',
                                             wordBreak: 'break-word'
                                         }}>
-                                            {snippet || "No content available for this edition. Tap to write..."}
+                                            {snippet || "No content available for this song. Tap to write..."}
                                         </div>
 
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
