@@ -3574,7 +3574,7 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                                 if (achievementTrophies.length === 0) return null;
                                 
                                 return (
-                                    <div style={{ marginBottom: 24 }}>
+                                    <div>
                                         <div style={{
                                             fontSize: 11,
                                             fontFamily: 'IBM Plex Mono',
@@ -3641,97 +3641,6 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                                                             }}>
                                                                 {trophy.requirementValue} {trophy.requirementType}
                                                             </div>
-                                                        )}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-                            
-                            {/* Store Trophies (Purchasable with XP) */}
-                            {(() => {
-                                const storeTrophies = trophies.filter(t => t.trophyType === 'store' || t.trophy_type === 'store' || (!t.trophyType && !t.trophy_type));
-                                const earnedStore = storeTrophies.filter(t => earnedTrophyIds.includes(t.id));
-                                
-                                if (storeTrophies.length === 0) return null;
-                                
-                                return (
-                                    <div>
-                                        <div style={{
-                                            fontSize: 11,
-                                            fontFamily: 'IBM Plex Mono',
-                                            fontWeight: 700,
-                                            letterSpacing: '0.1em',
-                                            marginBottom: 12,
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center'
-                                        }}>
-                                            <span>COLLECTION</span>
-                                            <span style={{ fontSize: 9, color: 'var(--gray)' }}>
-                                                {earnedStore.length}/{storeTrophies.length}
-                                            </span>
-                                        </div>
-                                        <div style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: 'repeat(3, 1fr)',
-                                            gap: 8,
-                                            maxHeight: 400,
-                                            overflowY: 'auto'
-                                        }}>
-                                            {storeTrophies.map(trophy => {
-                                                const earned = earnedTrophyIds.includes(trophy.id);
-                                                const isSelected = selectedTrophies.includes(trophy.id);
-                                                const hasImage = trophy.imageUrl || trophy.image_url;
-                                                
-                                                return (
-                                                    <button
-                                                        key={trophy.id}
-                                                        onClick={() => earned && handleSelectTrophy(trophy.id)}
-                                                        disabled={!earned}
-                                                        style={{
-                                                            aspectRatio: '1',
-                                                            border: `2px solid ${isSelected ? '#EAB308' : 'var(--black)'}`,
-                                                            background: earned ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.05)',
-                                                            opacity: earned ? 1 : 0.3,
-                                                            display: 'flex',
-                                                            flexDirection: 'column',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            padding: 4,
-                                                            cursor: earned ? 'pointer' : 'default',
-                                                            overflow: 'hidden'
-                                                        }}
-                                                        title={`${trophy.name}${trophy.xpCost ? ` - ${trophy.xpCost} XP` : ''}`}
-                                                    >
-                                                        {hasImage ? (
-                                                            <img 
-                                                                src={trophy.imageUrl || trophy.image_url} 
-                                                                alt={trophy.name}
-                                                                style={{
-                                                                    width: '100%',
-                                                                    height: '100%',
-                                                                    objectFit: 'contain',
-                                                                    filter: earned ? 'none' : 'grayscale(1) opacity(0.5)'
-                                                                }}
-                                                            />
-                                                        ) : (
-                                                            <>
-                                                                <div style={{ fontSize: 24, marginBottom: 4, filter: earned ? 'none' : 'grayscale(1)' }}>
-                                                                    {trophy.icon}
-                                                                </div>
-                                                                <div style={{
-                                                                    fontSize: 6,
-                                                                    fontFamily: 'IBM Plex Mono',
-                                                                    textAlign: 'center',
-                                                                    fontWeight: 700,
-                                                                    lineHeight: 1.2
-                                                                }}>
-                                                                    {trophy.name}
-                                                                </div>
-                                                            </>
                                                         )}
                                                     </button>
                                                 );

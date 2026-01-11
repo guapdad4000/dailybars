@@ -3322,12 +3322,13 @@ const LoginScreen = ({ onLogin }) => {
 // TROPHY CASE VIEW (REPLACES XP STORE)
 // ============================================================================
 
-const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
+const TrophyCaseView = ({ user, onClose, onSpendXP, onSelectForShowcase }) => {
     const [tiles, setTiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [userUnlocks, setUserUnlocks] = useState(new Set());
     const [allTrophies, setAllTrophies] = useState([]);
     const [confirmUnlock, setConfirmUnlock] = useState(null); // Trophy to confirm unlock
+    const [selectedForShowcase, setSelectedForShowcase] = useState(new Set(user?.selected_trophies || user?.selectedTrophies || []));
     const toast = useToast();
 
     // --- CONFIGURATION ---
@@ -3415,8 +3416,26 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
 
     const handleUnlockAttempt = async (trophy) => {
         if (trophy.unlocked) {
-            // Show info about already unlocked trophy
-            toast?.addToast(`${trophy.name.toUpperCase()} - ALREADY YOURS!`, 'success');
+            // If already unlocked, allow selecting for showcase
+            if (onSelectForShowcase) {
+                const newSet = new Set(selectedForShowcase);
+                if (newSet.has(trophy.id)) {
+                    newSet.delete(trophy.id);
+                    toast?.addToast(`${trophy.name.toUpperCase()} REMOVED FROM SHOWCASE`, 'info');
+                } else {
+                    if (newSet.size >= 3) {
+                        // Remove oldest (first in set)
+                        const firstItem = Array.from(newSet)[0];
+                        newSet.delete(firstItem);
+                    }
+                    newSet.add(trophy.id);
+                    toast?.addToast(`${trophy.name.toUpperCase()} ADDED TO SHOWCASE!`, 'success');
+                }
+                setSelectedForShowcase(newSet);
+                await onSelectForShowcase(trophy.id);
+            } else {
+                toast?.addToast(`${trophy.name.toUpperCase()} - ALREADY YOURS!`, 'success');
+            }
             return;
         }
         
@@ -3461,6 +3480,8 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
 
     const ShelfItem = ({ item }) => {
         if (!item) return <div style={{ width: 60 }} />; // Spacer
+        
+        const isShowcased = selectedForShowcase.has(item.id);
 
         return (
             <div 
@@ -3477,6 +3498,18 @@ const TrophyCaseView = ({ user, onClose, onSpendXP }) => {
                 }}
                 className="trophy-item"
             >
+                {/* Showcase indicator - Gold border */}
+                {isShowcased && item.unlocked && (
+                    <div style={{
+                        position: 'absolute',
+                        inset: -8,
+                        border: '3px solid #EAB308',
+                        borderRadius: '50%',
+                        zIndex: 5,
+                        animation: 'pulse 2s infinite'
+                    }} />
+                )}
+                
                 {/* Glow Effect for unlocked */}
                 {item.unlocked && (
                     <div style={{
@@ -5515,6 +5548,36 @@ const App = () => {
                         await api.update('users', user.id, { xp: newXp });
                         return true;
                     }}
+                    onSelectForShowcase={async (trophyId) => {
+                        // Toggle trophy selection for showcase
+                        const currentSelected = user.selected_trophies || user.selectedTrophies || [];
+                        let newSelected = [...currentSelected];
+                        
+                        if (newSelected.includes(trophyId)) {
+                            // Deselect
+                            newSelected = newSelected.filter(id => id !== trophyId);
+                        } else {
+                            // Select (max 3)
+                            if (newSelected.length < 3) {
+                                newSelected.push(trophyId);
+                            } else {
+                                // Replace oldest
+                                newSelected.shift();
+                                newSelected.push(trophyId);
+                            }
+                        }
+                        
+                        // Update database
+                        await supabase
+                            .from('users')
+                            .update({ selected_trophies: newSelected })
+                            .eq('id', user.id);
+                        
+                        // Update local state
+                        const updatedUser = { ...user, selected_trophies: newSelected, selectedTrophies: newSelected };
+                        setUser(updatedUser);
+                        localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
+                    }}
                 />
             )}
 
@@ -5554,7 +5617,10 @@ const App = () => {
                         cursor: 'pointer',
                         boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
                     }}>
-                        <span style={{ fontSize: 16 }}>💎</span>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="12" cy="8" r="5"/>
+                            <path d="M20 21a8 8 0 1 0-16 0"/>
+                        </svg>
                         @{user.username.toUpperCase()}
                     </button>
                 </div>
