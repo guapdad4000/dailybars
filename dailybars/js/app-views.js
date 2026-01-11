@@ -4631,9 +4631,9 @@ const CassetteButton = ({ user, onClick, isOpen }) => {
                 className={`canvas-container ${isUnspooling ? 'unspooling-shake' : ''}`}
                 style={{
                     position: 'fixed',
-                    bottom: 80, // Moved up to avoid mobile bottom bar issues
+                    bottom: 'calc(90px + env(safe-area-inset-bottom, 0px))',
                     left: 16,
-                    zIndex: 150, // Increased z-index to be above bottom bar
+                    zIndex: 900,
                     pointerEvents: 'none'
                 }}
             >
@@ -5768,6 +5768,8 @@ const App = () => {
 
                 {premiumOverlay}
 
+                <BottomBar currentView={view} streak={streak} user={user} />
+
                 <CassetteButton 
                     user={user} 
                     isOpen={showProfileModal}
@@ -5792,8 +5794,6 @@ const App = () => {
                         }}
                     />
                 )}
-
-                <BottomBar currentView={view} streak={streak} user={user} />
                 
                 {/* Level Up Modal */}
                 {levelUpModal && (
