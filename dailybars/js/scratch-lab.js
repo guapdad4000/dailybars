@@ -29,12 +29,63 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [isPopped, setIsPopped] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     
+    // Audio Input State
+    const [audioInputs, setAudioInputs] = useState([]);
+    const [selectedInputId, setSelectedInputId] = useState('');
+
+    // Fetch audio input devices
+    const refreshAudioInputs = useCallback(async () => {
+        try {
+            // Ensure permission first - usually this is called after first getUserMedia
+            // or if we already have permission
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(d => d.kind === 'audioinput');
+            setAudioInputs(inputs);
+            
+            // Set default if not set
+            if (!selectedInputId && inputs.length > 0) {
+                // Try to find "default" or first one
+                const defaultInput = inputs.find(i => i.deviceId === 'default') || inputs[0];
+                setSelectedInputId(defaultInput.deviceId);
+            }
+        } catch (e) {
+            console.warn('Error fetching devices:', e);
+        }
+    }, [selectedInputId]);
+
+    // Initial fetch
+    useEffect(() => {
+        refreshAudioInputs();
+        // Also listen for device changes
+        navigator.mediaDevices.addEventListener('devicechange', refreshAudioInputs);
+        return () => navigator.mediaDevices.removeEventListener('devicechange', refreshAudioInputs);
+    }, [refreshAudioInputs]);
+
+    // Cycle through available inputs
+    const cycleAudioInput = () => {
+        if (audioInputs.length <= 1) {
+            alert('No other microphones found.');
+            return;
+        }
+        
+        const currentIndex = audioInputs.findIndex(i => i.deviceId === selectedInputId);
+        const nextIndex = (currentIndex + 1) % audioInputs.length;
+        const nextInput = audioInputs[nextIndex];
+        
+        setSelectedInputId(nextInput.deviceId);
+        
+        // Show brief toast/alert about the switch
+        const label = nextInput.label || `Microphone ${nextIndex + 1}`;
+        alert(`Switched Input: ${label}`);
+    };
+    
     // Audio status for iOS indicator (state so it triggers re-render)
     const [audioReady, setAudioReady] = useState(false);
     
     // Metronome state
     const [isMetronomeOn, setIsMetronomeOn] = useState(false);
     const [bpm, setBpm] = useState(90);
+    const [showBpmPopup, setShowBpmPopup] = useState(false);
     const nextNoteTime = useRef(0);
     const metronomeTimerId = useRef(null);
     
@@ -67,13 +118,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         osc.stop(time + 0.05);
     };
 
-    // Metronome Loop
+    // Metronome Loop - plays whenever metronome is on (not just during recording)
     useEffect(() => {
-        if (isRecording && isMetronomeOn) {
+        const startMetronome = async () => {
+            // Ensure audio context exists and is running
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
+            }
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+            }
+            
             if (!metronomeTimerId.current) {
                 nextNoteTime.current = audioContext.current.currentTime + 0.05;
                 metronomeTimerId.current = setInterval(scheduleMetronome, 25);
             }
+        };
+        
+        if (isMetronomeOn) {
+            startMetronome();
         } else {
             if (metronomeTimerId.current) {
                 clearInterval(metronomeTimerId.current);
@@ -86,7 +151,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 metronomeTimerId.current = null;
             }
         };
-    }, [isRecording, isMetronomeOn, scheduleMetronome]);
+    }, [isMetronomeOn, scheduleMetronome]);
 
     // Real-time waveform data for recording visualization
     const [liveWaveform, setLiveWaveform] = useState(Array(45).fill(10));
@@ -135,7 +200,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     
     // Track if audio has been unlocked on mobile
     const audioUnlocked = useRef(false);
-    const isIOS = useRef(/iPhone|iPad|iPod/i.test(navigator.userAgent));
+    const isIOS = useRef(/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
     
     // Initialize Audio Context - but DON'T create it until user interaction on iOS
     useEffect(() => {
@@ -182,50 +247,68 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Helper to unlock audio on mobile devices
     // Must be called from a user interaction event (touch/click)
     const unlockMobileAudio = async () => {
-        if (audioUnlocked.current) return true;
+        // Remove this check to force unlock every time
+        // if (audioUnlocked.current) return true; 
         
         try {
             console.log('[ScratchLab] Unlocking mobile audio... iOS:', isIOS.current);
             
-            // Ensure context exists and is running
-            const contextReady = await ensureAudioContext();
-            if (!contextReady) {
-                console.warn('[ScratchLab] Audio context not ready after resume');
+            // 1. Ensure context exists
+            if (!audioContext.current) {
+                audioContext.current = new (window.AudioContext || window.webkitAudioContext)();
+                masterGainNode.current = audioContext.current.createGain();
+                masterGainNode.current.connect(audioContext.current.destination);
             }
             
-            // iOS-specific: Play an actual audible sound briefly to fully unlock
-            // Silent buffers don't always work on iOS 15+
-            if (isIOS.current) {
-                const osc = audioContext.current.createOscillator();
-                const gain = audioContext.current.createGain();
+            // 2. Resume Context
+            if (audioContext.current.state === 'suspended') {
+                await audioContext.current.resume();
+            }
+
+            // 3. Play Silent HTML5 Audio (Silent Switch Bypass)
+            // Always do this on touch devices to ensure active session
+            const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            
+            if (isTouch || isIOS.current) {
+                const silentAudio = new Audio();
+                silentAudio.src = 'data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjIwLjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD//////////////////////////////////////////////////////////////////wAAAP7/zEAAABAAAAOFAAAAAAABEmgAAABEAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//OEAAABAAAAOFAAAAAAABEmgAAABEAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+                silentAudio.volume = 0.01;
                 
-                osc.connect(gain);
-                gain.connect(audioContext.current.destination);
+                // We don't await this because we don't want to block if it fails
+                // But we need to trigger it in the user gesture
+                const playPromise = silentAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log('[ScratchLab] Silent HTML5 audio played');
+                        // Keep it playing for a moment to establish session
+                        setTimeout(() => {
+                            silentAudio.pause();
+                            silentAudio.src = '';
+                            silentAudio.remove();
+                        }, 500);
+                    }).catch(error => {
+                        console.warn('[ScratchLab] Silent HTML5 audio failed:', error);
+                    });
+                }
                 
-                // Very short, very quiet beep - almost inaudible but enough to unlock
-                osc.frequency.value = 1; // Sub-bass, nearly inaudible
-                gain.gain.value = 0.001; // Extremely quiet
-                
-                osc.start(audioContext.current.currentTime);
-                osc.stop(audioContext.current.currentTime + 0.001);
-                
-                console.log('[ScratchLab] iOS audio unlock beep played');
-            } else {
-                // Non-iOS: silent buffer is fine
-                const silentBuffer = audioContext.current.createBuffer(1, 1, 22050);
-                const source = audioContext.current.createBufferSource();
-                source.buffer = silentBuffer;
-                source.connect(audioContext.current.destination);
-                source.start(0);
+                // 4. Web Audio Oscillator Kick (Double tap)
+                try {
+                    const osc = audioContext.current.createOscillator();
+                    const gain = audioContext.current.createGain();
+                    osc.connect(gain);
+                    gain.connect(audioContext.current.destination);
+                    osc.frequency.value = 400; 
+                    gain.gain.value = 0.001; 
+                    osc.start(audioContext.current.currentTime);
+                    osc.stop(audioContext.current.currentTime + 0.01);
+                } catch(e) { console.warn('Oscillator kick failed', e); }
             }
             
             audioUnlocked.current = true;
-            setAudioReady(true); // Update state for UI indicator
-            console.log('[ScratchLab] Mobile audio unlocked successfully, context state:', audioContext.current.state);
+            setAudioReady(true); 
             return true;
         } catch (err) {
-            console.error('[ScratchLab] Failed to unlock mobile audio:', err);
-            setAudioReady(false);
+            console.error('[ScratchLab] Unlock failed:', err);
             return false;
         }
     };
@@ -242,7 +325,12 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         layers.forEach(layer => {
             if (layer.audioBuffer) {
-                maxDuration = Math.max(maxDuration, layer.audioBuffer.duration);
+                // Include timeShift in duration calculation
+                // If shift is positive (delay), end time is duration + shift
+                // If shift is negative (clip start), duration is effectively shorter, but we usually track "active audio range"
+                // For simplicity and to allow dragging "out of bounds", we track the max extent
+                const effectiveDuration = layer.audioBuffer.duration + (layer.timeShift || 0);
+                maxDuration = Math.max(maxDuration, effectiveDuration);
             }
         });
         
@@ -294,8 +382,128 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         onScrubStateChange?.(isScrubbing || isPopped || isRecording);
     }, [isScrubbing, isPopped, isRecording, onScrubStateChange]);
 
+    const playBackingTracks = (startOffset = 0) => {
+        if (layers.length === 0 && !beatAudioBuffer.current) return;
+        
+        // Use a slightly longer schedule ahead for recording to ensure sync
+        const scheduleAhead = isIOS.current ? 0.05 : 0.01;
+        const masterStartTime = audioContext.current.currentTime + scheduleAhead;
+        
+        // Only clear this if we aren't appending (we're starting fresh here)
+        layerSourceNodes.current = [];
+        
+        // 1. Play Beat (if loaded)
+        if (beatAudioBuffer.current) {
+            const beatSource = audioContext.current.createBufferSource();
+            beatSource.buffer = beatAudioBuffer.current;
+            beatSource.loop = true;
+            beatSource.loopStart = 0;
+            beatSource.loopEnd = beatAudioBuffer.current.duration;
+            
+            const beatGain = audioContext.current.createGain();
+            beatGain.gain.value = beatMuted ? 0 : 0.7;
+            
+            beatSource.connect(beatGain);
+            beatGain.connect(masterGainNode.current); // Use master gain for consistency
+            
+            beatSource.start(masterStartTime, startOffset);
+            
+            // We store it in beatSourceNode for volume control, but also need to stop it
+            beatSourceNode.current = { source: beatSource, gainNode: beatGain };
+        }
+        
+        // 2. Play Layers (Overdub)
+        const hasSolo = layers.some(l => l.solo);
+        
+        layers.forEach((layer) => {
+            if (!layer.audioBuffer) return;
+            
+            const source = audioContext.current.createBufferSource();
+            source.buffer = layer.audioBuffer;
+            
+            const gainNode = audioContext.current.createGain();
+            let initialGain = layer.volume / 100;
+            if (layer.muted || (hasSolo && !layer.solo)) {
+                initialGain = 0;
+            }
+            gainNode.gain.value = initialGain;
+            
+            // Pan
+            let outputNode = gainNode;
+            if (audioContext.current.createStereoPanner && (layer.pan || 0) !== 0) {
+                try {
+                    const panNode = audioContext.current.createStereoPanner();
+                    panNode.pan.value = layer.pan || 0;
+                    gainNode.connect(panNode);
+                    outputNode = panNode;
+                } catch (e) {}
+            }
+            
+            source.connect(gainNode);
+            outputNode.connect(masterGainNode.current);
+            
+            // Calculate correct start time based on offset AND latency shift
+            // If timeShift is negative (move left/earlier), we skip more of the buffer start (increase offset)
+            // If timeShift is positive (move right/later), we delay the start time
+            
+            const shift = layer.timeShift || 0;
+            const layerStartOffset = Math.min(startOffset, layer.audioBuffer.duration);
+            
+            let effectiveStartTime = masterStartTime;
+            let effectiveOffset = layerStartOffset;
+            
+            if (shift < 0) {
+                // Shift LEFT (earlier): Skip more of the beginning
+                // We add the magnitude of the negative shift to the offset
+                effectiveOffset += Math.abs(shift);
+            } else {
+                // Shift RIGHT (later): Delay start
+                effectiveStartTime += shift;
+            }
+            
+            // Boundary checks
+            if (effectiveOffset > layer.audioBuffer.duration) {
+                // Shifted past end
+                return; 
+            }
+            
+            source.start(effectiveStartTime, effectiveOffset);
+            
+            // Auto stop when this layer ends
+            // Duration is original duration minus whatever we skipped
+            const playDuration = layer.audioBuffer.duration - effectiveOffset;
+            if (playDuration > 0) {
+                source.stop(effectiveStartTime + playDuration);
+            }
+            
+            layerSourceNodes.current.push({ source, gainNode, layerId: layer.id });
+        });
+        
+        // Setup playback timing for progress bar
+        playbackStartTime.current = masterStartTime - startOffset;
+        
+        // We don't set isPlaying=true here necessarily, as we are in recording state
+        // But we DO want the progress bar to move. 
+        // The recording logic currently updates `liveWaveform` but not `progress`.
+        // We should start the progress updater if not already running.
+        if (!playbackInterval.current) {
+             const updateProgress = () => {
+                if (!isRecording && !isPlaying) return; // Stop if neither
+                
+                const elapsed = audioContext.current.currentTime - playbackStartTime.current;
+                // Use a large duration for recording mode if unknown, or sessionDuration
+                const currentDuration = sessionDuration > 0 ? sessionDuration : 300; 
+                const newProgress = Math.min(100, (elapsed / currentDuration) * 100);
+                
+                setProgress(newProgress);
+                playbackInterval.current = requestAnimationFrame(updateProgress);
+            };
+            playbackInterval.current = requestAnimationFrame(updateProgress);
+        }
+    };
+
     // Request microphone access and start recording
-    const startRecording = async () => {
+    const startRecording = async (startOffset = 0) => {
         try {
             // CRITICAL FOR iOS: Unlock audio IMMEDIATELY in user gesture
             // BEFORE any async operations like getUserMedia
@@ -365,21 +573,26 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             let constraints;
             if (isIOS) {
-                // iOS Safari needs minimal constraints
-                constraints = { audio: true };
+                // iOS Safari needs minimal constraints but we can try deviceId if specific one selected
+                // Note: iOS often overrides this anyway, but worth a shot if multiple inputs exist
+                constraints = { 
+                    audio: selectedInputId ? { deviceId: { exact: selectedInputId } } : true 
+                };
             } else if (isMobile) {
-                // Android Chrome can use some constraints
+                // Android Chrome
                 constraints = {
                     audio: {
+                        deviceId: selectedInputId ? { exact: selectedInputId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: true // Help with mobile mic sensitivity
                     }
                 };
             } else {
-                // Desktop can use full constraints
+                // Desktop
                 constraints = {
                     audio: {
+                        deviceId: selectedInputId ? { exact: selectedInputId } : undefined,
                         echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: false
@@ -391,6 +604,9 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             mediaStream.current = stream;
+            
+            // Refresh device list now that we have permission (labels will appear)
+            refreshAudioInputs();
             
             // Verify we got audio tracks
             const audioTracks = stream.getAudioTracks();
@@ -440,30 +656,38 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             animationFrame.current = requestAnimationFrame(updateWaveform);
             
-            // Setup MediaRecorder with proper MIME type for mobile
-            // iOS Safari supports audio/mp4, Chrome supports audio/webm
-            let mimeType;
-            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                mimeType = 'audio/webm;codecs=opus';
-            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                mimeType = 'audio/webm';
-            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                mimeType = 'audio/mp4';
-            } else if (MediaRecorder.isTypeSupported('audio/aac')) {
-                mimeType = 'audio/aac';
+            // iOS Safari needs audio/mp4 for best compatibility
+            let mimeType = '';
+            
+            if (isIOS.current) {
+                if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                } else if (MediaRecorder.isTypeSupported('audio/aac')) {
+                    mimeType = 'audio/aac';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    // Fallback to webm on newer iOS if mp4 unavailable
+                    mimeType = 'audio/webm';
+                }
             } else {
-                // Fallback - let browser choose
-                mimeType = '';
+                // Android/Desktop - prefer WebM opus
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                    mimeType = 'audio/webm';
+                }
             }
             
-            console.log('[ScratchLab] Using MIME type:', mimeType || 'browser default');
+            console.log('[ScratchLab] Selected MIME type:', mimeType || 'browser default');
             
             const recorderOptions = mimeType ? { mimeType } : {};
             mediaRecorder.current = new MediaRecorder(stream, recorderOptions);
             audioChunks.current = [];
             
+            // On mobile, timeslice can cause header issues in some browsers
+            // Safer to record one big chunk unless we need streaming
+            // We only use chunks at the end, so no timeslice needed
+            
             mediaRecorder.current.ondataavailable = (event) => {
-                console.log('[ScratchLab] Data available:', event.data.size, 'bytes');
                 if (event.data.size > 0) {
                     audioChunks.current.push(event.data);
                 }
@@ -492,16 +716,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     return;
                 }
                 
-                // Use the actual MIME type from the recorder
-                const actualMimeType = mediaRecorder.current.mimeType || mimeType || 'audio/webm';
+                // Use the actual MIME type from the recorder or fallback
+                const actualMimeType = mediaRecorder.current.mimeType || mimeType || '';
                 console.log('[ScratchLab] Creating blob with type:', actualMimeType);
                 
-                const audioBlob = new Blob(audioChunks.current, { type: actualMimeType });
+                // Create blob - if type is empty, browser handles it
+                const blobOptions = actualMimeType ? { type: actualMimeType } : undefined;
+                const audioBlob = new Blob(audioChunks.current, blobOptions);
                 console.log('[ScratchLab] Audio blob size:', audioBlob.size, 'bytes');
                 
                 if (audioBlob.size < 100) {
-                    console.error('[ScratchLab] Audio blob too small, likely no audio captured');
-                    alert('Recording appears to be empty. Please ensure your microphone is working and permissions are granted.');
+                    console.error('[ScratchLab] Audio blob too small');
+                    alert('Recording appears to be empty. Microphone might be muted or blocked.');
                     return;
                 }
                 
@@ -512,30 +738,77 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                     const arrayBuffer = await audioBlob.arrayBuffer();
                     console.log('[ScratchLab] Array buffer size:', arrayBuffer.byteLength);
                     
+                    // Safari/iOS decodeAudioData requires callback or promise
+                    // We use the promise syntax which is standard now
                     const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
+                    
+                    // Check for silent buffer
+                    const pcm = audioBuffer.getChannelData(0);
+                    let isSilent = true;
+                    for (let i = 0; i < pcm.length; i++) {
+                        if (Math.abs(pcm[i]) > 0.01) {
+                            isSilent = false;
+                            break;
+                        }
+                    }
+                    
+                    if (isSilent) {
+                        console.warn('[ScratchLab] Decoded buffer is silent');
+                        // Don't error, just warn - might be user intent
+                    }
+
                     console.log('[ScratchLab] Decoded audio buffer:', audioBuffer.duration, 'seconds');
                     
-                    // Generate waveform from audio buffer
-                    const waves = generateWaveformFromBuffer(audioBuffer);
+                    let finalAudioBuffer = audioBuffer;
                     
-                    const newLayer = {
-                        id: Date.now(),
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        volume: 80,
-                        waves: waves,
-                        audioBuffer: audioBuffer,
-                        audioUrl: audioUrl,
-                        muted: false,
-                        solo: false,
-                        pan: 0
-                    };
+                    // If we recorded with an offset (overdub), we need to pad the start with silence
+                    if (recordingStartOffset.current > 0) {
+                        const offset = recordingStartOffset.current;
+                        console.log('[ScratchLab] Padding recording with silence:', offset, 'seconds');
+                        
+                        const totalSamples = Math.ceil((audioBuffer.duration + offset) * audioBuffer.sampleRate);
+                        const newBuffer = audioContext.current.createBuffer(
+                            audioBuffer.numberOfChannels,
+                            totalSamples,
+                            audioBuffer.sampleRate
+                        );
+                        
+                        for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+                            const channelData = newBuffer.getChannelData(channel);
+                            // Copy recorded data at offset index
+                            const recordedData = audioBuffer.getChannelData(channel);
+                            const startSample = Math.floor(offset * audioBuffer.sampleRate);
+                            channelData.set(recordedData, startSample);
+                        }
+                        
+                        finalAudioBuffer = newBuffer;
+                        console.log('[ScratchLab] New padded duration:', finalAudioBuffer.duration);
+                    }
                     
-                    setLayers(prev => [newLayer, ...prev]);
+                    // Generate waveform from audio buffer (use the full padded one so waveform matches position)
+                    const waves = generateWaveformFromBuffer(finalAudioBuffer);
+                    
+                        // No automatic latency offset - user can drag waveform to align
+                        // Visual position and playback position are linked via timeShift
+                        const newLayer = {
+                            id: Date.now(),
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            volume: 80,
+                            waves: waves,
+                            audioBuffer: finalAudioBuffer,
+                            audioUrl: audioUrl, 
+                            muted: false,
+                            solo: false,
+                            pan: 0,
+                            timeShift: 0 // User drags to align - visual and audio stay in sync
+                        };
+                        
+                        setLayers(prev => [newLayer, ...prev]);
                     setIsPopped(true);
                     console.log('[ScratchLab] Layer added successfully');
                 } catch (decodeErr) {
                     console.error('[ScratchLab] Failed to decode recorded audio:', decodeErr);
-                    alert('Recording saved but could not be processed. The audio format may not be supported. Try again.');
+                    alert('Failed to process recording. The audio format may not be supported by this device.');
                 }
                 
                 // Stop stream
@@ -545,18 +818,20 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 }
             };
             
-            // Start recording with timeslice for continuous data
-            // Use smaller chunks on mobile for better compatibility
-            const timeslice = isMobile ? 250 : 100;
-            console.log('[ScratchLab] Starting MediaRecorder with timeslice:', timeslice);
-            mediaRecorder.current.start(timeslice);
-            setIsRecording(true);
+            // Start recording WITH playback (Overdubbing)
+            console.log('[ScratchLab] Starting Overdub at offset:', startOffset);
             
-            // Play beat while recording if loaded (only if not already started)
-            if (beatAudioBuffer.current && !beatStarted) {
-                console.log('[ScratchLab] Beat not started early, starting now...');
-                playBeatDuringRecording();
-            }
+            // Store the offset for the stop handler to use
+            recordingStartOffset.current = startOffset;
+            
+            // Play existing tracks (beat + layers)
+            playBackingTracks(startOffset);
+            
+            // Start recording WITHOUT timeslice for maximum compatibility
+            // This ensures we get a single clean blob with proper headers
+            console.log('[ScratchLab] Starting MediaRecorder (no timeslice)');
+            mediaRecorder.current.start();
+            setIsRecording(true);
             
         } catch (err) {
             console.error('[ScratchLab] Microphone access error:', err);
@@ -668,18 +943,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         if (useCountdown) {
             setCountdown(3);
         } else {
-            startRecording();
+            startRecording(0);
         }
         setHasStarted(true);
         setSessionActive(true);
     };
 
+    const recordingStartOffset = useRef(0);
+
+    // Stop session logic
     const stopSession = () => {
         setIsRecording(false);
         
         // Stop waveform animation
         if (animationFrame.current) {
             cancelAnimationFrame(animationFrame.current);
+        }
+        
+        // Stop playback interval
+        if (playbackInterval.current) {
+            cancelAnimationFrame(playbackInterval.current);
+            playbackInterval.current = null;
         }
         
         // Reset live waveform
@@ -689,15 +973,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             mediaRecorder.current.stop();
         }
         
-        // Stop beat playback during recording
-        if (beatSourceNode.current) {
-            try {
-                beatSourceNode.current.stop();
-            } catch (e) {
-                // Already stopped
-            }
-            beatSourceNode.current = null;
-        }
+        // Stop all backing tracks (Beat + Layers)
+        stopAllAudio();
         
         setSessionActive(false);
     };
@@ -813,12 +1090,34 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             source.connect(gainNode);
             outputNode.connect(masterGainNode.current);
             
-            // Start at EXACT same timestamp as beat
+            // Apply timeShift from user dragging waveform
+            // Same logic as playBackingTracks() for consistency
+            const shift = layer.timeShift || 0;
             const layerStartOffset = Math.min(startOffset, layer.audioBuffer.duration);
-            source.start(masterStartTime, layerStartOffset);
+            
+            let effectiveStartTime = masterStartTime;
+            let effectiveOffset = layerStartOffset;
+            
+            if (shift < 0) {
+                // Shift LEFT (earlier): Skip more of the beginning
+                effectiveOffset += Math.abs(shift);
+            } else {
+                // Shift RIGHT (later): Delay start
+                effectiveStartTime += shift;
+            }
+            
+            // Boundary check - skip if shifted past end
+            if (effectiveOffset > layer.audioBuffer.duration) {
+                return;
+            }
+            
+            source.start(effectiveStartTime, effectiveOffset);
             
             // Auto-stop when layer ends
-            source.stop(masterStartTime + layer.audioBuffer.duration - layerStartOffset);
+            const playDuration = layer.audioBuffer.duration - effectiveOffset;
+            if (playDuration > 0) {
+                source.stop(effectiveStartTime + playDuration);
+            }
             
             layerSourceNodes.current.push({ source, gainNode, layerId: layer.id });
         });
@@ -1052,21 +1351,13 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setShowScrubActions(false);
         setIsPopped(false);
         
-        // Start playback of existing layers from scrub position
-        // while also recording new audio
-        const startOffset = scrubPosition;
-        
-        // Play existing layers as reference
-        if (layers.length > 0 || beatAudioBuffer.current) {
-            await playAllLayers(startOffset);
-        }
-        
-        // Start recording (countdown optional)
+        // Start recording from scrub position
+        // The startRecording function now handles playing backing tracks from this offset
         setTimeout(() => {
             if (useCountdown) {
                 setCountdown(3);
             } else {
-                startRecording();
+                startRecording(scrubPosition);
             }
             setHasStarted(true);
             setSessionActive(true);
@@ -1086,6 +1377,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         setIsPopped(false);
         setProgress(0);
         setScrubPosition(0);
+        setSessionActive(false); // Ensure no auto-recording triggers
+        setCountdown(0); // Reset countdown to prevent auto-start
         // Do NOT auto-start recording - user must tap to record
     };
 
@@ -1209,11 +1502,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         } else if (countdown === 0 && sessionActive && !isRecording) {
             // Play final "GO" click
             playCountdownClick(0);
-            startRecording();
+            
+            // Check if we are starting from scrub or top
+            // If sessionActive is true but we haven't started recording, 
+            // it means countdown finished. 
+            // We need to know where to start. 
+            // For now, if we use countdown, we likely start from 0 or scrubPosition.
+            // But startSession resets scrubPosition to 0. 
+            // recordFromScrubPosition sets sessionActive too.
+            // If scrubPosition is > 0, we use it.
+            const startOffset = scrubPosition > 0 ? scrubPosition : 0;
+            startRecording(startOffset);
             setSessionActive(false);
         }
         return () => clearTimeout(timer);
-    }, [countdown, sessionActive, isRecording, playCountdownClick]);
+    }, [countdown, sessionActive, isRecording, playCountdownClick, scrubPosition]);
 
     const getRecordStyle = () => {
         if (isScrubbing || isPopped) {
@@ -1239,6 +1542,85 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const handleToggleSolo = (layerId) => {
         setLayers(layers.map(l => l.id === layerId ? { ...l, solo: !l.solo } : l));
     };
+
+    const handleShiftLayer = (layerId, amount) => {
+        setLayers(prev => prev.map(l => {
+            if (l.id !== layerId) return l;
+            return { ...l, timeShift: (l.timeShift || 0) + amount };
+        }));
+    };
+
+    // Toggle Nudge Mode
+    const [nudgeMode, setNudgeMode] = useState({}); // { [layerId]: boolean }
+
+    const toggleNudgeMode = (layerId) => {
+        setNudgeMode(prev => ({ ...prev, [layerId]: !prev[layerId] }));
+    };
+    
+    // --- DRAG TO SHIFT LOGIC ---
+    const [dragState, setDragState] = useState({ isDragging: false, layerId: null, startX: 0, startShift: 0, width: 0 });
+
+    const handleLayerDragStart = (e, layerId, currentShift) => {
+        // Only allow drag if nudge mode is active
+        if (!nudgeMode[layerId]) return;
+        
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const target = e.currentTarget;
+        const width = target.offsetWidth;
+        
+        setDragState({
+            isDragging: true,
+            layerId,
+            startX: clientX,
+            startShift: currentShift || 0,
+            width
+        });
+    };
+
+    const handleLayerDragMove = useCallback((e) => {
+        if (!dragState.isDragging) return;
+        
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const deltaX = clientX - dragState.startX;
+        
+        // Convert px to seconds
+        if (sessionDuration <= 0) return;
+        
+        // Width represents sessionDuration
+        const pixelsPerSecond = dragState.width / sessionDuration;
+        const deltaSeconds = deltaX / pixelsPerSecond;
+        
+        const newShift = dragState.startShift + deltaSeconds;
+        
+        setLayers(prev => prev.map(l => {
+            if (l.id !== dragState.layerId) return l;
+            return { ...l, timeShift: newShift };
+        }));
+        
+    }, [dragState, sessionDuration]);
+
+    const handleLayerDragEnd = useCallback(() => {
+        setDragState(prev => ({ ...prev, isDragging: false }));
+    }, []);
+
+    // Attach global listeners for move/up when dragging
+    useEffect(() => {
+        if (dragState.isDragging) {
+            window.addEventListener('mousemove', handleLayerDragMove, { passive: false });
+            window.addEventListener('mouseup', handleLayerDragEnd);
+            window.addEventListener('touchmove', handleLayerDragMove, { passive: false });
+            window.addEventListener('touchend', handleLayerDragEnd);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleLayerDragMove);
+            window.removeEventListener('mouseup', handleLayerDragEnd);
+            window.removeEventListener('touchmove', handleLayerDragMove);
+            window.removeEventListener('touchend', handleLayerDragEnd);
+        };
+    }, [dragState.isDragging, handleLayerDragMove, handleLayerDragEnd]);
     
     // ============================================================================
     // EXPORT FUNCTIONS
@@ -1632,6 +2014,27 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             userSelect: 'none',
             paddingBottom: 80 // Extra padding for fixed bottom elements
         }}>
+            {/* Headphone Recommendation Banner */}
+            <div style={{
+                background: '#eab308',
+                color: '#422006',
+                padding: '8px 12px',
+                textAlign: 'center',
+                fontSize: 10,
+                fontWeight: 900,
+                letterSpacing: '0.1em',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                position: 'relative',
+                zIndex: 40
+            }}>
+                <Icon name="Headphones" size={14} />
+                <span>Headphones Recommended for Best Quality</span>
+            </div>
+
             <style>{`
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
                 
@@ -1733,46 +2136,6 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             >
                                 <Icon name="FolderOpen" size={18} />
                             </button>
-                            <button 
-                                onClick={() => setUseCountdown(!useCountdown)}
-                                style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s',
-                                    border: useCountdown ? '1px solid var(--electric)' : '1px solid rgba(255,255,255,0.2)',
-                                    background: useCountdown ? 'rgba(234, 179, 8, 0.3)' : 'rgba(255,255,255,0.1)',
-                                    backdropFilter: 'blur(10px)',
-                                    color: useCountdown ? 'var(--electric)' : '#f5f5f5',
-                                    cursor: 'pointer'
-                                }}
-                                title="Toggle countdown"
-                            >
-                                <Icon name="Timer" size={18} />
-                            </button>
-                            <button 
-                                onClick={() => setIsMetronomeOn(!isMetronomeOn)}
-                                style={{
-                                    width: 40,
-                                    height: 40,
-                                    borderRadius: 12,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s',
-                                    border: isMetronomeOn ? '1px solid var(--electric)' : '1px solid rgba(255,255,255,0.2)',
-                                    background: isMetronomeOn ? 'rgba(59, 130, 246, 0.3)' : 'rgba(255,255,255,0.1)',
-                                    backdropFilter: 'blur(10px)',
-                                    color: isMetronomeOn ? 'var(--electric)' : '#f5f5f5',
-                                    cursor: 'pointer'
-                                }}
-                                title="Toggle Metronome"
-                            >
-                                <Icon name="Activity" size={18} />
-                            </button>
                             <label style={{
                                 width: 40,
                                 height: 40,
@@ -1855,6 +2218,51 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 <circle cx="12" cy="0" r="3" fill="#ff9100" className="led-blink-slow" />
                                 <circle cx="24" cy="0" r="3" fill="#2979ff" />
                             </g>
+                            
+                            {/* Wood Panel Controls - LEFT Side (opposite from tonearm) */}
+                            <g transform="translate(72, 115)" style={{ pointerEvents: 'auto' }}>
+                                {/* Mic Input Button - 17% bigger (66x66) */}
+                                <g 
+                                    transform="translate(0, 0)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); cycleAudioInput(); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill="#2a2218" />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill="#3a3028" />
+                                    <text x="33" y="45" textAnchor="middle" fill="#d4b896" fontSize="20" fontWeight="900" fontFamily="Arial, sans-serif">MIC</text>
+                                </g>
+                                
+                                {/* BPM/Metronome Button - 17% bigger - opens popup */}
+                                <g 
+                                    transform="translate(0, 80)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); setShowBpmPopup(true); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill={isMetronomeOn ? '#4a3f00' : '#2a2218'} />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill={isMetronomeOn ? '#eab308' : '#3a3028'} />
+                                    <text x="33" y="30" textAnchor="middle" fill={isMetronomeOn ? '#000' : '#d4b896'} fontSize="14" fontWeight="900" fontFamily="Arial, sans-serif">{bpm}</text>
+                                    <text x="33" y="48" textAnchor="middle" fill={isMetronomeOn ? '#000' : '#a08060'} fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif">BPM</text>
+                                    {/* LED indicator */}
+                                    <circle cx="57" cy="9" r="5" fill={isMetronomeOn ? '#fde047' : '#222'} className={isMetronomeOn ? 'led-blink' : ''} />
+                                </g>
+                                
+                                {/* Countdown Button - 17% bigger */}
+                                <g 
+                                    transform="translate(0, 160)"
+                                    style={{ cursor: 'pointer' }}
+                                    onClick={(e) => { e.stopPropagation(); setUseCountdown(!useCountdown); }}
+                                >
+                                    <rect x="0" y="0" width="66" height="66" rx="7" fill="#1a1410" stroke="#0a0805" strokeWidth="2" />
+                                    <rect x="3" y="3" width="60" height="60" rx="5" fill={useCountdown ? '#4a3f00' : '#2a2218'} />
+                                    <rect x="7" y="7" width="52" height="52" rx="4" fill={useCountdown ? '#eab308' : '#3a3028'} />
+                                    <text x="33" y="32" textAnchor="middle" fill={useCountdown ? '#000' : '#d4b896'} fontSize="13" fontWeight="900" fontFamily="Arial, sans-serif">3-2-1</text>
+                                    <text x="33" y="50" textAnchor="middle" fill={useCountdown ? '#000' : '#a08060'} fontSize="11" fontWeight="700" fontFamily="Arial, sans-serif">COUNT</text>
+                                    {/* LED indicator */}
+                                    <circle cx="57" cy="9" r="5" fill={useCountdown ? '#fde047' : '#222'} className={useCountdown ? 'led-blink-slow' : ''} />
+                                </g>
+                            </g>
 
                             <g transform="translate(100, 470)">
                                 <rect width="110" height="40" rx="4" fill="#000" />
@@ -1875,12 +2283,67 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
                             {/* Record Group */}
                             <g className={`record-group-transition ${isPopped ? 'record-popped' : ''}`}>
+                                {/* Enhanced glow effect for scrub mode */}
+                                {isPopped && (
+                                    <>
+                                        <defs>
+                                            <radialGradient id="scrub-glow" cx="50%" cy="50%" r="50%">
+                                                <stop offset="0%" stopColor="#ffd700" stopOpacity="0.5" />
+                                                <stop offset="40%" stopColor="#ff9100" stopOpacity="0.3" />
+                                                <stop offset="100%" stopColor="#000" stopOpacity="0" />
+                                            </radialGradient>
+                                            <filter id="vinyl-glow" x="-50%" y="-50%" width="200%" height="200%">
+                                                <feGaussianBlur stdDeviation="12" result="blur" />
+                                                <feMerge>
+                                                    <feMergeNode in="blur" />
+                                                    <feMergeNode in="SourceGraphic" />
+                                                </feMerge>
+                                            </filter>
+                                        </defs>
+                                        {/* Outer glow ring */}
+                                        <circle cx="400" cy="300" r="200" fill="url(#scrub-glow)" opacity="0.7" />
+                                    </>
+                                )}
                                 <g style={getRecordStyle()}>
-                                    <circle cx="400" cy="300" r="172" fill="url(#high-vinyl)" />
+                                    {/* Main vinyl - brighter in scrub mode */}
+                                    <circle 
+                                        cx="400" cy="300" r="172" 
+                                        fill={isPopped ? '#1f1f1f' : 'url(#high-vinyl)'} 
+                                        filter={isPopped ? 'url(#vinyl-glow)' : 'none'}
+                                    />
+                                    {/* Grooves - more visible in scrub mode */}
                                     {[160, 140, 120, 100, 80].map(r => (
-                                        <circle key={r} cx="400" cy="300" r={r} fill="none" stroke="#111" strokeWidth="1" opacity="0.8" />
+                                        <circle 
+                                            key={r} 
+                                            cx="400" cy="300" r={r} 
+                                            fill="none" 
+                                            stroke={isPopped ? '#383838' : '#111'} 
+                                            strokeWidth={isPopped ? 1.5 : 1} 
+                                            opacity={isPopped ? 1 : 0.8} 
+                                        />
                                     ))}
-                                    <circle cx="400" cy="300" r="60" fill={isRecording ? "#ff5252" : "#ff9100"} style={{ transition: 'fill 0.5s' }} />
+                                    {/* Highlight sheen on vinyl when popped */}
+                                    {isPopped && (
+                                        <ellipse 
+                                            cx="360" cy="260" rx="80" ry="40" 
+                                            fill="rgba(255,255,255,0.08)" 
+                                            transform="rotate(-30, 360, 260)" 
+                                        />
+                                    )}
+                                    {/* Label - brighter in scrub mode */}
+                                    <circle 
+                                        cx="400" cy="300" r="60" 
+                                        fill={isRecording ? "#ff5252" : isPopped ? "#ffb347" : "#ff9100"} 
+                                        style={{ transition: 'fill 0.5s' }} 
+                                    />
+                                    {/* Label highlight when popped */}
+                                    {isPopped && (
+                                        <ellipse 
+                                            cx="385" cy="285" rx="25" ry="15" 
+                                            fill="rgba(255,255,255,0.2)" 
+                                            transform="rotate(-30, 385, 285)" 
+                                        />
+                                    )}
                                     <text x="400" y="295" fontFamily="serif" fontSize="14" fill="white" textAnchor="middle" fontWeight="900" fontStyle="italic">SCRATCH</text>
                                     <text x="400" y="318" fontFamily="serif" fontSize="14" fill="white" textAnchor="middle" fontWeight="900" fontStyle="italic">LAB</text>
                                     <circle cx="400" cy="300" r="5" fill="#f5f5f5" />
@@ -2449,28 +2912,44 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             }}>{layer.timestamp}</span>
                         </div>
 
-                        <div style={{ 
-                            flex: 1, 
-                            height: 80, 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            gap: 1, 
-                            position: 'relative', 
-                            overflow: 'hidden' 
-                        }}>
-                            {layer.waves.map((h, i) => (
-                                <div 
-                                    key={i} 
-                                    style={{ 
-                                        flex: 1, 
-                                        borderRadius: 2,
-                                        transition: 'all 0.3s',
-                                        background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : 'black',
-                                        height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
-                                        opacity: 1
-                                    }}
-                                />
-                            ))}
+                        <div 
+                            style={{ 
+                                flex: 1, 
+                                height: 80, 
+                                position: 'relative', 
+                                overflow: 'hidden',
+                                cursor: nudgeMode[layer.id] ? 'ew-resize' : 'default',
+                                touchAction: nudgeMode[layer.id] ? 'none' : 'auto',
+                                border: nudgeMode[layer.id] ? '1px dashed rgba(255,255,255,0.3)' : 'none',
+                                borderRadius: 4
+                            }}
+                            onMouseDown={(e) => handleLayerDragStart(e, layer.id, layer.timeShift)}
+                            onTouchStart={(e) => handleLayerDragStart(e, layer.id, layer.timeShift)}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 1,
+                                height: '100%',
+                                width: '100%',
+                                transform: `translateX(${(layer.timeShift || 0) / sessionDuration * 100}%)`,
+                                transition: dragState.isDragging && dragState.layerId === layer.id ? 'none' : 'transform 0.1s cubic-bezier(0.2, 0.8, 0.2, 1)'
+                            }}>
+                                {layer.waves.map((h, i) => (
+                                    <div 
+                                        key={i} 
+                                        style={{ 
+                                            flex: 1, 
+                                            borderRadius: 2,
+                                            transition: 'background 0.3s, height 0.3s',
+                                            background: (isPlaying || isScrubbing || showScrubActions) ? '#ffd700' : (nudgeMode[layer.id] ? '#fff' : 'black'),
+                                            height: `${Math.max(10, h)}%`, // Ensure minimum height is visible
+                                            opacity: 1
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                            
                             {(isPlaying || isScrubbing || showScrubActions) && (
                                 <div style={{ 
                                     position: 'absolute', 
@@ -2480,8 +2959,28 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                     background: showScrubActions ? '#ff1744' : 'var(--black)', 
                                     zIndex: 10,
                                     left: `${progress}%`,
-                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none'
+                                    boxShadow: showScrubActions ? '0 0 10px rgba(255,23,68,0.5)' : 'none',
+                                    pointerEvents: 'none'
                                 }} />
+                            )}
+                            
+                            {/* Nudge visual feedback */}
+                            {nudgeMode[layer.id] && (
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 4,
+                                    fontSize: 8,
+                                    fontWeight: 900,
+                                    color: 'var(--black)',
+                                    background: 'var(--white)',
+                                    padding: '1px 4px',
+                                    borderRadius: 4,
+                                    pointerEvents: 'none',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                }}>
+                                    {((layer.timeShift || 0) * 1000).toFixed(0)}ms
+                                </div>
                             )}
                         </div>
 
@@ -2537,6 +3036,30 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 S
                             </button>
 
+                            {/* Nudge/Shift Toggle */}
+                            <button 
+                                onClick={() => toggleNudgeMode(layer.id)}
+                                style={{
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: 6,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    border: 'none',
+                                    background: nudgeMode[layer.id] ? 'var(--white)' : 'transparent',
+                                    color: nudgeMode[layer.id] ? 'var(--black)' : 'var(--gray)',
+                                    cursor: 'pointer',
+                                    fontSize: 7,
+                                    fontWeight: 900,
+                                    transition: 'all 0.2s'
+                                }}
+                                title="Drag to Align"
+                            >
+                                <Icon name="MoveHorizontal" size={12} />
+                            </button>
+
+                            {/* Volume Slider */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <Icon name="Volume2" size={12} color="var(--gray-light)" />
                                 <input 
@@ -3175,6 +3698,169 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 </div>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* BPM Popup Modal */}
+            {showBpmPopup && (
+                <div 
+                    style={{ 
+                        position: 'fixed', 
+                        inset: 0, 
+                        zIndex: 100, 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        padding: 20, 
+                        background: 'rgba(0,0,0,0.85)'
+                    }}
+                    onClick={() => setShowBpmPopup(false)}
+                >
+                    <div 
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ 
+                            background: '#1a1a1a',
+                            border: '3px solid #333',
+                            borderRadius: 16,
+                            padding: 24, 
+                            width: '100%', 
+                            maxWidth: 280,
+                            boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+                        }}
+                    >
+                        {/* Header */}
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 20
+                        }}>
+                            <span style={{ 
+                                fontSize: 12, 
+                                fontWeight: 900, 
+                                letterSpacing: '0.15em',
+                                color: '#fff',
+                                fontFamily: 'var(--font-mono)'
+                            }}>METRONOME</span>
+                            <button 
+                                onClick={() => setShowBpmPopup(false)}
+                                style={{ 
+                                    color: '#666', 
+                                    background: 'none', 
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    padding: 4
+                                }}
+                            >
+                                <Icon name="X" size={20} />
+                            </button>
+                        </div>
+                        
+                        {/* BPM Display */}
+                        <div style={{
+                            textAlign: 'center',
+                            marginBottom: 20
+                        }}>
+                            <div style={{
+                                fontSize: 56,
+                                fontWeight: 900,
+                                color: isMetronomeOn ? '#eab308' : '#fff',
+                                fontFamily: 'var(--font-mono)',
+                                lineHeight: 1
+                            }}>{bpm}</div>
+                            <div style={{
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: isMetronomeOn ? '#eab308' : '#666',
+                                letterSpacing: '0.2em',
+                                marginTop: 4
+                            }}>BPM</div>
+                        </div>
+                        
+                        {/* BPM Slider */}
+                        <div style={{ marginBottom: 20 }}>
+                            <input 
+                                type="range" 
+                                min="40" 
+                                max="200" 
+                                value={bpm}
+                                onChange={(e) => setBpm(parseInt(e.target.value))}
+                                style={{
+                                    width: '100%',
+                                    height: 8,
+                                    background: `linear-gradient(to right, #eab308 0%, #eab308 ${((bpm - 40) / 160) * 100}%, #333 ${((bpm - 40) / 160) * 100}%, #333 100%)`,
+                                    borderRadius: 8,
+                                    appearance: 'none',
+                                    cursor: 'pointer',
+                                    outline: 'none'
+                                }}
+                            />
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                marginTop: 8,
+                                fontSize: 10,
+                                color: '#666',
+                                fontFamily: 'var(--font-mono)'
+                            }}>
+                                <span>40</span>
+                                <span>200</span>
+                            </div>
+                        </div>
+                        
+                        {/* Preset BPM buttons */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(4, 1fr)',
+                            gap: 8,
+                            marginBottom: 20
+                        }}>
+                            {[60, 80, 90, 100, 110, 120, 140, 160].map(preset => (
+                                <button
+                                    key={preset}
+                                    onClick={() => setBpm(preset)}
+                                    style={{
+                                        padding: '10px 0',
+                                        background: bpm === preset ? '#eab308' : '#2a2a2a',
+                                        border: 'none',
+                                        borderRadius: 8,
+                                        color: bpm === preset ? '#000' : '#888',
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        transition: 'all 0.15s'
+                                    }}
+                                >
+                                    {preset}
+                                </button>
+                            ))}
+                        </div>
+                        
+                        {/* Toggle Metronome Button */}
+                        <button
+                            onClick={() => setIsMetronomeOn(!isMetronomeOn)}
+                            style={{
+                                width: '100%',
+                                padding: '14px 20px',
+                                background: isMetronomeOn ? '#eab308' : '#2a2a2a',
+                                border: isMetronomeOn ? '2px solid #fde047' : '2px solid #444',
+                                borderRadius: 12,
+                                color: isMetronomeOn ? '#000' : '#fff',
+                                fontSize: 12,
+                                fontWeight: 900,
+                                letterSpacing: '0.1em',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 10,
+                                transition: 'all 0.15s'
+                            }}
+                        >
+                            <Icon name={isMetronomeOn ? "Pause" : "Play"} size={16} />
+                            {isMetronomeOn ? 'STOP METRONOME' : 'START METRONOME'}
+                        </button>
                     </div>
                 </div>
             )}
