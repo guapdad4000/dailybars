@@ -156,7 +156,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Real-time waveform data for recording visualization
     const [liveWaveform, setLiveWaveform] = useState(Array(45).fill(10));
     const [countdown, setCountdown] = useState(0);
-    const [useCountdown, setUseCountdown] = useState(true);
+    const [useCountdown, setUseCountdown] = useState(false);
     const [layers, setLayers] = useState([]);
     const [beat, setBeat] = useState(null);
     const [beatFile, setBeatFile] = useState(null);
@@ -824,6 +824,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             // Store the offset for the stop handler to use
             recordingStartOffset.current = startOffset;
             
+            // If we started the beat early (for iOS gesture), stop it now so we can restart it in sync
+            // This prevents "double beat" playback where one instance loops uncontrollably
+            if (beatStarted && beatSourceNode.current) {
+                try {
+                    console.log('[ScratchLab] Stopping gesture beat before synced playback');
+                    beatSourceNode.current.source.stop();
+                    // beatSourceNode.current will be replaced in playBackingTracks
+                } catch (e) {
+                    console.warn('[ScratchLab] Could not stop gesture beat:', e);
+                }
+            }
+
             // Play existing tracks (beat + layers)
             playBackingTracks(startOffset);
             
@@ -1572,8 +1584,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [dragState, setDragState] = useState({ isDragging: false, layerId: null, startX: 0, startShift: 0, width: 0 });
 
     const handleLayerDragStart = (e, layerId, currentShift) => {
-        // Only allow drag if nudge mode is active
-        if (!nudgeMode[layerId]) return;
+        // Allow drag anytime - nudge mode just provides visual feedback
+        // Removed check: if (!nudgeMode[layerId]) return;
         
         e.preventDefault();
         e.stopPropagation();
@@ -2929,8 +2941,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 height: 80, 
                                 position: 'relative', 
                                 overflow: 'hidden',
-                                cursor: nudgeMode[layer.id] ? 'ew-resize' : 'default',
-                                touchAction: nudgeMode[layer.id] ? 'none' : 'auto',
+                                cursor: 'ew-resize', // Always show draggable cursor
+                                touchAction: 'none', // Always prevent default touch behavior for dragging
                                 border: nudgeMode[layer.id] ? '1px dashed rgba(255,255,255,0.3)' : 'none',
                                 borderRadius: 4
                             }}
