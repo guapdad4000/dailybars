@@ -156,7 +156,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Real-time waveform data for recording visualization
     const [liveWaveform, setLiveWaveform] = useState(Array(45).fill(10));
     const [countdown, setCountdown] = useState(0);
-    const [useCountdown, setUseCountdown] = useState(true);
+    const [useCountdown, setUseCountdown] = useState(false);
     const [layers, setLayers] = useState([]);
     const [beat, setBeat] = useState(null);
     const [beatFile, setBeatFile] = useState(null);
