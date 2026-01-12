@@ -596,6 +596,7 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
     const [duration, setDuration] = React.useState(0);
     const [currentTime, setCurrentTime] = React.useState(0);
     const [waveformPeaks, setWaveformPeaks] = React.useState([]);
+    const [isScrubbing, setIsScrubbing] = React.useState(false);
     
     const audioRef = React.useRef(null);
     const animationRef = React.useRef(null);
@@ -606,6 +607,7 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
         if (!src) return;
         
         let isActive = true;
+        setWaveformPeaks([]); // Clear previous waveform
         
         const generateWaveform = async () => {
             try {
@@ -686,20 +688,22 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
     // Smooth progress update using requestAnimationFrame
     const updateProgress = React.useCallback(() => {
         const audio = audioRef.current;
-        if (audio && isPlaying) {
+        if (audio && isPlaying && !isScrubbing) {
             const currentProgress = (audio.currentTime / audio.duration) * 100 || 0;
             setProgress(currentProgress);
             setCurrentTime(audio.currentTime);
             animationRef.current = requestAnimationFrame(updateProgress);
         }
-    }, [isPlaying]);
+    }, [isPlaying, isScrubbing]);
 
     React.useEffect(() => {
         const audio = audioRef.current;
         if (!audio) return;
 
         const handleLoadedMetadata = () => {
-            setDuration(audio.duration);
+            if (isFinite(audio.duration)) {
+                setDuration(audio.duration);
+            }
         };
 
         const handleEnded = () => {
@@ -726,6 +730,11 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
         audio.addEventListener('ended', handleEnded);
         audio.addEventListener('play', handlePlay);
         audio.addEventListener('pause', handlePause);
+        
+        // Check if metadata is already loaded
+        if (audio.readyState >= 1) {
+            handleLoadedMetadata();
+        }
 
         return () => {
             audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
@@ -736,11 +745,11 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
                 cancelAnimationFrame(animationRef.current);
             }
         };
-    }, []);
+    }, [src]);
 
     // Start/stop animation loop based on playing state
     React.useEffect(() => {
-        if (isPlaying) {
+        if (isPlaying && !isScrubbing) {
             animationRef.current = requestAnimationFrame(updateProgress);
         } else if (animationRef.current) {
             cancelAnimationFrame(animationRef.current);
@@ -750,7 +759,7 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
                 cancelAnimationFrame(animationRef.current);
             }
         };
-    }, [isPlaying, updateProgress]);
+    }, [isPlaying, isScrubbing, updateProgress]);
 
     const togglePlay = () => {
         const audio = audioRef.current;
@@ -763,20 +772,57 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
         }
     };
 
-    const handleWaveformClick = (e) => {
+    // Scrubbing Logic
+    const handleScrub = (clientX) => {
         const audio = audioRef.current;
         const canvas = canvasRef.current;
-        if (!audio || !canvas || !duration) return;
+        // Use duration from state or directly from audio element as fallback
+        const d = duration || audio?.duration;
+        
+        if (!audio || !canvas || !d || !isFinite(d)) return;
 
         const rect = canvas.getBoundingClientRect();
-        const clickX = e.clientX - rect.left;
-        const percentage = Math.max(0, Math.min(1, clickX / rect.width));
-        const newTime = percentage * duration;
+        // Calculate relative position clamped to canvas bounds
+        const relX = clientX - rect.left;
+        const percentage = Math.max(0, Math.min(1, relX / rect.width));
+        const newTime = percentage * d;
         
         audio.currentTime = newTime;
         setCurrentTime(newTime);
         setProgress(percentage * 100);
     };
+
+    const startScrubbing = (e) => {
+        setIsScrubbing(true);
+        // Handle both mouse and touch events
+        const clientX = e.clientX || (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+        handleScrub(clientX);
+    };
+
+    // Attach global listeners for dragging when scrubbing starts
+    React.useEffect(() => {
+        if (!isScrubbing) return;
+
+        const onMouseMove = (e) => handleScrub(e.clientX);
+        const onTouchMove = (e) => {
+            if (e.touches && e.touches[0]) {
+                handleScrub(e.touches[0].clientX);
+            }
+        };
+        const onEnd = () => setIsScrubbing(false);
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onEnd);
+        document.addEventListener('touchmove', onTouchMove);
+        document.addEventListener('touchend', onEnd);
+
+        return () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onEnd);
+            document.removeEventListener('touchmove', onTouchMove);
+            document.removeEventListener('touchend', onEnd);
+        };
+    }, [isScrubbing, duration]);
 
     const formatTime = (time) => {
         if (!time || isNaN(time)) return '0:00';
@@ -864,12 +910,17 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
 
             {/* Waveform Visualization */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, position: 'relative' }}>
-                <div style={{ 
-                    width: '100%', 
-                    height: compact ? 24 : 32, 
-                    position: 'relative',
-                    cursor: 'pointer'
-                }} onClick={handleWaveformClick}>
+                <div 
+                    style={{ 
+                        width: '100%', 
+                        height: compact ? 24 : 32, 
+                        position: 'relative',
+                        cursor: 'ew-resize', // Change cursor to indicate dragging
+                        touchAction: 'none' // Prevent scrolling while scrubbing on touch
+                    }} 
+                    onMouseDown={startScrubbing}
+                    onTouchStart={startScrubbing}
+                >
                     {/* Canvas for Waveform */}
                     <canvas 
                         ref={canvasRef}
