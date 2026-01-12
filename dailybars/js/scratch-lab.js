@@ -824,6 +824,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             // Store the offset for the stop handler to use
             recordingStartOffset.current = startOffset;
             
+            // If we started the beat early (for iOS gesture), stop it now so we can restart it in sync
+            // This prevents "double beat" playback where one instance loops uncontrollably
+            if (beatStarted && beatSourceNode.current) {
+                try {
+                    console.log('[ScratchLab] Stopping gesture beat before synced playback');
+                    beatSourceNode.current.source.stop();
+                    // beatSourceNode.current will be replaced in playBackingTracks
+                } catch (e) {
+                    console.warn('[ScratchLab] Could not stop gesture beat:', e);
+                }
+            }
+
             // Play existing tracks (beat + layers)
             playBackingTracks(startOffset);
             
