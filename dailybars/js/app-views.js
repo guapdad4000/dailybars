@@ -1131,6 +1131,8 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
 // TRACK EDITOR
 // ============================================================================
 
+const RECORDING_BEAT_INDEX = 'beat';
+
 const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPremiumRequired, user }) => {
     const [title, setTitle] = useState(song?.title || 'UNTITLED');
     const [blocks, setBlocks] = useState(song?.blocks || []);
@@ -1388,11 +1390,30 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         if (!audioUrl || recordingBlockIndex !== idx) return;
         try {
             const base64 = await getBase64();
-            updateBlock(idx, base64);
+            
+            if (idx === RECORDING_BEAT_INDEX) {
+                setBeatUrl(base64);
+                setShowBeatLocker(false);
+                toast?.addToast('AUDIO SET AS BEAT!', 'success');
+                
+                // Auto-save the song with the new beat URL
+                try {
+                    await onSave({
+                        ...song,
+                        title, blocks, status, coverImage,
+                        beatUrl: base64, 
+                        videoUrl, studio, producer, otherArtists, key: songKey, bpm: bpm ? parseInt(bpm, 10) : null,
+                        updated_by: user?.id
+                    });
+                } catch (saveErr) {}
+            } else {
+                updateBlock(idx, base64);
+                toast?.addToast('VOICE NOTE ADDED', 'success');
+            }
+            
             clearRecording();
             setRecordingBlockIndex(null);
             haptic('success');
-            toast?.addToast('VOICE NOTE ADDED', 'success');
         } catch (err) {
             toast?.addToast('SAVE FAILED', 'error');
         }
@@ -2032,6 +2053,52 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                         </div>
                         
                         <div style={{ padding: 20 }}>
+                            {/* Record Section */}
+                            <div style={{ marginBottom: 24 }}>
+                                <div style={{ marginBottom: 8, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textAlign: 'center' }}>RECORD AUDIO</div>
+                                {isRecording && recordingBlockIndex === RECORDING_BEAT_INDEX ? (
+                                    <div style={{ padding: 16, border: '2px solid #EF4444', background: '#FEF2F2', borderRadius: 8, textAlign: 'center' }}>
+                                        <div style={{ fontSize: 24, fontFamily: "'IBM Plex Mono', monospace", marginBottom: 12, fontWeight: 700 }}>
+                                            {Math.floor(duration / 60)}:{(duration % 60).toString().padStart(2, '0')}
+                                        </div>
+                                        <div className="animate-pulse" style={{ color: '#EF4444', fontSize: 10, marginBottom: 12, letterSpacing: '0.1em' }}>RECORDING...</div>
+                                        <button onClick={handleStopBlockRecording} style={{
+                                            padding: '10px 20px', background: '#EF4444', color: 'white',
+                                            fontWeight: 700, fontSize: 11, border: 'none', borderRadius: 4, letterSpacing: '0.1em'
+                                        }}>STOP RECORDING</button>
+                                    </div>
+                                ) : audioUrl && recordingBlockIndex === RECORDING_BEAT_INDEX ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                        {window.VinylAudioPlayer ? (
+                                            <window.VinylAudioPlayer src={audioUrl} compact={true} />
+                                        ) : (
+                                            <audio src={audioUrl} controls style={{ width: '100%' }} />
+                                        )}
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                            <button onClick={() => handleSaveBlockRecording(RECORDING_BEAT_INDEX)} style={{
+                                                flex: 1, padding: 12, background: 'var(--brand-green)', color: 'white',
+                                                fontWeight: 700, fontSize: 10, border: 'none', borderRadius: 4
+                                            }}>USE RECORDING</button>
+                                            <button onClick={handleDiscardBlockRecording} style={{
+                                                padding: 12, border: '2px solid var(--black)', background: 'transparent',
+                                                fontWeight: 700, fontSize: 10, borderRadius: 4
+                                            }}>DISCARD</button>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => handleStartBlockRecording(RECORDING_BEAT_INDEX)} style={{
+                                        width: '100%', padding: 16, border: '2px solid #EF4444', background: 'transparent',
+                                        color: '#EF4444', fontWeight: 700, fontSize: 11, letterSpacing: '0.1em',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                        borderRadius: 4
+                                    }}>
+                                        <Icon name="Mic" size={16} /> RECORD VOICE NOTE
+                                    </button>
+                                )}
+                            </div>
+                            
+                            <div style={{ height: 1, background: 'var(--black)', margin: '0 0 24px', opacity: 0.2 }}></div>
+
                             {/* MP3 Section */}
                             <label style={{
                                 display: 'flex',
@@ -5477,6 +5544,7 @@ const App = () => {
             if (!song) return;
 
             const blocksToInsert = [];
+            let newBeatUrl = song.beatUrl; // Keep existing by default
 
             if (bar.audioUrl) {
                 blocksToInsert.push({
@@ -5484,6 +5552,9 @@ const App = () => {
                     type: 'audio',
                     content: bar.audioUrl
                 });
+                // Also load into Beat Locker (update beatUrl)
+                // This allows the voice note to be looped as the backing track
+                newBeatUrl = bar.audioUrl;
             }
 
             if (bar.text?.trim()) {
@@ -5500,6 +5571,7 @@ const App = () => {
 
             const updatedSong = await api.update('songs', songId, {
                 blocks: updatedBlocks,
+                beatUrl: newBeatUrl,
                 username: user.username
             });
             
