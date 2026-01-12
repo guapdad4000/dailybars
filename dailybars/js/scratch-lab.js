@@ -1584,8 +1584,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     const [dragState, setDragState] = useState({ isDragging: false, layerId: null, startX: 0, startShift: 0, width: 0 });
 
     const handleLayerDragStart = (e, layerId, currentShift) => {
-        // Only allow drag if nudge mode is active
-        if (!nudgeMode[layerId]) return;
+        // Allow drag anytime - nudge mode just provides visual feedback
+        // Removed check: if (!nudgeMode[layerId]) return;
         
         e.preventDefault();
         e.stopPropagation();
@@ -2941,8 +2941,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                                 height: 80, 
                                 position: 'relative', 
                                 overflow: 'hidden',
-                                cursor: nudgeMode[layer.id] ? 'ew-resize' : 'default',
-                                touchAction: nudgeMode[layer.id] ? 'none' : 'auto',
+                                cursor: 'ew-resize', // Always show draggable cursor
+                                touchAction: 'none', // Always prevent default touch behavior for dragging
                                 border: nudgeMode[layer.id] ? '1px dashed rgba(255,255,255,0.3)' : 'none',
                                 borderRadius: 4
                             }}
