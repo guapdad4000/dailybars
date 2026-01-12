@@ -1376,6 +1376,19 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         if (isRecording) return;
         clearRecording();
         setRecordingBlockIndex(idx);
+        
+        // If recording from beat locker and beat is loaded, start playing it
+        if (idx === RECORDING_BEAT_INDEX && beatUrl && beatAudioRef.current) {
+            try {
+                beatAudioRef.current.currentTime = 0;
+                await beatAudioRef.current.play();
+                setBeatPlaying(true);
+                toast?.addToast('RECORDING OVER BEAT...', 'info');
+            } catch (err) {
+                console.warn('Could not play beat during recording:', err);
+            }
+        }
+        
         await startRecording();
         haptic('medium');
     };
@@ -1383,6 +1396,12 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const handleStopBlockRecording = () => {
         if (isRecording) {
             stopRecording();
+            
+            // Stop beat if it was playing during recording
+            if (recordingBlockIndex === RECORDING_BEAT_INDEX && beatAudioRef.current) {
+                beatAudioRef.current.pause();
+                setBeatPlaying(false);
+            }
         }
     };
 
@@ -1415,6 +1434,25 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             setRecordingBlockIndex(null);
             haptic('success');
         } catch (err) {
+            toast?.addToast('SAVE FAILED', 'error');
+        }
+    };
+    
+    const handleSaveRecordingAsVoiceMemo = async () => {
+        if (!audioUrl || recordingBlockIndex !== RECORDING_BEAT_INDEX) return;
+        try {
+            const base64 = await getBase64();
+            
+            // Add as audio block (voice memo) to the song
+            addBlock('audio', { content: base64, source: 'recording' });
+            
+            setShowBeatLocker(false);
+            clearRecording();
+            setRecordingBlockIndex(null);
+            haptic('success');
+            toast?.addToast('VOICE MEMO ADDED TO TRACK!', 'success');
+        } catch (err) {
+            console.error('Failed to save as voice memo:', err);
             toast?.addToast('SAVE FAILED', 'error');
         }
     };
@@ -2074,16 +2112,31 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                         ) : (
                                             <audio src={audioUrl} controls style={{ width: '100%' }} />
                                         )}
+                                        <div style={{ fontSize: 9, textAlign: 'center', color: 'var(--gray)', marginBottom: 4 }}>
+                                            CHOOSE HOW TO SAVE THIS RECORDING:
+                                        </div>
                                         <div style={{ display: 'flex', gap: 8 }}>
                                             <button onClick={() => handleSaveBlockRecording(RECORDING_BEAT_INDEX)} style={{
+                                                flex: 1, padding: 12, background: '#EF4444', color: 'white',
+                                                fontWeight: 700, fontSize: 10, border: 'none', borderRadius: 4,
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4
+                                            }}>
+                                                <Icon name="Headphones" size={14} />
+                                                <span>USE AS BEAT</span>
+                                            </button>
+                                            <button onClick={handleSaveRecordingAsVoiceMemo} style={{
                                                 flex: 1, padding: 12, background: 'var(--brand-green)', color: 'white',
-                                                fontWeight: 700, fontSize: 10, border: 'none', borderRadius: 4
-                                            }}>USE RECORDING</button>
-                                            <button onClick={handleDiscardBlockRecording} style={{
-                                                padding: 12, border: '2px solid var(--black)', background: 'transparent',
-                                                fontWeight: 700, fontSize: 10, borderRadius: 4
-                                            }}>DISCARD</button>
+                                                fontWeight: 700, fontSize: 10, border: 'none', borderRadius: 4,
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4
+                                            }}>
+                                                <Icon name="Mic" size={14} />
+                                                <span>VOICE MEMO</span>
+                                            </button>
                                         </div>
+                                        <button onClick={handleDiscardBlockRecording} style={{
+                                            padding: 10, border: '2px solid var(--black)', background: 'transparent',
+                                            fontWeight: 700, fontSize: 9, borderRadius: 4, color: 'var(--gray)'
+                                        }}>DISCARD</button>
                                     </div>
                                 ) : (
                                     <button onClick={() => handleStartBlockRecording(RECORDING_BEAT_INDEX)} style={{
