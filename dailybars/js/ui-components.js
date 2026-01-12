@@ -929,7 +929,8 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
                         style={{
                             width: '100%',
                             height: '100%',
-                            display: 'block'
+                            display: 'block',
+                            pointerEvents: 'none' // Let events pass through to parent div
                         }}
                     />
                     
