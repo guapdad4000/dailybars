@@ -65,9 +65,12 @@ const DailyDepositEngine = {
         if (window.supabaseClient) return window.supabaseClient;
         
         // Fallback: create our own if app.js hasn't loaded yet
-        const SUPABASE_URL = 'https://tilpgwoyyervbgdlucap.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0';
-        return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const config = window.DAILYBARS_CONFIG || {};
+        const sdk = window.supabaseSdk || window.supabase;
+        if (!sdk?.createClient) {
+            throw new Error('Supabase SDK is not loaded');
+        }
+        return sdk.createClient(config.supabaseUrl, config.supabaseAnonKey);
     },
 
     // ========================================================================
@@ -156,7 +159,7 @@ const DailyDepositEngine = {
     // Community Syndicate Logic (Supabase-powered)
     // ========================================================================
     
-    async submitToSyndicate(promptText, author, type = 'PROMPT') {
+    async submitToSyndicate(promptText, author, type = 'PROMPT', userId = null) {
         try {
             const client = this.getSupabase();
             const { data, error } = await client
@@ -164,6 +167,7 @@ const DailyDepositEngine = {
                 .insert({
                     prompt_text: promptText,
                     author: author || 'Anonymous',
+                    user_id: userId,
                     likes: 0,
                     submission_type: type
                 })
@@ -198,6 +202,81 @@ const DailyDepositEngine = {
             return [];
         }
     },
+
+    async reportPost(postId, userId, reason = 'inappropriate') {
+        if (!postId || !userId) return { error: 'Missing report target' };
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('community_reports')
+                .insert({ submission_id: postId, reporter_id: userId, reason })
+                .select()
+                .single();
+            if (error?.code === '23505') return { alreadyReported: true };
+            if (error) throw error;
+            await client.rpc('increment_submission_report_count', { p_submission_id: postId }).catch(() => null);
+            return { success: true, data };
+        } catch (error) {
+            console.error('❌ Failed to report post:', error);
+            return { error: error.message || 'Failed to report post' };
+        }
+    },
+
+    async blockAuthor(userId, blockedAuthor) {
+        if (!userId || !blockedAuthor) return { error: 'Missing block target' };
+        const normalizedAuthor = String(blockedAuthor).trim().toLowerCase();
+        if (!normalizedAuthor) return { error: 'Missing block target' };
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('community_blocks')
+                .insert({ user_id: userId, blocked_author: normalizedAuthor })
+                .select()
+                .single();
+            if (error?.code === '23505') return { alreadyBlocked: true };
+            if (error) throw error;
+            return { success: true, data };
+        } catch (error) {
+            console.error('❌ Failed to block author:', error);
+            const storageKey = `dailybars_blocked_authors_${userId}`;
+            let blocked = [];
+            try {
+                blocked = JSON.parse(localStorage.getItem(storageKey) || '[]');
+            } catch {
+                blocked = [];
+            }
+            if (!blocked.includes(normalizedAuthor)) {
+                blocked.push(normalizedAuthor);
+                localStorage.setItem(storageKey, JSON.stringify(blocked));
+            }
+            return { success: true, localOnly: true };
+        }
+    },
+
+    async getBlockedAuthors(userId) {
+        if (!userId) return [];
+        const storageKey = `dailybars_blocked_authors_${userId}`;
+        let localBlocked = [];
+        try {
+            localBlocked = JSON.parse(localStorage.getItem(storageKey) || '[]');
+        } catch {
+            localBlocked = [];
+        }
+        try {
+            const client = this.getSupabase();
+            const { data, error } = await client
+                .from('community_blocks')
+                .select('blocked_author')
+                .eq('user_id', userId);
+            if (error) throw error;
+            return Array.from(new Set([
+                ...(data || []).map(row => row.blocked_author),
+                ...localBlocked
+            ].map(author => String(author).trim().toLowerCase()).filter(Boolean)));
+        } catch {
+            return localBlocked.map(author => String(author).trim().toLowerCase()).filter(Boolean);
+        }
+    },
     
     async likeSyndicatePost(id, currentLikes) {
         try {
@@ -226,6 +305,31 @@ const DailyDepositEngine = {
         
         try {
             const client = this.getSupabase();
+
+            const { data: voteResult, error: voteError } = await client.rpc('upvote_submission', {
+                p_submission_id: postId,
+                p_user_id: userId,
+                p_username: username || 'Anonymous'
+            });
+
+            if (!voteError) {
+                const storageKey = `upvoted_posts_${userId}`;
+                const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
+                if (!upvotedPosts.includes(postId)) {
+                    upvotedPosts.push(postId);
+                    localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
+                }
+
+                return {
+                    success: Boolean(voteResult?.success),
+                    alreadyVoted: Boolean(voteResult?.alreadyVoted),
+                    newLikes: voteResult?.newLikes || voteResult?.new_likes || 0
+                };
+            }
+
+            if (voteError?.message?.toLowerCase().includes('already')) {
+                return { alreadyVoted: true };
+            }
             
             // Check database first to see if user already upvoted
             const { data: existingVote, error: checkError } = await client

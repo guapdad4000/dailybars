@@ -1,7 +1,7 @@
 {
   "appId": "com.guapdad4000.dailyraps",
   "appName": "Daily Raps",
-  "webDir": ".",
+  "webDir": "dist",
   "server": {
     "androidScheme": "https",
     "iosScheme": "https"

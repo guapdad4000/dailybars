@@ -11,11 +11,22 @@ const { useState, useEffect, useRef, useCallback, useMemo, createContext, useCon
 // SUPABASE CONFIG
 // ============================================================================
 
-const SUPABASE_URL = 'https://tilpgwoyyervbgdlucap.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0';
+const APP_CONFIG = window.DAILYBARS_CONFIG || {};
+const APP_ENVIRONMENT = APP_CONFIG.environment || 'development';
+const SUPABASE_URL = APP_CONFIG.supabaseUrl || 'https://tilpgwoyyervbgdlucap.supabase.co';
+const SUPABASE_ANON_KEY = APP_CONFIG.supabaseAnonKey || '';
 
 // Initialize Supabase client
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseSdk = window.supabaseSdk || window.supabase;
+const supabase = supabaseSdk.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+    }
+});
+window.supabaseClient = supabase;
+window.supabase = supabase;
 
 // ============================================================================
 // ASSETS
@@ -29,7 +40,7 @@ const LOGO_HOLLOW = "https://i.postimg.cc/zBFYHrDy/Hollow.png";
 // ============================================================================
 
 // Debug flag - set to true in console to see API calls
-window.DEBUG_API = false;
+window.DEBUG_API = APP_ENVIRONMENT !== 'production' && Boolean(window.DEBUG_API);
 
 // Field mapping: frontend uses camelCase, Supabase uses snake_case
 const toSnakeCase = (obj) => {
@@ -100,6 +111,13 @@ const api = {
             // Handle limit
             if (params.limit) {
                 query = query.limit(parseInt(params.limit));
+            }
+
+            if (params.eq) {
+                Object.entries(params.eq).forEach(([field, value]) => {
+                    const snakeField = field.replace(/([A-Z])/g, '_$1').toLowerCase();
+                    query = query.eq(snakeField, value);
+                });
             }
             
             const { data, error } = await query;
@@ -210,32 +228,111 @@ const api = {
     }
 };
 
-// Expose supabase client globally for debugging
-window.supabaseClient = supabase;
-
-const GEMINI_API_KEY = 'AIzaSyApsL1hMBPZkd7dAmbKNRkmV3ox5E_IQC4';
-
 const callAI = async (prompt, systemPrompt) => {
     try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{ text: `${systemPrompt || 'You are GUAPDAD 4000\'s AI assistant. Write bars with Oakland energy - witty, slick, confident. Just output the bars, no explanations.'}\n\n${prompt}` }]
-                }],
-                generationConfig: {
-                    temperature: 0.9,
-                    maxOutputTokens: 1024
-                }
-            })
+        const { data, error } = await supabase.functions.invoke(APP_CONFIG.aiFunctionName || 'dailybars-ai', {
+            body: {
+                prompt,
+                systemPrompt: systemPrompt || 'You are GUAPDAD 4000\'s AI assistant. Write bars with Oakland energy - witty, slick, confident. Just output the bars, no explanations.'
+            }
         });
-        if (!response.ok) throw new Error('AI request failed');
-        const data = await response.json();
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "Couldn't generate. Try again.";
+        if (error) throw error;
+        return data?.text || data?.content || "Couldn't generate. Try again.";
     } catch (error) {
         console.error('AI Error:', error);
         return "AI unavailable. Try again.";
+    }
+};
+
+const deriveUsernameFromEmail = (email = '') => {
+    const base = email.split('@')[0] || 'artist';
+    return base.toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/_+/g, '_').slice(0, 24) || 'artist';
+};
+
+const loadAuthProfile = async (authUser, fallback = {}) => {
+    if (!authUser) return null;
+    const metadata = authUser.user_metadata || {};
+    const preferredUsername = fallback.username || metadata.username || deriveUsernameFromEmail(authUser.email);
+
+    let profile = null;
+    try {
+        const { data } = await supabase
+            .from('users')
+            .select('*')
+            .eq('auth_user_id', authUser.id)
+            .maybeSingle();
+        profile = data;
+    } catch (error) {
+        console.warn('Auth profile lookup skipped:', error.message);
+    }
+
+    if (!profile) {
+        try {
+            const { data } = await supabase
+                .from('users')
+                .upsert({
+                    auth_user_id: authUser.id,
+                    username: preferredUsername,
+                    email: authUser.email,
+                    last_login: new Date().toISOString()
+                }, { onConflict: 'auth_user_id' })
+                .select()
+                .single();
+            profile = data;
+        } catch (error) {
+            console.warn('Auth profile upsert skipped:', error.message);
+        }
+    }
+
+    return toCamelCase(profile || {
+        id: authUser.id,
+        auth_user_id: authUser.id,
+        username: preferredUsername,
+        email: authUser.email,
+        xp: 0,
+        level: 1
+    });
+};
+
+const authApi = {
+    async signUp({ email, password, username }) {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { data: { username: username?.toLowerCase() } }
+        });
+        if (error) throw error;
+        return loadAuthProfile(data.user, { username });
+    },
+
+    async signIn({ email, password }) {
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        return loadAuthProfile(data.user);
+    },
+
+    async getSessionUser() {
+        const { data, error } = await supabase.auth.getUser();
+        if (error || !data?.user) return null;
+        return loadAuthProfile(data.user);
+    },
+
+    async resetPassword(email) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: window.location.origin
+        });
+        if (error) throw error;
+        return true;
+    },
+
+    async signOut() {
+        await supabase.auth.signOut();
+    },
+
+    async deleteAccount() {
+        const { data, error } = await supabase.functions.invoke(APP_CONFIG.deleteAccountFunctionName || 'delete-account');
+        if (error) throw error;
+        return data;
     }
 };
 
@@ -1342,69 +1439,6 @@ const BottomBar = ({ currentView, streak, user }) => {
             case 'crates': return '#1E3A8A';
             case 'scratchlab': return '#7C3AED';
             default: return 'var(--black)';
-        }
-    };
-
-    // Nuclear option - expose global function to force clear everything
-    window.RESTORE_DATA = async (backupJson) => {
-        try {
-            console.log('📦 Starting data restoration...', backupJson);
-            const data = typeof backupJson === 'string' ? JSON.parse(backupJson) : backupJson;
-            const { bars, songs, users } = data;
-            
-            // Helper to restore any table
-            const restoreTable = async (tableName, rows) => {
-                if (!rows || !rows.length) return;
-                console.log(`📥 Restoring ${rows.length} rows to ${tableName}...`);
-                for (const row of rows) {
-                    const { created_at, updated_at, ...cleanRow } = row;
-                    try { await api.create(tableName, cleanRow); } 
-                    catch(e) { console.log(`Skip ${tableName} row:`, row.id || '?'); }
-                }
-            };
-
-            // Restore Core Data
-            if (users?.data) await restoreTable('users', users.data);
-            if (bars?.data) await restoreTable('bars', bars.data);
-            if (songs?.data) await restoreTable('songs', songs.data);
-
-            // Restore Syndicate Data (Prompts)
-            const promptTables = ['prompts_feelings', 'prompts_settings', 'prompts_objects', 'prompts_smells', 'prompts_vocab'];
-            for (const table of promptTables) {
-                if (data[table]?.data) {
-                    await restoreTable(table, data[table].data);
-                }
-            }
-            
-            console.log('✅ Restoration complete! Reloading...');
-            setTimeout(() => window.location.reload(), 1000);
-            return "Restoration Started - Check Console";
-        } catch (err) {
-            console.error('❌ Restoration failed:', err);
-            return "Error: " + err.message;
-        }
-    };
-
-    // EXPORT ALL DATA FUNCTION
-    window.EXPORT_ALL_DATA = async () => {
-        console.log("⏳ Fetching your data...");
-        try {
-            const bars = await api.get('bars', { limit: 1000 });
-            const songs = await api.get('songs', { limit: 1000 });
-            const users = await api.get('users', { limit: 1000 });
-            
-            const backup = { bars, songs, users, date: new Date().toISOString() };
-            
-            console.clear();
-            console.log("✅ DATA SECURED. COPY EVERYTHING BETWEEN THE LINES BELOW:");
-            console.log("---------------------------------------------------");
-            console.log(JSON.stringify(backup));
-            console.log("---------------------------------------------------");
-            console.log("⬆️ TRIPLE CLICK THE TEXT ABOVE TO SELECT ALL -> COPY");
-            return "CHECK CONSOLE FOR DATA";
-        } catch (e) {
-            console.error("❌ Could not fetch data.", e);
-            return "Error fetching data";
         }
     };
 
@@ -3259,11 +3293,12 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
 // USER PROFILE MODAL - Stats & Trophies
 // ============================================================================
 
-const UserProfileModal = ({ user, onClose, onLogout }) => {
+const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfile = false }) => {
     const [trophies, setTrophies] = useState([]);
     const [userTrophies, setUserTrophies] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedTrophies, setSelectedTrophies] = useState(user?.selectedTrophies || []);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     useEffect(() => {
         loadTrophies();
@@ -3658,6 +3693,38 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
                     padding: 20,
                     borderTop: '2px solid var(--black)'
                 }}>
+                    {isOwnProfile && (
+                        <button
+                            onClick={async () => {
+                                if (!onDeleteAccount || deleteLoading) return;
+                                const confirmed = window.confirm('Delete your Daily Raps account and all account data? This cannot be undone.');
+                                if (!confirmed) return;
+                                setDeleteLoading(true);
+                                try {
+                                    await onDeleteAccount();
+                                } finally {
+                                    setDeleteLoading(false);
+                                }
+                            }}
+                            disabled={deleteLoading}
+                            style={{
+                                width: '100%',
+                                padding: 12,
+                                background: '#7f1d1d',
+                                color: 'var(--white)',
+                                border: 'none',
+                                fontSize: 11,
+                                fontFamily: 'IBM Plex Mono',
+                                fontWeight: 700,
+                                letterSpacing: '0.1em',
+                                cursor: deleteLoading ? 'wait' : 'pointer',
+                                marginBottom: 10,
+                                opacity: deleteLoading ? 0.7 : 1
+                            }}
+                        >
+                            {deleteLoading ? 'DELETING...' : 'DELETE ACCOUNT'}
+                        </button>
+                    )}
                     <button onClick={onLogout} style={{
                         width: '100%',
                         padding: 12,
@@ -3682,10 +3749,13 @@ const UserProfileModal = ({ user, onClose, onLogout }) => {
 // VIEWS - Will continue in app-views.js for size management
 // ============================================================================
 
-// Export for global access (since we're using babel standalone)
+// Export for the browser bundle.
 window.DailyBarsApp = {
     api,
+    authApi,
     callAI,
+    APP_CONFIG,
+    APP_ENVIRONMENT,
     generateId,
     countWords,
     countBars,

@@ -11,34 +11,54 @@
     "url": "https://github.com/guapdad4000/dailybars.git"
   },
   "scripts": {
-    "build": "echo 'Static site - no build required'",
+    "build": "node scripts/build.mjs",
+    "dev": "npx serve .",
     "serve": "npx serve .",
-    "cap:init": "npx cap init 'Daily Raps' com.guapdad4000.dailyraps --web-dir .",
+    "preview": "npm run build && npx serve dist",
+    "smoke": "npm run build && node tests/smoke.mjs",
+    "screenshots": "npm run build && node scripts/capture-screenshots.mjs",
+    "check": "npm run build && node tests/smoke.mjs && npm audit --omit=dev",
+    "cap:init": "npx cap init 'Daily Raps' com.guapdad4000.dailyraps --web-dir dist",
     "cap:add:ios": "npx cap add ios",
     "cap:add:android": "npx cap add android",
     "cap:sync": "npx cap sync",
     "cap:open:ios": "npx cap open ios",
     "cap:open:android": "npx cap open android",
-    "ios:build": "npm run cap:sync && npx cap open ios",
-    "android:build": "npm run cap:sync && npx cap open android"
+    "ios:build": "npm run build && npm run cap:sync && npx cap open ios",
+    "android:build": "npm run build && npm run cap:sync && npx cap open android"
   },
   "dependencies": {
-    "@revenuecat/purchases-js": "^7.0.0"
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
+    "@revenuecat/purchases-capacitor": "^13.4.1",
+    "@revenuecat/purchases-js": "^1.53.1",
+    "@supabase/supabase-js": "^2.56.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "lucide": "^0.468.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0",
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/ios": "^6.0.0",
-    "@capacitor/android": "^6.0.0",
-    "@capacitor/splash-screen": "^6.0.0",
-    "@capacitor/status-bar": "^6.0.0",
-    "@capacitor/keyboard": "^6.0.0",
-    "serve": "^14.2.0"
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
+    "esbuild": "^0.25.12",
+    "playwright": "^1.62.1",
+    "serve": "^14.2.4"
+  },
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
   },
   "capacitor": {
     "appId": "com.guapdad4000.dailyraps",
     "appName": "Daily Raps",
-    "webDir": "."
+    "webDir": "dist"
   },
   "keywords": [
     "music",

@@ -1,0 +1,5 @@
+{
+  "installCommand": "cd dailybars && npm install",
+  "buildCommand": "cd dailybars && npm run build",
+  "outputDirectory": "dailybars/dist"
+}

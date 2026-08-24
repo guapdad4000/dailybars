@@ -1,10 +1,10 @@
 // ============================================================================
-// DAILY BARS SERVICE WORKER - v27
-// NETWORK-FIRST strategy - NOW WITH SUPABASE + APP STORE READY 🔥
+// DAILY BARS SERVICE WORKER - v77
+// Network-first for app code, cache-first for static assets.
 // ============================================================================
 
-const CACHE_NAME = 'daily-bars-v27';
-const CACHE_VERSION = 31;
+const CACHE_VERSION = 77;
+const CACHE_NAME = `daily-bars-v${CACHE_VERSION}`;
 
 const urlsToCache = [
   '/',
@@ -12,25 +12,24 @@ const urlsToCache = [
   '/privacy.html',
   '/manifest.json',
   '/css/style.css',
+  '/js/app-config.js',
+  '/js/revenuecat.js',
+  '/js/daily-deposit-engine.js',
+  '/js/visualizer.js',
+  '/js/ui-components.js',
   '/js/app.js',
   '/js/app-views.js',
-  '/js/ui-components.js',
-  '/js/daily-deposit-engine.js',
-  '/js/restore-data.js',
+  '/js/scratch-lab.js',
+  '/vendor/vendor.js',
   '/images/smooth-paper-texture.jpg',
   '/images/newspaper-sprites.png',
   '/images/icon-192.png',
   '/images/icon-512.png'
 ];
 
-// External CDN resources (cache these too)
+// External font CSS is optional; app code and SDKs are bundled locally in production.
 const cdnResources = [
-  'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap',
-  'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js',
-  'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js',
-  'https://unpkg.com/lucide@latest/dist/umd/lucide.min.js',
-  'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
+  'https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap'
 ];
 
 // Critical files that should ALWAYS be network-first
@@ -39,6 +38,9 @@ const networkFirstFiles = [
   'app.js',
   'app-views.js',
   'daily-deposit-engine.js',
+  'app-config.js',
+  'revenuecat.js',
+  'vendor.js',
   'style.css',
   'manifest.json',
   'service-worker.js'
@@ -135,8 +137,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3. NEVER cache API requests - always go to network
-  if (url.pathname.includes('/tables') || url.pathname.includes('tables/')) {
+  // 3. Never cache API or Edge Function requests.
+  if (
+    url.pathname.includes('/tables') ||
+    url.pathname.includes('tables/') ||
+    url.pathname.includes('/functions/v1/')
+  ) {
     return;
   }
   
