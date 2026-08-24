@@ -23,7 +23,7 @@
     "android:build": "npm run cap:sync && npx cap open android"
   },
   "dependencies": {
-    "@revenuecat/purchases-js": "^7.0.0"
+    "@revenuecat/purchases-js": "^1.53.1"
   },
   "devDependencies": {
     "@capacitor/cli": "^6.0.0",

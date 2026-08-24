@@ -1,0 +1,1 @@
+- [Native toolchain installs](native-toolchain-installs.md) — Keep the static web preview independent from the legacy Capacitor install path until native dependencies are updated safely.
