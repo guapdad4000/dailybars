@@ -38,3 +38,15 @@ externalPort = 80
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 180000
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["bash", "-c", "cd dailybars && DAILYBARS_ENVIRONMENT=production node server/server.mjs"]
+build = ["bash", "-c", "cd dailybars && DAILYBARS_ENVIRONMENT=production npm run build"]
+
+[userenv]
+
+[userenv.production]
+DAILYBARS_RELEASE_ENABLED = "false"
+DAILYBARS_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWIiOiJ0aWxwZ3dveXllcnZiZ2RsdWNhcCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzY2OTEwMDQ5LCJleHAiOjIwODI0ODYwNDl9.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0"
+DAILYBARS_SUPABASE_URL = "https://tilpgwoyyervbgdlucap.supabase.co"

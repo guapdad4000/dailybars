@@ -13,12 +13,23 @@ const { useState, useEffect, useRef, useCallback, useMemo, createContext, useCon
 
 const APP_CONFIG = window.DAILYBARS_CONFIG || {};
 const APP_ENVIRONMENT = APP_CONFIG.environment || 'development';
+const REVENUECAT_CONFIG = APP_CONFIG.revenueCat || {};
+const RELEASE_PLATFORM = window.Capacitor?.getPlatform?.() || 'web';
+const REVENUECAT_KEY = RELEASE_PLATFORM === 'ios'
+    ? REVENUECAT_CONFIG.iosApiKey
+    : RELEASE_PLATFORM === 'android'
+        ? REVENUECAT_CONFIG.androidApiKey
+        : REVENUECAT_CONFIG.webApiKey;
+const REVENUECAT_CONFIGURED = Boolean(REVENUECAT_KEY);
 
 const SUPABASE_CONFIGURED = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 const SUPABASE_URL = SUPABASE_CONFIGURED
     ? APP_CONFIG.supabaseUrl
     : 'https://release-not-configured.invalid';
 const SUPABASE_ANON_KEY = APP_CONFIG.supabaseAnonKey || 'release-not-configured';
+const CUSTOMER_ACCESS_ENABLED = APP_ENVIRONMENT !== 'production' ||
+    (APP_CONFIG.releaseEnabled === true && SUPABASE_CONFIGURED && REVENUECAT_CONFIGURED);
+const CUSTOMER_ACCESS_ERROR = 'Customer sign-in is not enabled for this release build.';
 
 const requireCustomerAccess = () => {
     if (!CUSTOMER_ACCESS_ENABLED) throw new Error(CUSTOMER_ACCESS_ERROR);
@@ -3888,20 +3899,3 @@ window.DailyBarsApp = {
     RadioWidget: window.RadioWidget,
     UserProfileModal
 };
-
-const REVENUECAT_CONFIGURED = Boolean(REVENUECAT_KEY);
-
-const CUSTOMER_ACCESS_ENABLED = APP_ENVIRONMENT !== 'production' ||
-    (APP_CONFIG.releaseEnabled === true && SUPABASE_CONFIGURED && REVENUECAT_CONFIGURED);
-
-const REVENUECAT_KEY = RELEASE_PLATFORM === 'ios'
-    ? REVENUECAT_CONFIG.iosApiKey
-    : RELEASE_PLATFORM === 'android'
-        ? REVENUECAT_CONFIG.androidApiKey
-        : REVENUECAT_CONFIG.webApiKey;
-
-const RELEASE_PLATFORM = window.Capacitor?.getPlatform?.() || 'web';
-
-const REVENUECAT_CONFIG = APP_CONFIG.revenueCat || {};
-
-const CUSTOMER_ACCESS_ERROR = 'Customer sign-in is not enabled for this release build.';
