@@ -13,3 +13,7 @@ cd dailybars && python3 -m http.server 5000 --bind 0.0.0.0
 The browser app loads its UI libraries from CDNs. It connects to the project’s existing external Supabase service for account and data-sync features; those features require that service to be reachable.
 
 Native Capacitor dependencies are retained for iOS/Android builds but are not needed for the Replit web preview.
+
+## QA access
+
+On the Replit preview, use **ENTER DEV QA ACCOUNT** on the sign-in screen. This creates a local-only QA session for the `qa` user and does not require a password or Supabase account. The control is hidden on non-development hosts.

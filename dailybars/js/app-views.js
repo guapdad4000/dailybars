@@ -2800,6 +2800,14 @@ const LoginInputField = ({ label, type, value, onChange, placeholder, error, sho
 // LOGIN SCREEN
 // ============================================================================
 
+const isDevelopmentPreview = () => {
+    const hostname = window.location.hostname.toLowerCase();
+    return hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname.endsWith('.replit.dev') ||
+        hostname.endsWith('.repl.co');
+};
+
 const LoginScreen = ({ onLogin }) => {
     const [isSignUp, setIsSignUp] = useState(false);
     const [loginIdentifier, setLoginIdentifier] = useState(''); // Can be email OR username
@@ -3021,6 +3029,23 @@ const LoginScreen = ({ onLogin }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleDevQALogin = () => {
+        const qaUser = {
+            id: 'dev-qa-user',
+            username: 'qa',
+            email: 'qa@dailybars.dev',
+            xp: 0,
+            level: 1,
+            isDevAccount: true
+        };
+
+        localStorage.setItem('dailybars_qa_mode', 'true');
+        localStorage.removeItem('dailybars_remembered_login');
+        haptic('success');
+        toast?.addToast('DEV QA ACCOUNT READY', 'success');
+        onLogin(qaUser);
     };
 
     return (
@@ -3300,6 +3325,41 @@ const LoginScreen = ({ onLogin }) => {
                         >
                             FORGOT PASSWORD?
                         </button>
+                    </div>
+                )}
+
+                {!isSignUp && isDevelopmentPreview() && (
+                    <div style={{
+                        marginTop: 18,
+                        paddingTop: 18,
+                        borderTop: '1px dashed rgba(0,0,0,0.25)'
+                    }}>
+                        <button
+                            type="button"
+                            onClick={handleDevQALogin}
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px',
+                                border: '1px solid var(--black)',
+                                background: 'rgba(234, 179, 8, 0.18)',
+                                color: 'var(--black)',
+                                fontSize: 10,
+                                fontWeight: 800,
+                                letterSpacing: '0.14em',
+                                boxShadow: '2px 2px 0 var(--black)',
+                                transition: 'all 0.1s ease'
+                            }}
+                        >
+                            ENTER DEV QA ACCOUNT
+                        </button>
+                        <div style={{
+                            marginTop: 8,
+                            color: 'var(--gray)',
+                            fontSize: 9,
+                            letterSpacing: '0.08em'
+                        }}>
+                            LOCAL PREVIEW ONLY · NO PASSWORD REQUIRED
+                        </div>
                     </div>
                 )}
                 
