@@ -5052,47 +5052,47 @@ const App = () => {
     const [showPremiumPrompt, setShowPremiumPrompt] = useState(false);
     const [premiumMessage, setPremiumMessage] = useState('');
     const [customerInfo, setCustomerInfo] = useState(null);
-    const [revenueCatError, setRevenueCatError] = useState('');
+    const [billingError, setBillingError] = useState('');
+    const [checkoutPending, setCheckoutPending] = useState(false);
     const [aiUsageCount, setAiUsageCount] = useState(0);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [profileModalUser, setProfileModalUser] = useState(null);
-    const purchasesEnabled = window.DailyBarsApp?.APP_ENVIRONMENT !== 'production' || Boolean(
-        window.DailyBarsApp?.customerAccessEnabled &&
-        window.RevenueCat?.isPurchaseConfigured?.()
-    );
+    const isNativePurchasePlatform = Boolean(window.DailyBarsApp?.nativePurchasePlatform);
+    const purchasesEnabled = Boolean(window.DailyBarsApp?.customerAccessEnabled &&
+        (isNativePurchasePlatform
+            ? window.RevenueCat?.isPurchaseConfigured?.()
+            : window.DailyBarsApp?.stripeEnabled));
     const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
-    const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
 
-    const premiumKey = useMemo(() => user?.username ? `dailybars_premium_${user.username}` : 'dailybars_premium_guest', [user?.username]);
     const aiUsageKey = useMemo(() => user?.username ? `ai_usage_${user.username}` : 'ai_usage_guest', [user?.username]);
     const userKey = useMemo(() => user?.id || user?.username || 'guest', [user?.id, user?.username]);
 
     useEffect(() => {
         let cancelled = false;
         const initRevenueCat = async () => {
-            if (!user?.id) {
+            if (!isNativePurchasePlatform || !user?.id) {
                 setCustomerInfo(null);
                 return;
             }
             if (!window.RevenueCat) {
-                setRevenueCatError('RevenueCat SDK not loaded');
+                setBillingError('RevenueCat SDK not loaded');
                 return;
             }
             try {
-                setRevenueCatError('');
+                setBillingError('');
                 const info = await window.RevenueCat.ensureConfigured(user.id);
                 if (cancelled) return;
                 setCustomerInfo(info || null);
             } catch (err) {
                 if (cancelled) return;
                 console.error('RevenueCat init failed', err);
-                setRevenueCatError(err.message || 'RevenueCat unavailable');
+                setBillingError(err.message || 'RevenueCat unavailable');
             }
         };
         initRevenueCat();
         return () => { cancelled = true; };
-    }, [user?.id]);
+    }, [isNativePurchasePlatform, user?.id]);
 
     const syncRevenueCatToSupabase = useCallback(async (info) => {
         if (!info || !user?.id || !navigator.onLine) return;
@@ -5118,10 +5118,10 @@ const App = () => {
     }, [customerInfo, syncRevenueCatToSupabase]);
 
     useEffect(() => {
-        if (!window.RevenueCat) return undefined;
+        if (!isNativePurchasePlatform || !window.RevenueCat) return undefined;
         const unsubscribe = window.RevenueCat.addCustomerInfoListener((info) => setCustomerInfo(info || null));
         return () => unsubscribe?.();
-    }, []);
+    }, [isNativePurchasePlatform]);
 
     // XP SYSTEM LOGIC
     const addExperience = async (amount, reason, eventKey = null, metadata = {}) => {
@@ -5149,14 +5149,13 @@ const App = () => {
     };
 
     useEffect(() => {
-        const stored = premiumKey ? localStorage.getItem(premiumKey) : null;
-        const rcPro = window.RevenueCat?.hasPro(customerInfo);
-        const isPremiumUser = user?.username?.toLowerCase() === 'guap' || user?.isPremium || stored === 'true' || rcPro;
+        const nativeEntitlement = isNativePurchasePlatform && window.RevenueCat?.hasPro(customerInfo);
+        const serverEntitlement = ['premium', 'lifetime'].includes(user?.subscriptionStatus) ||
+            ['premium', 'admin'].includes(user?.role);
+        const isPremiumUser = Boolean(serverEntitlement || nativeEntitlement ||
+            (isDevelopmentPreview() && user?.isDevAccount === true));
         setHasPremium(!!isPremiumUser);
-        if (rcPro && premiumKey) {
-            localStorage.setItem(premiumKey, 'true');
-        }
-    }, [premiumKey, user, customerInfo]);
+    }, [isNativePurchasePlatform, user, customerInfo]);
 
     useEffect(() => {
         const handleOnline = () => setIsOnline(true);
@@ -5180,30 +5179,27 @@ const App = () => {
     };
 
     const refreshRevenueCat = useCallback(async () => {
+        if (!isNativePurchasePlatform) return null;
         if (!window.RevenueCat) return null;
         try {
             const info = await window.RevenueCat.getCustomerInfo();
             setCustomerInfo(info || null);
             const rcPro = window.RevenueCat.hasPro(info);
-            if (rcPro && premiumKey) {
-                localStorage.setItem(premiumKey, 'true');
-                setHasPremium(true);
-            }
             return info;
         } catch (err) {
             console.error('Failed to refresh RevenueCat info', err);
-            setRevenueCatError(err.message || 'RevenueCat unavailable');
+            setBillingError(err.message || 'RevenueCat unavailable');
             return null;
         }
-    }, [premiumKey]);
+    }, [isNativePurchasePlatform]);
 
     const openRevenueCatPaywall = useCallback(async () => {
         if (!window.RevenueCat) {
-            setRevenueCatError('RevenueCat SDK not loaded');
+            setBillingError('RevenueCat SDK not loaded');
             return;
         }
         try {
-            setRevenueCatError('');
+            setBillingError('');
             await window.RevenueCat.showPaywall({ appUserID: user?.id || user?.username });
             const latest = await refreshRevenueCat();
             if (latest && window.RevenueCat.hasPro(latest)) {
@@ -5211,17 +5207,17 @@ const App = () => {
             }
         } catch (err) {
             console.error('RevenueCat paywall failed', err);
-            setRevenueCatError(err.message || 'Purchase failed');
+            setBillingError(err.message || 'Purchase failed');
         }
     }, [refreshRevenueCat, user]);
 
     const restoreRevenueCatPurchases = useCallback(async () => {
         if (!window.RevenueCat) {
-            setRevenueCatError('RevenueCat SDK not loaded');
+            setBillingError('RevenueCat SDK not loaded');
             return;
         }
         try {
-            setRevenueCatError('');
+            setBillingError('');
             await window.RevenueCat.restorePurchases();
             const latest = await refreshRevenueCat();
             if (latest && window.RevenueCat.hasPro(latest)) {
@@ -5229,23 +5225,98 @@ const App = () => {
             }
         } catch (err) {
             console.error('RevenueCat restore failed', err);
-            setRevenueCatError(err.message || 'Restore failed');
+            setBillingError(err.message || 'Restore failed');
         }
     }, [refreshRevenueCat]);
 
     const openRevenueCatCustomerCenter = useCallback(async () => {
         if (!window.RevenueCat?.presentCustomerCenter) {
-            setRevenueCatError('Customer Center not available in this SDK version');
+            setBillingError('Customer Center not available in this SDK version');
             return;
         }
         try {
-            setRevenueCatError('');
+            setBillingError('');
             await window.RevenueCat.presentCustomerCenter('manage-subscriptions');
         } catch (err) {
             console.error('Customer Center failed', err);
-            setRevenueCatError(err.message || 'Customer Center unavailable');
+            setBillingError(err.message || 'Customer Center unavailable');
         }
     }, []);
+
+    const refreshBillingProfile = useCallback(async () => {
+        const profile = await window.dailyBarsApi.request('/me', { method: 'GET' });
+        setUser(profile);
+        localStorage.setItem('dailybars_session', JSON.stringify({
+            ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'),
+            user: profile
+        }));
+        return profile;
+    }, []);
+
+    const openStripeCheckout = useCallback(async () => {
+        try {
+            setBillingError('');
+            const result = await window.dailyBarsApi.request('/stripe/checkout-session', { method: 'POST', body: '{}' });
+            const checkoutUrl = new URL(result?.url);
+            if (checkoutUrl.protocol !== 'https:' || !checkoutUrl.hostname.endsWith('stripe.com')) {
+                throw new Error('The checkout provider returned an invalid URL.');
+            }
+            window.location.assign(checkoutUrl.toString());
+        } catch (err) {
+            console.error('Stripe checkout failed', err);
+            setBillingError(err.message || 'Checkout is unavailable right now.');
+        }
+    }, []);
+
+    const openStripeBillingPortal = useCallback(async () => {
+        try {
+            setBillingError('');
+            const result = await window.dailyBarsApi.request('/stripe/billing-portal', { method: 'POST', body: '{}' });
+            const portalUrl = new URL(result?.url);
+            if (portalUrl.protocol !== 'https:' || !portalUrl.hostname.endsWith('stripe.com')) {
+                throw new Error('The subscription portal returned an invalid URL.');
+            }
+            window.location.assign(portalUrl.toString());
+        } catch (err) {
+            console.error('Stripe billing portal failed', err);
+            setBillingError(err.message || 'Subscription management is unavailable right now.');
+        }
+    }, []);
+
+    useEffect(() => {
+        const checkout = new URLSearchParams(window.location.search).get('checkout');
+        if (!checkout || !user?.id || isNativePurchasePlatform) return;
+        window.history.replaceState({}, '', window.location.pathname);
+        if (checkout === 'cancel') {
+            setBillingError('Checkout was cancelled. Your account is still on the free plan.');
+            return;
+        }
+        if (checkout !== 'success') return;
+        let active = true;
+        setCheckoutPending(true);
+        const refreshUntilSettled = async () => {
+            for (let attempt = 0; attempt < 4 && active; attempt += 1) {
+                const profile = await refreshBillingProfile();
+                if (['premium', 'lifetime'].includes(profile?.subscriptionStatus) || ['premium', 'admin'].includes(profile?.role)) {
+                    if (active) {
+                        setShowPremiumPrompt(false);
+                        setCheckoutPending(false);
+                    }
+                    return;
+                }
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+            if (active) setCheckoutPending(false);
+        };
+        refreshUntilSettled().catch((err) => {
+            if (active) {
+                console.error('Stripe return refresh failed', err);
+                setBillingError('Payment received. Premium access is still being confirmed.');
+                setCheckoutPending(false);
+            }
+        });
+        return () => { active = false; };
+    }, [isNativePurchasePlatform, refreshBillingProfile, user?.id]);
 
     const canUseAI = useCallback(() => hasPremium || aiUsageCount < 3, [hasPremium, aiUsageCount]);
 
@@ -5288,22 +5359,35 @@ const App = () => {
                 <div style={{ fontSize: 11, color: 'var(--gray)', marginBottom: 12 }}>
                     Unlimited AI runs, more than 3 crates, and persistent beat uploads come with premium access.
                 </div>
-                {revenueCatError ? (
+                {billingError ? (
                     <div style={{ fontSize: 11, padding: 10, marginBottom: 8, background: 'rgba(255,0,0,0.08)', border: '1px solid #b91c1c', color: '#7f1d1d' }}>
-                        {revenueCatError}
+                        {billingError}
+                    </div>
+                ) : null}
+                {checkoutPending ? (
+                    <div style={{ fontSize: 11, padding: 10, marginBottom: 8, background: 'rgba(250,204,21,0.16)', border: '1px solid var(--black)' }}>
+                        PAYMENT RECEIVED — CONFIRMING YOUR PREMIUM ACCESS.
                     </div>
                 ) : null}
                 {purchasesEnabled ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                        <button onClick={openRevenueCatPaywall} style={{ width: '100%', padding: 12, background: 'var(--black)', color: 'var(--white)', fontWeight: 800, letterSpacing: '0.1em', border: '2px solid var(--black)' }}>
-                            UPGRADE WITH REVENUECAT
+                        <button onClick={isNativePurchasePlatform ? openRevenueCatPaywall : openStripeCheckout} style={{ width: '100%', padding: 12, background: 'var(--black)', color: 'var(--white)', fontWeight: 800, letterSpacing: '0.1em', border: '2px solid var(--black)' }}>
+                            {isNativePurchasePlatform ? 'UPGRADE WITH REVENUECAT' : 'UNLOCK PRO — $9.99 / MONTH'}
                         </button>
-                        <button onClick={restoreRevenueCatPurchases} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px dashed var(--black)' }}>
-                            RESTORE PURCHASES
-                        </button>
-                        {window.RevenueCat?.presentCustomerCenter ? (
-                            <button onClick={openRevenueCatCustomerCenter} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
-                                OPEN CUSTOMER CENTER
+                        {isNativePurchasePlatform ? (
+                            <>
+                                <button onClick={restoreRevenueCatPurchases} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px dashed var(--black)' }}>
+                                    RESTORE PURCHASES
+                                </button>
+                                {window.RevenueCat?.presentCustomerCenter ? (
+                                    <button onClick={openRevenueCatCustomerCenter} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
+                                        OPEN CUSTOMER CENTER
+                                    </button>
+                                ) : null}
+                            </>
+                        ) : user?.stripeCustomerId ? (
+                            <button onClick={openStripeBillingPortal} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
+                                MANAGE SUBSCRIPTION
                             </button>
                         ) : null}
                     </div>

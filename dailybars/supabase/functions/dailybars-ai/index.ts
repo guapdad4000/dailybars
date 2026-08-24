@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-dailybars-proxy-secret',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
@@ -96,10 +96,15 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const proxySecret = Deno.env.get('DAILYBARS_AI_PROXY_SECRET');
   const authorization = req.headers.get('Authorization') || '';
 
   if (!supabaseUrl || !anonKey) {
     return jsonResponse({ error: 'Missing Supabase auth configuration' }, 500);
+  }
+
+  if (!proxySecret || req.headers.get('x-dailybars-proxy-secret') !== proxySecret) {
+    return jsonResponse({ error: 'AI requests must use the Daily Raps API.' }, 403);
   }
 
   if (!authorization) {

@@ -15,12 +15,14 @@ const APP_CONFIG = window.DAILYBARS_CONFIG || {};
 const APP_ENVIRONMENT = APP_CONFIG.environment || 'development';
 const REVENUECAT_CONFIG = APP_CONFIG.revenueCat || {};
 const RELEASE_PLATFORM = window.Capacitor?.getPlatform?.() || 'web';
+const NATIVE_PURCHASE_PLATFORM = RELEASE_PLATFORM === 'ios' || RELEASE_PLATFORM === 'android';
 const REVENUECAT_KEY = RELEASE_PLATFORM === 'ios'
     ? REVENUECAT_CONFIG.iosApiKey
     : RELEASE_PLATFORM === 'android'
         ? REVENUECAT_CONFIG.androidApiKey
-        : REVENUECAT_CONFIG.webApiKey;
+        : '';
 const REVENUECAT_CONFIGURED = Boolean(REVENUECAT_KEY);
+const STRIPE_CONFIGURED = APP_CONFIG.stripeEnabled === true;
 
 const SUPABASE_CONFIGURED = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 const SUPABASE_URL = SUPABASE_CONFIGURED
@@ -28,7 +30,8 @@ const SUPABASE_URL = SUPABASE_CONFIGURED
     : 'https://release-not-configured.invalid';
 const SUPABASE_ANON_KEY = APP_CONFIG.supabaseAnonKey || 'release-not-configured';
 const CUSTOMER_ACCESS_ENABLED = APP_ENVIRONMENT !== 'production' ||
-    (APP_CONFIG.releaseEnabled === true && SUPABASE_CONFIGURED && REVENUECAT_CONFIGURED);
+    (APP_CONFIG.releaseEnabled === true && SUPABASE_CONFIGURED &&
+        (NATIVE_PURCHASE_PLATFORM ? REVENUECAT_CONFIGURED : STRIPE_CONFIGURED));
 const CUSTOMER_ACCESS_ERROR = 'Customer sign-in is not enabled for this release build.';
 
 const requireCustomerAccess = () => {
@@ -159,13 +162,13 @@ window.dailyBarsApi = { request: nativeRequest, api };
 
 const callAI = async (prompt, systemPrompt) => {
     try {
-        const { data, error } = await supabase.functions.invoke(APP_CONFIG.aiFunctionName || 'dailybars-ai', {
-            body: {
+        const data = await nativeRequest('/ai/generate', {
+            method: 'POST',
+            body: JSON.stringify({
                 prompt,
                 systemPrompt: systemPrompt || 'You are GUAPDAD 4000\'s AI assistant. Write bars with Oakland energy - witty, slick, confident. Just output the bars, no explanations.'
-            }
+            })
         });
-        if (error) throw error;
         return data?.text || data?.content || null;
     } catch (error) {
         console.error('AI Error:', error);
@@ -3861,6 +3864,8 @@ window.DailyBarsApp = {
     APP_ENVIRONMENT,
     customerAccessEnabled: CUSTOMER_ACCESS_ENABLED,
     customerAccessError: CUSTOMER_ACCESS_ERROR,
+    nativePurchasePlatform: NATIVE_PURCHASE_PLATFORM,
+    stripeEnabled: STRIPE_CONFIGURED,
     generateId,
     countWords,
     countBars,

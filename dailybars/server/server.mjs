@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { getStripeClient, getStripeSync, initializeStripe } from './stripe-client.mjs';
 
 const { Pool } = pg;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -11,6 +12,10 @@ const port = Number(process.env.PORT || 5000);
 const isDevelopment = process.env.DAILYBARS_ENVIRONMENT !== 'production';
 const supabaseUrl = process.env.DAILYBARS_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.DAILYBARS_SUPABASE_ANON_KEY || '';
+const stripeEnabled = process.env.DAILYBARS_STRIPE_ENABLED === 'true';
+const stripePriceLookupKey = process.env.DAILYBARS_STRIPE_PRICE_LOOKUP_KEY || 'dailybars_pro_monthly';
+const aiProxySecret = process.env.DAILYBARS_AI_PROXY_SECRET || '';
+const aiFunctionName = process.env.DAILYBARS_AI_FUNCTION || 'dailybars-ai';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
@@ -64,6 +69,155 @@ const parseBody = async (req) => {
   } catch {
     throw new HttpError(400, 'Request body must be valid JSON.');
   }
+};
+
+const readRawBody = async (req, maxBytes = 1024 * 1024) => {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new HttpError(413, 'Request body is too large.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+};
+
+const requireStripeBilling = () => {
+  if (!stripeEnabled) throw new HttpError(503, 'Billing is not enabled for this release.');
+};
+
+const checkoutBaseUrl = (req) => {
+  const configured = String(process.env.DAILYBARS_PUBLIC_URL || '').replace(/\/+$/, '');
+  if (configured) {
+    let parsed;
+    try { parsed = new URL(configured); } catch { throw new HttpError(503, 'The configured checkout URL is invalid.'); }
+    if (parsed.protocol !== 'https:') throw new HttpError(503, 'The checkout URL must use HTTPS.');
+    return parsed.toString().replace(/\/+$/, '');
+  }
+  if (!isDevelopment || !isDevHost(req)) {
+    throw new HttpError(503, 'Checkout return URLs are not configured for this release.');
+  }
+  const host = String(req.headers.host || '');
+  const protocol = host.startsWith('localhost') || host.startsWith('127.0.0.1') ? 'http' : 'https';
+  return `${protocol}://${host}`;
+};
+
+const getDailyRapsPrice = async (stripe) => {
+  const prices = await stripe.prices.list({ lookup_keys: [stripePriceLookupKey], active: true, limit: 10 });
+  const price = prices.data.find((item) => item.active && item.currency === 'usd' &&
+    item.unit_amount === 999 && item.recurring?.interval === 'month');
+  if (!price) throw new HttpError(503, 'The Daily Raps Pro subscription is not configured yet.');
+  return price;
+};
+
+const subscriptionPeriodEnd = (subscription) => {
+  const value = subscription.current_period_end || subscription.items?.data?.[0]?.current_period_end;
+  return value ? new Date(Number(value) * 1000) : null;
+};
+
+const locateSubscriptionUser = async (client, subscription) => {
+  const metadataUserId = subscription.metadata?.dailybars_user_id;
+  if (metadataUserId && /^[0-9a-f-]{36}$/i.test(metadataUserId)) {
+    const { rows } = await client.query('SELECT * FROM users WHERE id = $1 FOR UPDATE', [metadataUserId]);
+    return rows[0] || null;
+  }
+  const { rows } = await client.query(`
+    SELECT * FROM users
+    WHERE stripe_subscription_id = $1 OR stripe_customer_id = $2
+    ORDER BY stripe_subscription_id = $1 DESC
+    LIMIT 1
+    FOR UPDATE
+  `, [subscription.id, String(subscription.customer || '')]);
+  return rows[0] || null;
+};
+
+const applySubscription = async (client, event, subscription, expectedPrice) => {
+  const usesExpectedPrice = subscription.items?.data?.some((item) => item.price?.id === expectedPrice.id);
+  if (!usesExpectedPrice) return;
+  const user = await locateSubscriptionUser(client, subscription);
+  if (!user) return;
+
+  const eventAt = new Date(Number(event.created || 0) * 1000);
+  const active = ['active', 'trialing'].includes(subscription.status);
+  const premiumProtected = user.role === 'admin' || user.subscription_status === 'lifetime';
+  const expiresAt = active ? subscriptionPeriodEnd(subscription) : null;
+  await client.query(`
+    UPDATE users
+    SET stripe_customer_id = $2,
+        stripe_subscription_id = $3,
+        stripe_subscription_price_id = $4,
+        stripe_subscription_updated_at = $5,
+        role = CASE WHEN $6 THEN role WHEN $7 THEN 'premium' ELSE 'user' END,
+        subscription_status = CASE WHEN $6 THEN subscription_status WHEN $7 THEN 'premium' ELSE 'free' END,
+        subscription_expires_at = CASE WHEN $6 THEN subscription_expires_at WHEN $7 THEN $8 ELSE NULL END,
+        updated_at = now()
+    WHERE id = $1
+      AND (stripe_subscription_updated_at IS NULL OR stripe_subscription_updated_at <= $5)
+  `, [
+    user.id,
+    String(subscription.customer || ''),
+    subscription.id,
+    expectedPrice.id,
+    eventAt,
+    premiumProtected,
+    active,
+    expiresAt,
+  ]);
+};
+
+const processStripeEvent = async (event, stripe) => {
+  await withTransaction(async (client) => {
+    const inserted = await client.query(`
+      INSERT INTO stripe_webhook_events (event_id, event_type)
+      VALUES ($1, $2)
+      ON CONFLICT (event_id) DO NOTHING
+      RETURNING event_id
+    `, [event.id, event.type]);
+    if (!inserted.rowCount) return;
+
+    const expectedPrice = await getDailyRapsPrice(stripe);
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      if (session.mode !== 'subscription' || session.payment_status !== 'paid' ||
+        !session.subscription || !session.metadata?.dailybars_user_id ||
+        session.client_reference_id !== session.metadata.dailybars_user_id) {
+        return;
+      }
+      const subscription = await stripe.subscriptions.retrieve(String(session.subscription));
+      await applySubscription(client, event, subscription, expectedPrice);
+      return;
+    }
+    if (event.type === 'customer.subscription.created' || event.type === 'customer.subscription.updated' ||
+      event.type === 'customer.subscription.deleted') {
+      await applySubscription(client, event, event.data.object, expectedPrice);
+    }
+  });
+};
+
+const handleStripeWebhook = async (req, res) => {
+  if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed.');
+  requireStripeBilling();
+  const signature = req.headers['stripe-signature'];
+  if (!signature || Array.isArray(signature)) throw new HttpError(400, 'Missing Stripe signature.');
+  const payload = await readRawBody(req);
+  const stripe = await getStripeClient();
+  const sync = await getStripeSync();
+  try {
+    await sync.processWebhook(payload, signature);
+  } catch {
+    throw new HttpError(400, 'Invalid Stripe webhook signature.');
+  }
+  let event;
+  try {
+    event = JSON.parse(payload.toString('utf8'));
+  } catch {
+    throw new HttpError(400, 'Stripe webhook payload is invalid.');
+  }
+  if (!event?.id || !event?.type || !event?.data?.object) {
+    throw new HttpError(400, 'Stripe webhook event is invalid.');
+  }
+  await processStripeEvent(event, stripe);
+  return send(res, 200, { received: true });
 };
 
 const isDevHost = (req) => {
@@ -131,6 +285,61 @@ const authenticate = async (req) => {
   const authUser = await response.json();
   if (!authUser?.id) throw new HttpError(401, 'Invalid sign-in session.');
   return profileForAuth(authUser);
+};
+
+const isPremiumUser = (user) => {
+  if (isDevelopment && user.id === QA_ID) return true;
+  if (user.role === 'admin' || user.subscription_status === 'lifetime') return true;
+  if (user.role !== 'premium' || user.subscription_status !== 'premium') return false;
+  return !user.subscription_expires_at || new Date(user.subscription_expires_at) > new Date();
+};
+
+const requirePremiumUser = (user) => {
+  if (!isPremiumUser(user)) throw new HttpError(403, 'Daily Raps Pro is required for this feature.');
+};
+
+const lockCurrentUser = async (client, userId) => {
+  const { rows } = await client.query('SELECT * FROM users WHERE id = $1 FOR UPDATE', [userId]);
+  if (!rows[0]) throw new HttpError(404, 'User profile not found.');
+  return rows[0];
+};
+
+const reserveAiUse = async (user) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const lockedUser = await lockCurrentUser(client, user.id);
+    if (!isPremiumUser(lockedUser)) {
+      const telemetryKey = lockedUser.auth_user_id || lockedUser.id;
+      await client.query(`
+        INSERT INTO premium_usage (user_key, user_id, username, ai_uses, last_ai_use)
+        VALUES ($1, $2, $3, 0, NULL)
+        ON CONFLICT (user_key) DO NOTHING
+      `, [telemetryKey, lockedUser.id, lockedUser.username]);
+      const usage = (await client.query('SELECT ai_uses FROM premium_usage WHERE user_key = $1 FOR UPDATE', [telemetryKey])).rows[0];
+      if (Number(usage?.ai_uses || 0) >= 3) {
+        throw new HttpError(403, 'Free accounts can use AI three times. Upgrade to Daily Raps Pro for unlimited AI.');
+      }
+      await client.query('UPDATE premium_usage SET ai_uses = ai_uses + 1, last_ai_use = now(), updated_at = now() WHERE user_key = $1', [telemetryKey]);
+    }
+    await client.query('COMMIT');
+    return lockedUser;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const releaseReservedAiUse = async (user) => {
+  if (isPremiumUser(user)) return;
+  const telemetryKey = user.auth_user_id || user.id;
+  await pool.query(`
+    UPDATE premium_usage
+    SET ai_uses = GREATEST(ai_uses - 1, 0), updated_at = now()
+    WHERE user_key = $1
+  `, [telemetryKey]);
 };
 
 const requireUuid = (value, label = 'id') => {
@@ -247,6 +456,49 @@ const routeApi = async (req, res, pathname, url) => {
   const id = parts[1];
   if (!resource) return send(res, 404, { error: 'API route not found.' });
 
+  if (resource === 'stripe' && parts[1] === 'checkout-session' && req.method === 'POST') {
+    requireStripeBilling();
+    const body = await parseBody(req);
+    if (Object.keys(body).length) throw new HttpError(400, 'Checkout options are selected by the server.');
+    const stripe = await getStripeClient();
+    const price = await getDailyRapsPrice(stripe);
+    let customerId = user.stripe_customer_id;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        metadata: { dailybars_user_id: user.id },
+      });
+      customerId = customer.id;
+      await pool.query('UPDATE users SET stripe_customer_id = $2, updated_at = now() WHERE id = $1', [user.id, customerId]);
+    }
+    const baseUrl = checkoutBaseUrl(req);
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      client_reference_id: user.id,
+      mode: 'subscription',
+      line_items: [{ price: price.id, quantity: 1 }],
+      metadata: { dailybars_user_id: user.id },
+      subscription_data: { metadata: { dailybars_user_id: user.id } },
+      success_url: `${baseUrl}/?checkout=success`,
+      cancel_url: `${baseUrl}/?checkout=cancel`,
+    });
+    if (!session.url) throw new HttpError(502, 'Stripe did not return a checkout URL.');
+    return send(res, 200, { url: session.url });
+  }
+
+  if (resource === 'stripe' && parts[1] === 'billing-portal' && req.method === 'POST') {
+    requireStripeBilling();
+    const body = await parseBody(req);
+    if (Object.keys(body).length) throw new HttpError(400, 'Portal options are selected by the server.');
+    if (!user.stripe_customer_id) throw new HttpError(404, 'No Stripe subscription was found for this account.');
+    const stripe = await getStripeClient();
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripe_customer_id,
+      return_url: checkoutBaseUrl(req),
+    });
+    return send(res, 200, { url: session.url });
+  }
+
   if (resource === 'me' && parts[1] === 'trophies' && req.method === 'GET') {
     const { rows } = await pool.query('SELECT trophy_id FROM user_trophies WHERE user_id = $1 ORDER BY unlocked_at DESC', [user.id]);
     return send(res, 200, rows);
@@ -325,6 +577,7 @@ const routeApi = async (req, res, pathname, url) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      requirePremiumUser(await lockCurrentUser(client, user.id));
       if (sessionId) {
         const existing = await client.query('SELECT id FROM scratch_sessions WHERE id = $1 AND user_id = $2 FOR UPDATE', [sessionId, user.id]);
         const existsAnywhere = await client.query('SELECT 1 FROM scratch_sessions WHERE id = $1', [sessionId]);
@@ -428,15 +681,37 @@ const routeApi = async (req, res, pathname, url) => {
     return send(res, 200, rows[0]);
   }
   if (resource === 'telemetry' && parts[1] === 'premium' && req.method === 'PUT') {
+    throw new HttpError(403, 'Premium usage is managed by the server.');
+  }
+  if (resource === 'ai' && parts[1] === 'generate' && req.method === 'POST') {
+    if (!aiProxySecret) throw new HttpError(503, 'AI generation is not configured for this release.');
+    const authorization = String(req.headers.authorization || '');
+    if (!authorization.startsWith('Bearer ')) throw new HttpError(401, 'Sign in is required to use AI.');
     const body = await parseBody(req);
-    const telemetryKey = user.auth_user_id || user.id;
-    const { rows } = await pool.query(`
-      INSERT INTO premium_usage (user_key, user_id, username, ai_uses, last_ai_use)
-      VALUES ($1,$2,$3,$4,$5)
-      ON CONFLICT (user_key) DO UPDATE SET ai_uses = EXCLUDED.ai_uses, last_ai_use = EXCLUDED.last_ai_use, updated_at = now()
-      RETURNING *
-    `, [telemetryKey, user.id, user.username, Number(body.ai_uses) || 0, body.last_ai_use || null]);
-    return send(res, 200, rows[0]);
+    const prompt = String(body.prompt || '').trim();
+    const systemPrompt = String(body.systemPrompt || '').trim();
+    if (!prompt) throw new HttpError(400, 'Prompt required.');
+    if (prompt.length > 4_000 || systemPrompt.length > 4_000) throw new HttpError(400, 'AI prompt is too long.');
+    const usageUser = await reserveAiUse(user);
+    try {
+      const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/${aiFunctionName}`, {
+        method: 'POST',
+        headers: {
+          authorization,
+          apikey: supabaseAnonKey,
+          'content-type': 'application/json',
+          'x-dailybars-proxy-secret': aiProxySecret,
+        },
+        body: JSON.stringify({ prompt, systemPrompt }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      const responseBody = await response.json().catch(() => ({}));
+      if (!response.ok) throw new HttpError(response.status >= 400 && response.status < 500 ? response.status : 502, responseBody.error || 'AI generation failed.');
+      return send(res, 200, responseBody);
+    } catch (error) {
+      await releaseReservedAiUse(usageUser);
+      throw error;
+    }
   }
 
   const table = resource;
@@ -470,6 +745,16 @@ const routeApi = async (req, res, pathname, url) => {
     try {
       await client.query('BEGIN');
       if (table === 'bars' || table === 'songs') {
+        const lockedUser = await lockCurrentUser(client, user.id);
+        if (table === 'songs' && !isPremiumUser(lockedUser)) {
+          const { rows: counts } = await client.query(
+            'SELECT COUNT(*)::int AS count FROM songs WHERE user_id = $1 OR (user_id IS NULL AND lower(username) = lower($2))',
+            [user.id, user.username],
+          );
+          if (counts[0].count >= 3) {
+            throw new HttpError(403, 'Free accounts can create up to three crates. Upgrade to Daily Raps Pro for more.');
+          }
+        }
         const data = mapInput(table, body);
         data.user_id = user.id;
         data.username = user.username;
@@ -492,6 +777,7 @@ const routeApi = async (req, res, pathname, url) => {
         return send(res, 201, row);
       }
       if (table === 'beats') {
+        requirePremiumUser(await lockCurrentUser(client, user.id));
         const row = await insertRow(client, table, { ...mapInput(table, body), user_id: user.id });
         await client.query('COMMIT');
         return send(res, 201, row);
@@ -546,10 +832,17 @@ const serveStatic = async (req, res, pathname) => {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    if (url.pathname.startsWith('/api/')) await routeApi(req, res, url.pathname, url);
+    if (url.pathname === '/api/stripe/webhook') await handleStripeWebhook(req, res);
+    else if (url.pathname.startsWith('/api/')) await routeApi(req, res, url.pathname, url);
     else await serveStatic(req, res, url.pathname);
   } catch (error) { errorResponse(res, error); }
 });
+
+if (stripeEnabled) {
+  const domain = String(process.env.REPLIT_DOMAINS || '').split(',')[0];
+  if (!domain) throw new Error('REPLIT_DOMAINS is required to configure the Stripe webhook.');
+  await initializeStripe(`https://${domain}/api/stripe/webhook`);
+}
 
 server.listen(port, '0.0.0.0', () => console.log(`Daily Raps web/API server listening on ${port}`));
 const shutdown = async () => { await pool.end(); server.close(() => process.exit(0)); };

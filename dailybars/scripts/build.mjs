@@ -20,8 +20,8 @@ const env = {
   aiFunctionName: process.env.DAILYBARS_AI_FUNCTION || 'dailybars-ai',
   deleteAccountFunctionName: process.env.DAILYBARS_DELETE_ACCOUNT_FUNCTION || 'delete-account',
   authRedirectUrl: process.env.DAILYBARS_AUTH_REDIRECT_URL || '',
+  stripeEnabled: process.env.DAILYBARS_STRIPE_ENABLED === 'true',
   revenueCat: {
-    webApiKey: process.env.DAILYBARS_REVENUECAT_WEB_KEY || '',
     iosApiKey: process.env.DAILYBARS_REVENUECAT_IOS_KEY || '',
     androidApiKey: process.env.DAILYBARS_REVENUECAT_ANDROID_KEY || '',
     offeringId: process.env.DAILYBARS_REVENUECAT_OFFERING || 'dailybars_pro',
@@ -71,8 +71,7 @@ import * as ReactDOMLegacy from 'react-dom';
 import * as supabaseSdk from '@supabase/supabase-js';
 import * as lucide from 'lucide';
 import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
-import * as PurchasesSdk from '@revenuecat/purchases-js';
+ import { jsPDF } from 'jspdf';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 window.React = React;
@@ -82,7 +81,6 @@ window.supabase = supabaseSdk;
 window.lucide = lucide;
 window.html2canvas = html2canvas;
 window.jspdf = { jsPDF };
-window.Purchases = PurchasesSdk;
 window.Capacitor = Capacitor;
 window.CapacitorPurchases = registerPlugin('Purchases');
 `);
@@ -126,7 +124,7 @@ async function writeIndex() {
   <link rel="stylesheet" href="css/style.css">
   <script src="vendor/vendor.js"></script>
   <script src="js/app-config.js"></script>
-  <script src="js/revenuecat.js"></script>
+   <script src="js/revenuecat.js"></script>
 </head>
 <body>
   <div id="root"></div>
