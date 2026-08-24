@@ -2830,6 +2830,7 @@ const LoginScreen = ({ onLogin }) => {
     const [error, setError] = useState('');
     const [fieldErrors, setFieldErrors] = useState({});
     const [loading, setLoading] = useState(false);
+    const submitInFlightRef = useRef(false);
     const [step, setStep] = useState(1);
     const toast = useToast();
 
@@ -2900,6 +2901,7 @@ const LoginScreen = ({ onLogin }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (submitInFlightRef.current) return;
         
         if (!validateFields()) {
             haptic('heavy');
@@ -2912,6 +2914,7 @@ const LoginScreen = ({ onLogin }) => {
         }
         
         setLoading(true);
+        submitInFlightRef.current = true;
         setError('');
 
         try {
@@ -3036,6 +3039,7 @@ const LoginScreen = ({ onLogin }) => {
             setError(err.message || 'CONNECTION ERROR - TRY AGAIN');
         } finally {
             setLoading(false);
+            submitInFlightRef.current = false;
         }
     };
 

@@ -2686,6 +2686,7 @@ const QuickInput = ({
     
     const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 } });
     const textareaRef = useRef(null);
+    const saveInFlightRef = useRef(false);
     
     const toast = useToast();
     
@@ -2718,9 +2719,15 @@ const QuickInput = ({
         onTyping?.();
     };
     
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!text.trim() && !savedAudioUrl) return;
-        onSave({ text, tags, imageUrl, audioUrl: savedAudioUrl });
+        if (saveInFlightRef.current) return;
+        saveInFlightRef.current = true;
+        try {
+            await Promise.resolve(onSave?.({ text, tags, imageUrl, audioUrl: savedAudioUrl }));
+        } finally {
+            saveInFlightRef.current = false;
+        }
         setText('');
         setTags([]);
         setImageUrl(null);
