@@ -9,63 +9,6 @@
     <meta name="theme-color" content="#000000">
     <title>DAILY RAPS | GUAPDAD 4000</title>
 
-    <script>
-        (function () {
-            console.log('🐉 Debug watchers armed');
-            const captureResourceError = (event) => {
-                const target = event.target || event.srcElement;
-                if (!target) return;
-                const resource = target.src || target.href;
-                if (resource) {
-                    console.log('🚨 Resource failed:', resource);
-                }
-            };
-
-            window.addEventListener('error', captureResourceError, true);
-
-            const originalFetch = window.fetch;
-            window.fetch = async (...args) => {
-                try {
-                    const response = await originalFetch(...args);
-                    if (!response.ok) {
-                        console.log('🚨 Fetch failed:', response.status, response.statusText, '-', args[0]);
-                    }
-                    return response;
-                } catch (error) {
-                    console.log('🚨 Fetch error:', args[0], error);
-                    throw error;
-                }
-            };
-
-            const probeResources = [
-                'manifest.json',
-                '/',
-                'index.html',
-                'css/style.css',
-                'js/dist/app.js',
-                'js/dist/app-views.js',
-                'js/daily-deposit-engine.js',
-                'images/icon-32.png',
-                'images/icon-48.png',
-                'images/icon-72.png',
-                'images/icon-180.png',
-                'images/icon-192.png',
-                'images/icon-512.png',
-                'images/scratch-lab-bg.png',
-                'images/smooth-paper-texture.jpg',
-                'images/newspaper-sprites.png',
-                'https://www.genspark.ai/api/files/s/5t2t8CLW',
-                'https://i.postimg.cc/zBFYHrDy/Hollow.png'
-            ];
-
-            probeResources.forEach((path) => {
-                originalFetch(path, { cache: 'no-store' })
-                    .then((res) => console.log('🔍 Probe', path, res.status))
-                    .catch((err) => console.log('🔍 Probe error', path, err));
-            });
-        })();
-    </script>
-    
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
     
@@ -102,13 +45,14 @@
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js"></script>
     
     <!-- Supabase Client -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <!-- RevenueCat Purchases SDK (UMD) -->
-    <script src="https://cdn.jsdelivr.net/npm/@revenuecat/purchases-js@1.23.0/dist/Purchases.umd.js"></script>
+    <!-- App config and RevenueCat Purchases SDK (UMD) -->
+    <script src="js/app-config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@revenuecat/purchases-js@1.53.1/dist/Purchases.umd.js"></script>
     <script src="js/revenuecat.js"></script>
 </head>
 <body>
@@ -117,12 +61,12 @@
     <!-- Application Scripts -->
     <script src="js/daily-deposit-engine.js"></script>
     <!-- <script src="js/beat-analyzer.js"></script> --> <!-- Disabled until better BPM detection library found -->
-    <script src="js/restore-data.js"></script>
-    <script defer src="js/dist/visualizer.js"></script>
-    <script defer src="js/dist/ui-components.js"></script>
-    <script defer src="js/dist/app.js"></script>
-    <script defer src="js/dist/scratch-lab.js"></script>
-    <script defer src="js/dist/app-views.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel" src="js/visualizer.js"></script>
+    <script type="text/babel" src="js/ui-components.js"></script>
+    <script type="text/babel" src="js/app.js"></script>
+    <script type="text/babel" src="js/scratch-lab.js"></script>
+    <script type="text/babel" src="js/app-views.js"></script>
 
     <!-- PWA Service Worker Registration with Auto-Update -->
     <script>
@@ -130,12 +74,11 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', async () => {
                 try {
-                    // Unregister old SW first to ensure clean slate
                     // Register with cache-busting
-                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=27', {
+                    const registration = await navigator.serviceWorker.register('/service-worker.js?v=77', {
                         updateViaCache: 'none' // Never use cached SW
                     });
-                    console.log('✅ Service Worker v27 registered:', registration.scope);
+                    console.log('✅ Service Worker registered:', registration.scope);
                     
                     // Force check for updates
                     registration.update();
@@ -190,20 +133,6 @@
             });
         }
         
-        // Nuclear option - expose global function to force clear everything
-        window.NUKE_CACHE = async () => {
-            console.log('☢️ NUKING ALL CACHES...');
-            // Clear all caches
-            const cacheNames = await caches.keys();
-            await Promise.all(cacheNames.map(name => caches.delete(name)));
-            // Unregister all service workers
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            await Promise.all(registrations.map(reg => reg.unregister()));
-            console.log('💥 All caches and SW nuked! Reloading...');
-            window.location.reload(true);
-        };
-        
-        console.log('💡 TIP: Run NUKE_CACHE() in console to force complete refresh');
     </script>
 </body>
 </html>

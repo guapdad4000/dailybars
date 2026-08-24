@@ -7,7 +7,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 // Import from main app.js exports
 const {
-    api, callAI, generateId, countWords, countBars, formatDate, formatTime,
+    api, authApi, APP_ENVIRONMENT, callAI, generateId, countWords, countBars, formatDate, formatTime,
     copyToClipboard, haptic, fetchRhymes, fetchNearRhymes,
     getDailyPrompt, getRandomPrompt, DAILY_DROP_PROMPTS,
     useVoiceRecorder, useMetronome, processImage, useSwipe,
@@ -811,7 +811,7 @@ const SyndicateViewOld = ({ user, onTyping }) => {
         if (!submissionText.trim()) return;
         setIsSubmitting(true);
         try {
-            await window.DailyDepositEngine.submitToSyndicate(submissionText, user.username);
+            await window.DailyDepositEngine.submitToSyndicate(submissionText, user.username, 'PROMPT', user.id);
             setSubmissionText('');
             setShowForm(false);
             toast?.addToast('SENT TO THE VAULT 💎', 'success');
@@ -1602,25 +1602,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         
         toast?.addToast('GENERATING PDF...', 'info');
 
-        // Ensure jsPDF is loaded
         if (!window.jspdf) {
-             console.log('⚠️ jsPDF not found, attempting dynamic load...');
-             try {
-                 await new Promise((resolve, reject) => {
-                     const script = document.createElement('script');
-                     script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-                     script.onload = resolve;
-                     script.onerror = () => reject(new Error("Script load failed"));
-                     document.head.appendChild(script);
-                 });
-             } catch (e) {
-                 console.error("Failed to load jsPDF:", e);
-                 toast?.addToast('PDF LIB FAILED TO LOAD', 'error');
-                 return;
-             }
-        }
-
-        if (!window.jspdf) {
+            console.error('jsPDF bundle is missing');
             toast?.addToast('PDF LIB MISSING', 'error');
             return;
         }
@@ -2660,16 +2643,6 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
 // PASSWORD UTILITIES
 // ============================================================================
 
-const simpleHash = (str) => {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return 'hash_' + Math.abs(hash).toString(16) + '_' + str.length;
-};
-
 const checkPasswordStrength = (password) => {
     let score = 0;
     let feedback = [];
@@ -2818,7 +2791,7 @@ const isDevelopmentPreview = () => {
 
 const LoginScreen = ({ onLogin }) => {
     const [isSignUp, setIsSignUp] = useState(false);
-    const [loginIdentifier, setLoginIdentifier] = useState(''); // Can be email OR username
+    const [loginIdentifier, setLoginIdentifier] = useState('');
     const [email, setEmail] = useState('');
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -2863,9 +2836,8 @@ const LoginScreen = ({ onLogin }) => {
             errors.email = 'VALID EMAIL REQUIRED';
         }
         
-        // For sign in, allow either email or username
-        if (!isSignUp && !loginIdentifier.trim()) {
-            errors.loginIdentifier = 'EMAIL OR USERNAME REQUIRED';
+        if (!isSignUp && !isValidEmail(loginIdentifier.trim())) {
+            errors.loginIdentifier = 'VALID EMAIL REQUIRED';
         }
         
         if (isSignUp) {
@@ -2918,120 +2890,44 @@ const LoginScreen = ({ onLogin }) => {
         setError('');
 
         try {
-            const usersRes = await api.get('users', { limit: 1000 });
-            const users = usersRes.data || [];
-            
-            // Check for admin login (support email, username, or guapdad@gmail.com)
-            const loginInput = loginIdentifier.toLowerCase().trim();
-            const isAdminLogin = !isSignUp && (
-                loginInput === 'guap@dailybars.com' || 
-                loginInput === 'guap' || 
-                loginInput === 'guapdad@gmail.com'
-            ) && password === 'admin123';
-            
-            if (isAdminLogin) {
-                // Look for existing guap user or guapdad@gmail.com user
-                const adminUser = users.find(u => 
-                    u.username?.toLowerCase() === 'guap' || 
-                    u.email?.toLowerCase() === 'guapdad@gmail.com'
-                );
-                
-                let guapUser = adminUser;
-                if (!adminUser) {
-                    // Create admin user with guapdad@gmail.com as primary email
-                    guapUser = await api.create('users', { 
-                        username: 'guap', 
-                        email: 'guapdad@gmail.com',
-                        password: simpleHash('admin123'),
-                        last_login: new Date().toISOString(),
-                        is_verified: true,
-                        xp: 0,
-                        level: 1
-                    });
-                } else {
-                    // Update existing admin user
-                    await api.update('users', adminUser.id, { 
-                        last_login: new Date().toISOString()
-                    });
-                }
-                
+            if (isSignUp) {
+                const newUser = await authApi.signUp({
+                    email: email.toLowerCase().trim(),
+                    password,
+                    username: username.toLowerCase().trim()
+                });
+
                 if (rememberMe) {
-                    localStorage.setItem('dailybars_remembered_login', loginIdentifier);
+                    localStorage.setItem('dailybars_remembered_login', email.toLowerCase().trim());
+                }
+
+                haptic('success');
+                toast?.addToast('WELCOME TO THE LAB', 'success');
+                onLogin({
+                    id: newUser.id,
+                    username: newUser.username,
+                    email: newUser.email,
+                    xp: newUser.xp || 0,
+                    level: newUser.level || 1
+                });
+            } else {
+                const loginEmail = loginIdentifier.toLowerCase().trim();
+                const authUser = await authApi.signIn({ email: loginEmail, password });
+
+                if (rememberMe) {
+                    localStorage.setItem('dailybars_remembered_login', loginEmail);
                 } else {
                     localStorage.removeItem('dailybars_remembered_login');
                 }
-                
+
                 haptic('success');
-                // Pass full user object including ID for XP system
-                onLogin({ id: guapUser.id, username: guapUser.username || 'guap', email: guapUser.email || 'guapdad@gmail.com', xp: guapUser.xp || 0, level: guapUser.level || 1 });
-                return;
-            }
-
-            // Find user by email OR username for login
-            const existingUser = isSignUp 
-                ? users.find(u => u.email?.toLowerCase() === email.toLowerCase())
-                : users.find(u => 
-                    u.email?.toLowerCase() === loginInput || 
-                    u.username?.toLowerCase() === loginInput
-                  );
-            const existingUsername = users.find(u => u.username?.toLowerCase() === username.toLowerCase());
-
-            if (isSignUp) {
-                if (existingUser) {
-                    setError('EMAIL ALREADY REGISTERED');
-                    setStep(1);
-                    haptic('heavy');
-                } else if (existingUsername) {
-                    setError('USERNAME TAKEN');
-                    haptic('heavy');
-                } else {
-                    const newUser = await api.create('users', { 
-                        username: username.toLowerCase(), 
-                        email: email.toLowerCase(),
-                        password: simpleHash(password),
-                        last_login: new Date().toISOString(),
-                        is_verified: false
-                    });
-                    
-                    if (rememberMe) {
-                        localStorage.setItem('dailybars_remembered_email', email);
-                    }
-                    
-                    haptic('success');
-                    toast?.addToast('WELCOME TO THE LAB', 'success');
-                    // Pass full user object including ID for XP system
-                    onLogin({ id: newUser.id, username: newUser.username, email: newUser.email, xp: newUser.xp || 0, level: newUser.level || 1 });
-                }
-            } else {
-                if (existingUser && existingUser.password === simpleHash(password)) {
-                    await api.update('users', existingUser.id, { last_login: new Date().toISOString() });
-                    
-                    if (rememberMe) {
-                        localStorage.setItem('dailybars_remembered_login', loginIdentifier);
-                    } else {
-                        localStorage.removeItem('dailybars_remembered_login');
-                    }
-                    
-                    haptic('success');
-                    // Pass full user object including ID for XP system
-                    onLogin({ id: existingUser.id, username: existingUser.username, email: existingUser.email, xp: existingUser.xp || 0, level: existingUser.level || 1 });
-                } else if (existingUser && existingUser.password === password) {
-                    await api.update('users', existingUser.id, { 
-                        password: simpleHash(password),
-                        last_login: new Date().toISOString() 
-                    });
-                    
-                    if (rememberMe) {
-                        localStorage.setItem('dailybars_remembered_login', loginIdentifier);
-                    }
-                    
-                    haptic('success');
-                    // Pass full user object including ID for XP system
-                    onLogin({ id: existingUser.id, username: existingUser.username, email: existingUser.email, xp: existingUser.xp || 0, level: existingUser.level || 1 });
-                } else {
-                    setError('INVALID LOGIN OR PASSWORD');
-                    haptic('heavy');
-                }
+                onLogin({
+                    id: authUser.id,
+                    username: authUser.username,
+                    email: authUser.email,
+                    xp: authUser.xp || 0,
+                    level: authUser.level || 1
+                });
             }
         } catch (err) {
             console.error('Login error:', err);
@@ -3140,16 +3036,16 @@ const LoginScreen = ({ onLogin }) => {
 
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                     
-                    {/* Sign In: Accept email OR username */}
+                    {/* Sign In */}
                     {!isSignUp && (
                         <LoginInputField
-                            label="EMAIL OR USERNAME"
-                            type="text"
+                            label="EMAIL"
+                            type="email"
                             value={loginIdentifier}
                             onChange={(e) => setLoginIdentifier(e.target.value)}
-                            placeholder="your@email.com or @username"
+                            placeholder="your@email.com"
                             error={fieldErrors.loginIdentifier}
-                            hint="Login with your email or artist name"
+                            hint="Artist names are handles after login"
                         />
                     )}
                     
@@ -3347,9 +3243,10 @@ const LoginScreen = ({ onLogin }) => {
                         <button 
                             type="button"
                             onClick={() => {
-                                 const resetIdentifier = loginIdentifier.trim();
-                                 if (isValidEmail(resetIdentifier)) {
-                                    toast?.addToast('PASSWORD RESET COMING SOON', 'info');
+                                if (loginIdentifier && isValidEmail(loginIdentifier)) {
+                                    authApi.resetPassword(loginIdentifier.toLowerCase().trim())
+                                        .then(() => toast?.addToast('RESET EMAIL SENT', 'success'))
+                                        .catch((err) => toast?.addToast(err.message || 'RESET FAILED', 'error'));
                                 } else {
                                     toast?.addToast('ENTER YOUR EMAIL FIRST', 'warning');
                                 }
@@ -4162,6 +4059,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
     const [courseTitle, setCourseTitle] = useState('');
     const [previewCourse, setPreviewCourse] = useState(null);
     const [upvotedPosts, setUpvotedPosts] = useState(new Set());
+    const [blockedAuthors, setBlockedAuthors] = useState(new Set());
     const toast = useToast();
 
     const courseStorageKey = useMemo(() => (
@@ -4182,9 +4080,18 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
 
         setLoading(true);
         const data = await window.DailyDepositEngine.getSyndicateFeed();
+
+        let blockedSet = blockedAuthors;
+        if (user?.id) {
+            const blocked = await window.DailyDepositEngine.getBlockedAuthors(user.id);
+            blockedSet = new Set(blocked);
+            setBlockedAuthors(blockedSet);
+        }
         
         // Filter based on tab
         const filtered = data.filter(post => {
+            const authorKey = (post.author || '').trim().toLowerCase();
+            if (authorKey && blockedSet.has(authorKey)) return false;
             if (tab === 'vault') return post.submission_type === 'PROMPT' || !post.submission_type; // Legacy assumes PROMPT
             if (tab === 'free_game') return post.submission_type === 'VERSE';
             return true;
@@ -4244,7 +4151,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
         
         setSubmission(true);
         try {
-            await window.DailyDepositEngine.submitToSyndicate(promptText, user.username, 'PROMPT');
+            await window.DailyDepositEngine.submitToSyndicate(promptText, user.username, 'PROMPT', user.id);
             toast?.addToast('PROMPT SUBMITTED +50 XP', 'success');
             if (onAction) onAction(50, 'PROMPT SUBMITTED');
             setPromptText('');
@@ -4253,6 +4160,51 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
             toast?.addToast('SUBMISSION FAILED', 'error');
         }
         setSubmission(false);
+    };
+
+    const handleReportPost = async (post) => {
+        if (!user?.id || !post?.id) {
+            toast?.addToast('SIGN IN REQUIRED', 'warning');
+            return;
+        }
+
+        try {
+            const result = await window.DailyDepositEngine.reportPost(post.id, user.id);
+            if (result.success || result.alreadyReported) {
+                setFeed(prev => prev.filter(item => item.id !== post.id));
+                toast?.addToast(result.alreadyReported ? 'REPORT ALREADY SENT' : 'REPORT SENT', 'success');
+            } else {
+                toast?.addToast((result.error || 'REPORT FAILED').toUpperCase(), 'error');
+            }
+        } catch {
+            toast?.addToast('REPORT FAILED', 'error');
+        }
+    };
+
+    const handleBlockAuthor = async (post) => {
+        const author = (post?.author || '').trim().toLowerCase();
+        if (!user?.id || !author) {
+            toast?.addToast('BLOCK UNAVAILABLE', 'warning');
+            return;
+        }
+        if (author === user.username?.toLowerCase()) {
+            toast?.addToast('THIS IS YOUR DROP', 'info');
+            return;
+        }
+        if (!window.confirm(`Block @${author}? Their drops will be hidden from your feed.`)) return;
+
+        try {
+            const result = await window.DailyDepositEngine.blockAuthor(user.id, author);
+            if (result.success || result.alreadyBlocked) {
+                setBlockedAuthors(prev => new Set([...prev, author]));
+                setFeed(prev => prev.filter(item => (item.author || '').trim().toLowerCase() !== author));
+                toast?.addToast(result.localOnly ? 'AUTHOR BLOCKED ON THIS DEVICE' : 'AUTHOR BLOCKED', 'success');
+            } else {
+                toast?.addToast((result.error || 'BLOCK FAILED').toUpperCase(), 'error');
+            }
+        } catch {
+            toast?.addToast('BLOCK FAILED', 'error');
+        }
     };
 
     const handleSaveCourse = (e) => {
@@ -4457,49 +4409,82 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
                                                 >
                                                     @{p.author}
                                                 </button>
-                                                <button
-                                                    onClick={async () => {
-                                                        if (hasVoted) {
-                                                            toast?.addToast('ALREADY UPVOTED', 'info');
-                                                            return;
-                                                        }
-                                                        try {
-                                                            const result = await window.DailyDepositEngine.upvotePost(p.id, user?.id, user?.username);
-                                                            if (result.success) {
-                                                                // Update local state
-                                                                setFeed(prev => prev.map(item => 
-                                                                    item.id === p.id ? { ...item, likes: result.newLikes } : item
-                                                                ));
-                                                                setUpvotedPosts(prev => new Set([...prev, p.id]));
-                                                                haptic('success');
-                                                                toast?.addToast('UPVOTED! +10 XP', 'success');
-                                                                if (onAction) onAction(10, 'UPVOTED PROMPT');
-                                                            } else if (result.alreadyVoted) {
-                                                                setUpvotedPosts(prev => new Set([...prev, p.id]));
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <button
+                                                        type="button"
+                                                        title="Report post"
+                                                        aria-label="Report post"
+                                                        onClick={() => handleReportPost(p)}
+                                                        style={{
+                                                            width: 28, height: 28,
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            background: 'transparent',
+                                                            border: '1px solid var(--black)',
+                                                            cursor: 'pointer'
+                                                        }}
+                                                    >
+                                                        <Icon name="Flag" size={12} />
+                                                    </button>
+                                                    {p.author && p.author.toLowerCase() !== user?.username?.toLowerCase() && (
+                                                        <button
+                                                            type="button"
+                                                            title="Block author"
+                                                            aria-label="Block author"
+                                                            onClick={() => handleBlockAuthor(p)}
+                                                            style={{
+                                                                width: 28, height: 28,
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                                background: 'transparent',
+                                                                border: '1px solid var(--black)',
+                                                                cursor: 'pointer'
+                                                            }}
+                                                        >
+                                                            <Icon name="UserX" size={12} />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={async () => {
+                                                            if (hasVoted) {
                                                                 toast?.addToast('ALREADY UPVOTED', 'info');
-                                                            } else if (result.error) {
-                                                                toast?.addToast(result.error.toUpperCase(), 'error');
+                                                                return;
                                                             }
-                                                        } catch (err) {
-                                                            toast?.addToast('UPVOTE FAILED', 'error');
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: 6,
-                                                        padding: '6px 12px',
-                                                        background: hasVoted ? 'var(--electric)' : 'transparent',
-                                                        border: '1px solid var(--black)',
-                                                        cursor: hasVoted ? 'default' : 'pointer',
-                                                        fontSize: 10,
-                                                        fontWeight: 700,
-                                                        transition: 'all 0.2s ease'
-                                                    }}
-                                                >
-                                                    <span style={{ fontSize: 14 }}>{hasVoted ? '💎' : '◇'}</span>
-                                                    <span>{p.likes || 0}</span>
-                                                </button>
+                                                            try {
+                                                                const result = await window.DailyDepositEngine.upvotePost(p.id, user?.id, user?.username);
+                                                                if (result.success) {
+                                                                    setFeed(prev => prev.map(item =>
+                                                                        item.id === p.id ? { ...item, likes: result.newLikes } : item
+                                                                    ));
+                                                                    setUpvotedPosts(prev => new Set([...prev, p.id]));
+                                                                    haptic('success');
+                                                                    toast?.addToast('UPVOTED! +10 XP', 'success');
+                                                                    if (onAction) onAction(10, 'UPVOTED PROMPT');
+                                                                } else if (result.alreadyVoted) {
+                                                                    setUpvotedPosts(prev => new Set([...prev, p.id]));
+                                                                    toast?.addToast('ALREADY UPVOTED', 'info');
+                                                                } else if (result.error) {
+                                                                    toast?.addToast(result.error.toUpperCase(), 'error');
+                                                                }
+                                                            } catch (err) {
+                                                                toast?.addToast('UPVOTE FAILED', 'error');
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: 6,
+                                                            padding: '6px 12px',
+                                                            background: hasVoted ? 'var(--electric)' : 'transparent',
+                                                            border: '1px solid var(--black)',
+                                                            cursor: hasVoted ? 'default' : 'pointer',
+                                                            fontSize: 10,
+                                                            fontWeight: 700,
+                                                            transition: 'all 0.2s ease'
+                                                        }}
+                                                    >
+                                                        <span style={{ fontSize: 14 }}>{hasVoted ? '💎' : '◇'}</span>
+                                                        <span>{p.likes || 0}</span>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -4569,28 +4554,82 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
                                     background: 'rgba(255,255,255,0.9)',
                                     boxShadow: '0 4px 6px rgba(0,0,0,0.3)'
                                 }}>
-                                <div style={{ fontSize: 9, color: 'var(--gray)', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                                    <span>@{post.author || 'ANONYMOUS'}</span>
+                                <div style={{ fontSize: 9, color: 'var(--gray)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (onShowProfile && post.author) {
+                                                onShowProfile(post.author);
+                                            }
+                                        }}
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            padding: 0,
+                                            cursor: post.author ? 'pointer' : 'default',
+                                            fontSize: 9,
+                                            color: 'var(--gray)',
+                                            letterSpacing: '0.1em',
+                                            textTransform: 'uppercase',
+                                            textDecoration: post.author ? 'underline' : 'none'
+                                        }}
+                                    >
+                                        @{post.author || 'ANONYMOUS'}
+                                    </button>
                                     <span>{new Date(post.created_at).toLocaleDateString()}</span>
                                 </div>
                                 <div className="font-mono" style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
                                     {post.prompt_text}
                                 </div>
-                                <button 
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(post.prompt_text);
-                                        toast?.addToast('COPIED TO CLIPBOARD', 'success');
-                                    }}
-                                    style={{
-                                        fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
-                                        padding: '6px 12px', border: '1px solid var(--black)',
-                                        display: 'flex', alignItems: 'center', gap: 6,
-                                        background: 'var(--white)',
-                                        cursor: 'pointer'
-                                    }}
-                                >
-                                    <Icon name="Copy" size={10} /> STEAL THIS
-                                </button>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(post.prompt_text);
+                                            toast?.addToast('COPIED TO CLIPBOARD', 'success');
+                                        }}
+                                        style={{
+                                            fontSize: 9, fontWeight: 700, letterSpacing: '0.1em',
+                                            padding: '6px 12px', border: '1px solid var(--black)',
+                                            display: 'flex', alignItems: 'center', gap: 6,
+                                            background: 'var(--white)',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <Icon name="Copy" size={10} /> STEAL THIS
+                                    </button>
+                                    <button
+                                        type="button"
+                                        title="Report post"
+                                        aria-label="Report post"
+                                        onClick={() => handleReportPost(post)}
+                                        style={{
+                                            width: 28, height: 28,
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            background: 'var(--white)',
+                                            border: '1px solid var(--black)',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <Icon name="Flag" size={12} />
+                                    </button>
+                                    {post.author && post.author.toLowerCase() !== user?.username?.toLowerCase() && (
+                                        <button
+                                            type="button"
+                                            title="Block author"
+                                            aria-label="Block author"
+                                            onClick={() => handleBlockAuthor(post)}
+                                            style={{
+                                                width: 28, height: 28,
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                background: 'var(--white)',
+                                                border: '1px solid var(--black)',
+                                                cursor: 'pointer'
+                                            }}
+                                        >
+                                            <Icon name="UserX" size={12} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         ))}
                         </div>
@@ -4891,13 +4930,17 @@ const App = () => {
     useEffect(() => {
         let cancelled = false;
         const initRevenueCat = async () => {
+            if (!user?.id) {
+                setCustomerInfo(null);
+                return;
+            }
             if (!window.RevenueCat) {
                 setRevenueCatError('RevenueCat SDK not loaded');
                 return;
             }
             try {
                 setRevenueCatError('');
-                const info = await window.RevenueCat.ensureConfigured(user?.id || user?.username);
+                const info = await window.RevenueCat.ensureConfigured(user.id);
                 if (cancelled) return;
                 setCustomerInfo(info || null);
             } catch (err) {
@@ -4908,10 +4951,10 @@ const App = () => {
         };
         initRevenueCat();
         return () => { cancelled = true; };
-    }, [user]);
+    }, [user?.id]);
 
     const syncRevenueCatToSupabase = useCallback(async (info) => {
-        if (!info || !user || !navigator.onLine || typeof supabase === 'undefined') return;
+        if (!info || !user?.id || !navigator.onLine || typeof supabase === 'undefined') return;
         try {
             const payload = {
                 user_key: userKey,
@@ -5118,7 +5161,7 @@ const App = () => {
     }, [aiUsageCount, aiUsageKey]);
 
     const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
-        if (!user || !navigator.onLine || typeof supabase === 'undefined') return;
+        if (!user?.id || !navigator.onLine || typeof supabase === 'undefined' || usageCount <= 0) return;
         try {
             const payload = {
                 user_key: userKey,
@@ -5223,34 +5266,60 @@ const App = () => {
     }, [user]);
 
     useEffect(() => {
-        const storedUser = localStorage.getItem('dailybars_session');
-        if (storedUser) {
+        let mounted = true;
+        const restoreSession = async () => {
             try {
-                const parsed = JSON.parse(storedUser);
-                if (parsed.expiresAt && Date.now() < parsed.expiresAt) {
-                    setUser(parsed.user);
-                } else {
+                const authUser = await authApi.getSessionUser();
+                if (authUser && mounted) {
+                    setUser(authUser);
+                    localStorage.setItem('dailybars_session', JSON.stringify({
+                        user: authUser,
+                        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000),
+                        createdAt: Date.now()
+                    }));
+                    setIsCheckingAuth(false);
+                    return;
+                }
+            } catch (error) {
+                console.warn('Supabase session restore skipped:', error.message);
+            }
+
+            const storedUser = localStorage.getItem('dailybars_session');
+            if (storedUser) {
+                try {
+                    const parsed = JSON.parse(storedUser);
+                    if (parsed.expiresAt && Date.now() < parsed.expiresAt) {
+                        setUser(parsed.user);
+                    } else {
+                        localStorage.removeItem('dailybars_session');
+                    }
+                } catch {
                     localStorage.removeItem('dailybars_session');
                 }
-            } catch {
-                localStorage.removeItem('dailybars_session');
             }
-        }
-        const legacyUser = localStorage.getItem('guap_user');
-        if (legacyUser && !localStorage.getItem('dailybars_session')) {
-            try {
-                const parsed = JSON.parse(legacyUser);
-                setUser(parsed);
-                localStorage.setItem('dailybars_session', JSON.stringify({
-                    user: parsed,
-                    expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000)
-                }));
-                localStorage.removeItem('guap_user');
-            } catch {
-                localStorage.removeItem('guap_user');
+
+            const legacyUser = localStorage.getItem('guap_user');
+            if (legacyUser && !localStorage.getItem('dailybars_session')) {
+                try {
+                    const parsed = JSON.parse(legacyUser);
+                    setUser(parsed);
+                    localStorage.setItem('dailybars_session', JSON.stringify({
+                        user: parsed,
+                        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000)
+                    }));
+                    localStorage.removeItem('guap_user');
+                } catch {
+                    localStorage.removeItem('guap_user');
+                }
             }
-        }
-        setTimeout(() => setIsCheckingAuth(false), 500);
+
+            if (mounted) setIsCheckingAuth(false);
+        };
+
+        restoreSession();
+        return () => {
+            mounted = false;
+        };
     }, []);
 
     // Data loading function - extracted so we can call after migration
@@ -5267,21 +5336,8 @@ const App = () => {
         setLoadingSongs(true);
         
         try { 
-            const res = await api.get('bars', { sort: '-created_at', limit: 1000 }); 
-            const allBars = res.data || [];
-            console.log(`📊 Total bars in DB: ${allBars.length}`);
-            
-            // Filter by username (case-insensitive for safety)
-            const userBars = allBars.filter(b => 
-                b.username?.toLowerCase() === username
-            );
-            
-            // Also log orphan bars for debugging
-            const orphanBars = allBars.filter(b => !b.username);
-            if (orphanBars.length > 0) {
-                console.log(`⚠️ Found ${orphanBars.length} orphan bars without username`);
-            }
-            
+            const res = await api.get('bars', { sort: '-created_at', limit: 1000, eq: { username } });
+            const userBars = res.data || [];
             console.log(`✅ Loaded ${userBars.length} bars for @${username}`);
             setBars(userBars); 
         } catch (err) { 
@@ -5291,19 +5347,8 @@ const App = () => {
         setLoadingBars(false);
         
         try { 
-            const res = await api.get('songs', { sort: '-updated_at', limit: 1000 }); 
-            const allSongs = res.data || [];
-            console.log(`📊 Total songs in DB: ${allSongs.length}`);
-            
-            const userSongs = allSongs.filter(s => 
-                s.username?.toLowerCase() === username
-            );
-            
-            const orphanSongs = allSongs.filter(s => !s.username);
-            if (orphanSongs.length > 0) {
-                console.log(`⚠️ Found ${orphanSongs.length} orphan songs without username`);
-            }
-            
+            const res = await api.get('songs', { sort: '-updated_at', limit: 1000, eq: { username } });
+            const userSongs = res.data || [];
             console.log(`✅ Loaded ${userSongs.length} songs for @${username}`);
             setSongs(userSongs); 
         } catch (err) { 
@@ -5317,6 +5362,7 @@ const App = () => {
     // Also migrates data from specific user ID e0f2c461-fc65-4d3e-9640-a715e3d1673c to guap
     useEffect(() => {
         const migrateData = async () => {
+            if (APP_ENVIRONMENT === 'production') return;
             // Only 'guap' can claim orphan data (admin account)
             if (user?.username?.toLowerCase() === 'guap') {
                 try {
@@ -5390,7 +5436,12 @@ const App = () => {
         setUser(userData);
     };
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
+        try {
+            await authApi.signOut();
+        } catch (error) {
+            console.warn('Supabase sign out skipped:', error.message);
+        }
         localStorage.removeItem('dailybars_session');
         localStorage.removeItem('guap_user');
         setUser(null);
@@ -5456,8 +5507,8 @@ const App = () => {
             // Refresh user XP from database to ensure it's current
             const refreshUserXP = async () => {
                 try {
-                    const res = await api.get('users', { limit: 1000 });
-                    const dbUser = res.data?.find(u => u.username?.toLowerCase() === user.username?.toLowerCase());
+                    const res = await api.get('users', { limit: 1, eq: { username: user.username?.toLowerCase() } });
+                    const dbUser = res.data?.[0];
                     if (dbUser && (dbUser.xp !== user.xp || dbUser.id !== user.id)) {
                         console.log(`🔄 Syncing user data from DB: XP=${dbUser.xp}, ID=${dbUser.id}`);
                         const updatedUser = { ...user, id: dbUser.id, xp: dbUser.xp || 0, level: dbUser.level || 1 };
@@ -5623,7 +5674,7 @@ const App = () => {
     
     const handleSendToFreeGame = async (bar) => {
         try {
-            await window.DailyDepositEngine.submitToSyndicate(bar.text, user.username, 'VERSE');
+            await window.DailyDepositEngine.submitToSyndicate(bar.text, user.username, 'VERSE', user.id);
             console.log('Sent to free game'); 
             addExperience(25, 'CONTRIBUTED TO FREE GAME');
         } catch (err) {
@@ -5725,8 +5776,8 @@ const App = () => {
                             onShowProfile={async (username) => {
                                 // Fetch user by username and show profile
                                 try {
-                                    const { data } = await api.get('users');
-                                    const targetUser = data.find(u => u.username?.toLowerCase() === username?.toLowerCase());
+                                    const { data } = await api.get('users', { limit: 1, eq: { username: username?.toLowerCase() } });
+                                    const targetUser = data?.[0];
                                     if (targetUser) {
                                         setProfileModalUser(targetUser);
                                         setShowProfileModal(true);
@@ -5907,6 +5958,13 @@ const App = () => {
                             setShowProfileModal(false);
                             setProfileModalUser(null);
                             handleLogout();
+                        }}
+                        isOwnProfile={profileModalUser?.id === user?.id}
+                        onDeleteAccount={async () => {
+                            await authApi.deleteAccount();
+                            setShowProfileModal(false);
+                            setProfileModalUser(null);
+                            await handleLogout();
                         }}
                     />
                 )}

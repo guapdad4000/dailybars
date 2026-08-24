@@ -35,14 +35,17 @@ The result is something truly unique - underground venue meets music journalism 
 - ✅ **Privacy Policy**: `/privacy.html` - Required for App Store
 - ✅ **Bundle ID**: `com.guapdad4000.dailyraps`
 - ✅ **Version 3.0.0**: Official release version
-- ✅ **Service Worker v24**: Fresh cache for native app compatibility
+- ✅ **Production Build**: `npm run build` outputs CDN-free files to `dist`
+- ✅ **Service Worker v77**: Fresh cache for native app compatibility
+- ✅ **Privacy Manifest**: iOS privacy report metadata included
+- ✅ **Account Deletion + UGC Safety**: Supabase migration and Edge Function updates ready
 - ✅ **Safe Area Support**: iPhone notch/Dynamic Island handled
 - ✅ **RevenueCat Integration**: In-app purchases ready
 
 **To Build for App Store:**
 ```bash
 npm install
-npx cap add ios
+npm run check
 npx cap sync ios
 npx cap open ios
 # Then archive and submit in Xcode
@@ -82,7 +85,7 @@ community_submissions  -- The Syndicate feed
 
 ---
 
-### 🚀 DEPLOYMENT & CACHE NUKE (v2.8)
+### 🚀 DEPLOYMENT & CACHE REFRESH (v2.8)
 **Total refresh of the system engine.**
 
 - ✅ **Service Worker v8**: Force-updated cache version to ensure all clients see new changes.
@@ -91,8 +94,9 @@ community_submissions  -- The Syndicate feed
 - ✅ **Aggressive Cache Busting**: The `index.html` now requests the service worker with a query param to bypass browser caching.
 
 **If you still see old stuff:**
-1. Check the bottom bar for "v11".
-2. If not there, use the "Nuclear Option" in console: `window.NUKE_CACHE()`
+1. Hard refresh the browser.
+2. Clear site data from DevTools -> Application -> Storage.
+3. Rebuild and redeploy from the production `dist` output.
 
 ### 🔧 DEPLOYMENT SYNC FIX (v2.7)
 **UI and Database now stay in sync across all deployments.**
@@ -508,8 +512,8 @@ images/
 # Install dependencies
 npm install
 
-# Add iOS platform
-npx cap add ios
+# Verify production build, smoke test, and production dependency audit
+npm run check
 
 # Sync web files to iOS
 npx cap sync ios

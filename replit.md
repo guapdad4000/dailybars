@@ -4,13 +4,13 @@ The imported app is a static PWA located in `dailybars/`.
 
 ## Run
 
-Use the **Start application** workflow. It serves the app from `dailybars/` on port 5000:
+Use the **Start application** workflow. It creates the production browser build and serves `dailybars/dist/` on port 5000:
 
 ```bash
-cd dailybars && python3 -m http.server 5000 --bind 0.0.0.0
+cd dailybars && npm run build && python3 -m http.server 5000 --bind 0.0.0.0 --directory dist
 ```
 
-The browser app loads its UI libraries from CDNs. It connects to the project’s existing external Supabase service for account and data-sync features; those features require that service to be reachable.
+The production browser build bundles its UI libraries locally. It connects to the project’s existing external Supabase service for account and data-sync features; those features require that service to be reachable.
 
 Native Capacitor dependencies are retained for iOS/Android builds but are not needed for the Replit web preview.
 

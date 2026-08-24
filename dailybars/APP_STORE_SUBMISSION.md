@@ -1,46 +1,50 @@
-# 📱 DAILY RAPS - APP STORE SUBMISSION GUIDE
+# DAILY RAPS - APP STORE SUBMISSION GUIDE
 ## GUAPDAD 4000 EDITION
 
 > Complete guide to shipping Daily Raps to the Apple App Store
 
 ---
 
-## 🚀 QUICK START (TL;DR)
+## QUICK START
 
 ```bash
 # 1. Install dependencies
 npm install
 
-# 2. Add iOS platform
-npx cap add ios
+# 2. Verify production web build
+npm run check
 
-# 3. Sync web files
+# 3. Apply database and Edge Function updates
+supabase db push
+supabase functions deploy dailybars-ai
+supabase functions deploy delete-account
+
+# 4. Sync native app from dist
+npm run build
 npx cap sync ios
 
-# 4. Open in Xcode
+# 5. Open in Xcode, archive, and submit
 npx cap open ios
-
-# 5. Build & Submit in Xcode
-# See detailed steps below
 ```
 
 ---
 
-## 📋 PRE-SUBMISSION CHECKLIST
+## PRE-SUBMISSION CHECKLIST
 
-### ✅ Apple Developer Account
+### Apple Developer Account
 - [ ] Active Apple Developer Program membership ($99/year)
 - [ ] Sign up at: https://developer.apple.com/programs/
 - [ ] Create App Store Connect account
 - [ ] Set up certificates and provisioning profiles
 
-### ✅ App Assets Required
-- [x] App Icon 1024x1024 (icon-1024.png) - **GENERATE THIS**
-- [x] PWA icons (32, 48, 72, 180, 192, 512) - ✅ Already have
-- [ ] Screenshots (required sizes below)
+### App Assets Required
+- [x] App Icon 1024x1024 (`images/icon-1024.png`)
+- [x] PWA icons (32, 48, 72, 180, 192, 512)
+- [x] Draft iPhone 6.7" screenshots in `images/screenshots/`
+- [ ] Final App Store screenshots for every required size below
 - [ ] App Preview videos (optional but recommended)
 
-### ✅ App Store Connect Setup
+### App Store Connect Setup
 - [ ] Create new app in App Store Connect
 - [ ] Bundle ID: `com.guapdad4000.dailyraps`
 - [ ] SKU: `dailyraps-001`
@@ -48,7 +52,7 @@ npx cap open ios
 
 ---
 
-## 📱 REQUIRED SCREENSHOTS
+## REQUIRED SCREENSHOTS
 
 ### iPhone Screenshots (Required)
 | Device | Size | Required |
@@ -77,7 +81,7 @@ npx cap open ios
 
 ---
 
-## 📝 APP STORE METADATA
+## APP STORE METADATA
 
 ### App Name
 ```
@@ -151,7 +155,7 @@ https://dailyraps.app/privacy
 
 ---
 
-## 🎨 GENERATING THE 1024x1024 APP ICON
+## GENERATING THE 1024x1024 APP ICON
 
 Your existing `icon-512.png` needs to be scaled up or recreated at 1024x1024.
 
@@ -177,7 +181,7 @@ Re-export from your original design file at 1024x1024.
 
 ---
 
-## 🔧 BUILD STEPS (DETAILED)
+## BUILD STEPS
 
 ### Step 1: Setup Environment
 ```bash
@@ -192,17 +196,18 @@ npm -v
 sudo gem install cocoapods
 ```
 
-### Step 2: Initialize Capacitor
+### Step 2: Verify and Sync Capacitor
 ```bash
 cd /path/to/dailybars
 
 # Install npm dependencies
 npm install
 
-# Add iOS platform
-npx cap add ios
+# Confirm the app builds without CDN/Babel production dependencies
+npm run check
 
-# Sync your web files to iOS
+# Sync your built web files to iOS
+npm run build
 npx cap sync ios
 ```
 
@@ -219,14 +224,14 @@ In Xcode:
 4. Set Bundle Identifier: `com.guapdad4000.dailyraps`
 5. Check "Automatically manage signing"
 
-### Step 4: Add App Icons in Xcode
+### Step 4: Confirm App Icons in Xcode
 1. In Xcode, open `App/Assets.xcassets`
 2. Select `AppIcon`
-3. Drag your 1024x1024 icon to the slot
-4. Xcode will generate all required sizes
+3. Confirm the 1024x1024 icon is present with no alpha channel
+4. Replace it only if App Store Connect flags the asset
 
-### Step 5: Configure Info.plist
-Add these to `ios/App/App/Info.plist`:
+### Step 5: Confirm Info.plist
+These keys are already present in `ios/App/App/Info.plist`:
 ```xml
 <key>ITSAppUsesNonExemptEncryption</key>
 <false/>
@@ -254,7 +259,7 @@ Add these to `ios/App/App/Info.plist`:
 
 ---
 
-## 🔒 APP REVIEW GUIDELINES
+## APP REVIEW GUIDELINES
 
 ### Common Rejection Reasons & Fixes
 
@@ -266,14 +271,25 @@ Add these to `ios/App/App/Info.plist`:
    - Test thoroughly on real device
    - Check all features work offline
    
-3. **Privacy Policy**
+3. **Privacy Policy / Privacy Manifest**
    - Must have accessible privacy policy
    - Explain data collection clearly
+   - Keep `PrivacyInfo.xcprivacy` in the iOS target and review Xcode's privacy report before upload
    
 4. **Login Issues**
    - Provide demo credentials:
      - Email: `demo@dailyraps.app`
      - Password: `demo123`
+
+5. **Account Deletion**
+   - Verify the profile modal shows DELETE ACCOUNT for the signed-in user
+   - Deploy the `delete-account` Supabase Edge Function
+   - Set `SUPABASE_SERVICE_ROLE_KEY` as an Edge Function secret before submission
+
+6. **User-Generated Content**
+   - Verify community posts include report and block controls
+   - Deploy `supabase/migrations/002_app_store_hardening.sql`
+   - Publish contact info in App Store Connect and the public support channel
 
 ### Demo Account Setup
 Create a demo account for App Review:
@@ -297,13 +313,15 @@ Password: AppReview2024!
 
 ---
 
-## 🚨 IMPORTANT REMINDERS
+## IMPORTANT REMINDERS
 
 1. **Test on Real Device** - Simulator isn't enough
 2. **Check Network Calls** - Ensure Supabase works in native wrapper
 3. **Audio Permissions** - Voice memo needs microphone access
-4. **Offline Support** - Service worker should work within Capacitor
-5. **Safe Areas** - Already handled with `viewport-fit=cover`
+4. **Production Bundle** - App Store builds should load from `dist`, not the Babel/CDN source page
+5. **RevenueCat Keys** - Set iOS/web keys through environment variables, not source code
+6. **Safe Areas** - Already handled with `viewport-fit=cover`
+7. **AI Secrets** - Set `GEMINI_API_KEY` or `OPENAI_API_KEY` as Supabase Edge Function secrets
 
 ---
 
@@ -314,4 +332,4 @@ Password: AppReview2024!
 
 ---
 
-*DAILY RAPS © 2024 | GUAPDAD 4000 EDITION | OAKLAND, CA*
+*DAILY RAPS © 2026 | GUAPDAD 4000 EDITION | OAKLAND, CA*
