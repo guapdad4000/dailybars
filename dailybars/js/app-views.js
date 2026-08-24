@@ -39,7 +39,7 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
                 onPremiumRequired={onPremiumRequired}
                 style={{ background: 'var(--white)' }}
             />
-            
+
             {loading ? (
                 <div style={{ padding: 60, textAlign: 'center' }}>
                     <div className="animate-pulse" style={{ fontSize: 11, letterSpacing: '0.1em', color: 'var(--gray)' }}>LOADING...</div>
@@ -64,7 +64,7 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
                     <div style={{ fontSize: 11, letterSpacing: '0.1em', color: 'var(--gray)' }}>NO BARS YET</div>
                 </div>
             )}
-            
+
             <ImagePreview src={previewImage} onClose={() => setPreviewImage(null)} />
         </div>
     );
@@ -130,6 +130,8 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     const [showCalendar, setShowCalendar] = useState(false);
     const [calendarMonth, setCalendarMonth] = useState(() => new Date());
     const [activeDate, setActiveDate] = useState(() => new Date());
+    const calendarCloseRef = useRef(null);
+    const calendarPreviousFocusRef = useRef(null);
     const featuredArtists = [
         {
             name: 'GUAPDAD 4000',
@@ -159,6 +161,23 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    useEffect(() => {
+        if (!showCalendar) return;
+        calendarPreviousFocusRef.current = document.activeElement;
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            setShowCalendar(false);
+        };
+        const frame = requestAnimationFrame(() => calendarCloseRef.current?.focus());
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            calendarPreviousFocusRef.current?.focus?.();
+        };
+    }, [showCalendar]);
 
     const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
     const calendarYear = calendarMonth.getFullYear();
@@ -336,7 +355,11 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
             </div>
 
             {showCalendar && (
-                <div style={{
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Song calendar"
+                    style={{
                     position: 'fixed',
                     inset: 0,
                     backgroundImage: `url(${backgroundUrl})`,
@@ -425,6 +448,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                 }}>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex - 1, 1))}
+                                        aria-label="Previous month"
                                         style={{
                                             padding: '2% 5%',
                                             borderRadius: 4,
@@ -450,6 +474,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                     </div>
                                     <button
                                         onClick={() => setCalendarMonth(new Date(calendarYear, calendarMonthIndex + 1, 1))}
+                                        aria-label="Next month"
                                         style={{
                                             padding: '2% 5%',
                                             borderRadius: 4,
@@ -583,6 +608,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                             )}
                         </div>
                         <button
+                            ref={calendarCloseRef}
                             onClick={() => setShowCalendar(false)}
                             style={{
                                 alignSelf: 'center',
@@ -945,6 +971,35 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editText, setEditText] = useState(bar?.text || '');
     const toast = useToast();
+    const closeButtonRef = useRef(null);
+    const previousFocusRef = useRef(null);
+    const editingRef = useRef(false);
+
+    useEffect(() => {
+        editingRef.current = isEditing;
+    }, [isEditing]);
+
+    useEffect(() => {
+        previousFocusRef.current = document.activeElement;
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                if (editingRef.current) {
+                    setEditText(bar?.text || '');
+                    setIsEditing(false);
+                } else {
+                    onClose?.();
+                }
+            }
+        };
+        const frame = requestAnimationFrame(() => closeButtonRef.current?.focus());
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocusRef.current?.focus?.();
+        };
+    }, [bar?.id, onClose]);
     
     if (!bar) return null;
     
@@ -953,9 +1008,23 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
         setIsEditing(false);
         toast?.addToast('SAVED', 'success');
     };
+
+    const handleCopy = async () => {
+        const copied = await copyToClipboard(bar.text);
+        if (copied) {
+            toast?.addToast('COPIED', 'success');
+        } else {
+            toast?.addToast('COPY FAILED', 'error');
+        }
+    };
     
     return (
-        <div className="animate-fade-in" style={{
+        <div
+            className="animate-fade-in"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Bar details for ${formatDate(bar.created_at)}`}
+            style={{
             position: 'fixed', inset: 0, background: 'var(--paper)', zIndex: 100,
             display: 'flex', flexDirection: 'column'
         }}>
@@ -971,7 +1040,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                 borderBottom: '2px solid var(--black)',
                 background: 'var(--paper)'
             }}>
-                <button onClick={onClose} style={{ 
+                <button ref={closeButtonRef} onClick={onClose} aria-label="Close bar details" style={{
                     zIndex: 11, 
                     padding: 8,
                     minWidth: 44,
@@ -983,7 +1052,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     <Icon name="ArrowLeft" size={24} />
                 </button>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.1em' }}>VIEW</span>
-                <button onClick={() => onFavorite(bar.id, !bar.isFavorite)} style={{
+                <button onClick={() => onFavorite(bar.id, !bar.isFavorite)} aria-label={bar.isFavorite ? 'Remove from favorites' : 'Add to favorites'} style={{
                     zIndex: 11,
                     padding: 8,
                     minWidth: 44,
@@ -995,7 +1064,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     <Icon name="Star" size={24} />
                 </button>
             </div>
-            
+
             <div className="scrollable" style={{ 
                 flex: 1,
                 overflowY: 'auto',
@@ -1025,6 +1094,15 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     ) : (
                         <div 
                             onClick={() => setIsEditing(true)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    setIsEditing(true);
+                                }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Edit bar text"
                             className="font-serif inline-edit"
                             style={{ fontSize: 20, lineHeight: 1.6, whiteSpace: 'pre-wrap', padding: 8, margin: -8 }}
                         >
@@ -1065,7 +1143,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     )}
                 </div>
             </div>
-            
+
             <div style={{ 
                 borderTop: '2px solid var(--black)', 
                 padding: '16px 16px max(16px, env(safe-area-inset-bottom))', 
@@ -1097,7 +1175,7 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                     </>
                 ) : (
                     <>
-                        <button onClick={() => { copyToClipboard(bar.text); toast?.addToast('COPIED', 'success'); }} style={{
+                        <button onClick={handleCopy} aria-label="Copy bar text" style={{
                             flex: 1, 
                             padding: 14,
                             minHeight: 48,
@@ -1110,7 +1188,12 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
                             justifyContent: 'center', 
                             gap: 8
                         }}><Icon name="Copy" size={16} /> COPY</button>
-                        <button onClick={() => { onDelete(bar.id); onClose(); }} style={{
+                        <button onClick={() => {
+                            if (window.confirm('Delete this bar permanently?')) {
+                                onDelete(bar.id);
+                                onClose();
+                            }
+                        }} aria-label="Delete bar" style={{
                             padding: 14,
                             minWidth: 48,
                             minHeight: 48,
@@ -1280,22 +1363,24 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
         onAIUse?.();
         setAiLoading(true);
-        const context = blocks.filter(b => b.type === 'text').map(b => b.content).join('\n');
-        
-        const prompts = {
-            freestyle: `Write 4-8 bars of lyrics about success and Oakland. Context:\n${context}`,
-            next: `Write the next 4 bars continuing from this:\n${context}`,
-            hook: `Write a catchy hook for this song. Context:\n${context}`,
-            bridge: `Write a bridge section for this song. Context:\n${context}`
-        };
-        
-        const result = await callAI(prompts[mode]);
-        
-        if (result) {
+        try {
+            const context = blocks.filter(b => b.type === 'text').map(b => b.content).join('\n');
+            const prompts = {
+                freestyle: `Write 4-8 bars of lyrics about success and Oakland. Context:\n${context}`,
+                next: `Write the next 4 bars continuing from this:\n${context}`,
+                hook: `Write a catchy hook for this song. Context:\n${context}`,
+                bridge: `Write a bridge section for this song. Context:\n${context}`
+            };
+            const result = await callAI(prompts[mode]);
+            if (!result) throw new Error('No AI response');
             setBlocks(prev => [...prev, { id: generateId(), type: 'text', content: result, source: 'ai' }]);
             toast?.addToast('GENERATED', 'success');
+        } catch (error) {
+            console.error('Track Editor AI failed:', error);
+            toast?.addToast('AI GENERATION FAILED', 'error');
+        } finally {
+            setAiLoading(false);
         }
-        setAiLoading(false);
     };
 
     const handleWordDoubleTap = useCallback(({ word, position, blockIndex }) => {
@@ -4056,6 +4141,7 @@ const SafeComponent = () => {
 const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile }) => {
     const [tab, setTab] = useState('vault'); // 'vault' (Prompts) or 'free_game' (Bars) or 'courses'
     const [loading, setLoading] = useState(false);
+    const [feedError, setFeedError] = useState('');
     const [feed, setFeed] = useState([]);
     const [promptText, setPromptText] = useState('');
     const [submitting, setSubmission] = useState(false);
@@ -4079,44 +4165,46 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
     const loadFeed = async () => {
         if (tab === 'courses') {
             setFeed([]);
+            setFeedError('');
             setLoading(false);
             return;
         }
 
         setLoading(true);
-        const data = await window.DailyDepositEngine.getSyndicateFeed();
-
-        let blockedSet = blockedAuthors;
-        if (user?.id) {
-            const blocked = await window.DailyDepositEngine.getBlockedAuthors(user.id);
-            blockedSet = new Set(blocked);
-            setBlockedAuthors(blockedSet);
+        setFeedError('');
+        try {
+            const data = await window.DailyDepositEngine.getSyndicateFeed();
+            let blockedSet = blockedAuthors;
+            if (user?.id) {
+                const blocked = await window.DailyDepositEngine.getBlockedAuthors(user.id);
+                blockedSet = new Set(blocked);
+                setBlockedAuthors(blockedSet);
+            }
+            const filtered = data.filter(post => {
+                const authorKey = (post.author || '').trim().toLowerCase();
+                if (authorKey && blockedSet.has(authorKey)) return false;
+                if (tab === 'vault') return post.submission_type === 'PROMPT' || !post.submission_type;
+                if (tab === 'free_game') return post.submission_type === 'VERSE';
+                return true;
+            });
+            setFeed(filtered);
+            if (user?.id && filtered.length > 0) {
+                const voteResults = await Promise.allSettled(
+                    filtered.map(post => window.DailyDepositEngine.hasUpvoted(post.id, user.id))
+                );
+                const upvotedSet = new Set();
+                voteResults.forEach((result, index) => {
+                    if (result.status === 'fulfilled' && result.value) upvotedSet.add(filtered[index].id);
+                });
+                setUpvotedPosts(upvotedSet);
+            }
+        } catch (error) {
+            console.error('Failed to load Syndicate feed:', error);
+            setFeed([]);
+            setFeedError('COULDN’T LOAD THE SYNDICATE.');
+        } finally {
+            setLoading(false);
         }
-        
-        // Filter based on tab
-        const filtered = data.filter(post => {
-            const authorKey = (post.author || '').trim().toLowerCase();
-            if (authorKey && blockedSet.has(authorKey)) return false;
-            if (tab === 'vault') return post.submission_type === 'PROMPT' || !post.submission_type; // Legacy assumes PROMPT
-            if (tab === 'free_game') return post.submission_type === 'VERSE';
-            return true;
-        });
-        
-        setFeed(filtered);
-        
-        // Load upvote status for each post
-        if (user?.id && filtered.length > 0) {
-            const upvotedSet = new Set();
-            await Promise.all(filtered.map(async (post) => {
-                const hasVoted = await window.DailyDepositEngine.hasUpvoted(post.id, user.id);
-                if (hasVoted) {
-                    upvotedSet.add(post.id);
-                }
-            }));
-            setUpvotedPosts(upvotedSet);
-        }
-        
-        setLoading(false);
     };
 
     const loadCoursesFromStorage = useCallback(() => {
@@ -4160,7 +4248,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
             toast?.addToast('PROMPT SUBMITTED +50 XP', 'success');
             if (onAction) onAction(50, 'PROMPT SUBMITTED');
             setPromptText('');
-            loadFeed();
+            await loadFeed();
         } catch (err) {
             toast?.addToast('SUBMISSION FAILED', 'error');
         }
@@ -4362,6 +4450,11 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
                             <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
                                 <div style={{ fontSize: 10, letterSpacing: '0.1em' }}>LOADING VAULT...</div>
                             </div>
+                        ) : feedError ? (
+                            <div role="alert" style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.94)', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, letterSpacing: '0.1em', marginBottom: 12 }}>{feedError}</div>
+                                <button onClick={loadFeed} style={{ padding: '8px 12px', border: '1px solid var(--black)', fontSize: 10, fontWeight: 700 }}>TRY AGAIN</button>
+                            </div>
                         ) : feed.length === 0 ? (
                             <div style={{ textAlign: 'center', padding: 20, background: 'rgba(255,255,255,0.8)', borderRadius: 8 }}>
                                 <div style={{ fontSize: 10, letterSpacing: '0.1em', opacity: 0.5 }}>VAULT IS EMPTY</div>
@@ -4547,6 +4640,11 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
                     
                     {loading ? (
                         <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>LOADING FEED...</div>
+                    ) : feedError ? (
+                        <div role="alert" style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>
+                            <div style={{ marginBottom: 12 }}>{feedError}</div>
+                            <button onClick={loadFeed} style={{ padding: '8px 12px', border: '1px solid var(--white)', color: 'var(--white)', background: 'transparent', fontSize: 10, fontWeight: 700 }}>TRY AGAIN</button>
+                        </div>
                     ) : feed.length === 0 ? (
                         <div style={{ padding: 40, textAlign: 'center', color: 'var(--white)', fontSize: 10, position: 'relative', zIndex: 1 }}>NO FREE GAME YET</div>
                     ) : (

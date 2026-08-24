@@ -578,10 +578,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
             // Mobile-optimized constraints - Safari/iOS needs simpler constraints
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+            const isIOSDevice = /iPhone|iPad|iPod/i.test(navigator.userAgent);
             
             let constraints;
-            if (isIOS) {
+            if (isIOSDevice) {
                 // iOS Safari needs minimal constraints but we can try deviceId if specific one selected
                 // Note: iOS often overrides this anyway, but worth a shot if multiple inputs exist
                 constraints = { 
@@ -702,11 +702,26 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 }
             };
             
+            const releaseRecordingResources = () => {
+                if (animationFrame.current) {
+                    cancelAnimationFrame(animationFrame.current);
+                    animationFrame.current = null;
+                }
+                if (mediaStream.current) {
+                    mediaStream.current.getTracks().forEach(track => track.stop());
+                    mediaStream.current = null;
+                }
+                stopAllAudio();
+                setSessionActive(false);
+                setIsRecording(false);
+            };
+
             // Handle recording errors
             mediaRecorder.current.onerror = (event) => {
                 console.error('[ScratchLab] MediaRecorder error:', event.error);
                 alert('Recording error: ' + (event.error?.message || 'Unknown error'));
                 recordingActive = false;
+                releaseRecordingResources();
             };
             
             mediaRecorder.current.onstop = async () => {
@@ -722,6 +737,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 if (audioChunks.current.length === 0) {
                     console.error('[ScratchLab] No audio data recorded!');
                     alert('No audio was recorded. Please check microphone permissions and try again.');
+                    releaseRecordingResources();
                     return;
                 }
                 
@@ -737,6 +753,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 if (audioBlob.size < 100) {
                     console.error('[ScratchLab] Audio blob too small');
                     alert('Recording appears to be empty. Microphone might be muted or blocked.');
+                    releaseRecordingResources();
                     return;
                 }
                 
@@ -821,10 +838,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 }
                 
                 // Stop stream
-                if (mediaStream.current) {
-                    mediaStream.current.getTracks().forEach(track => track.stop());
-                    mediaStream.current = null;
-                }
+                releaseRecordingResources();
             };
             
             // Start recording WITH playback (Overdubbing)
@@ -844,6 +858,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
         } catch (err) {
             console.error('[ScratchLab] Microphone access error:', err);
+            if (animationFrame.current) {
+                cancelAnimationFrame(animationFrame.current);
+                animationFrame.current = null;
+            }
+            if (beatSourceNode.current?.source) {
+                try { beatSourceNode.current.source.stop(); } catch (_) {}
+                beatSourceNode.current = null;
+            }
+            if (mediaStream.current) {
+                mediaStream.current.getTracks().forEach(track => track.stop());
+                mediaStream.current = null;
+            }
+            stopAllAudio();
+            setSessionActive(false);
+            setIsRecording(false);
             
             // Provide helpful error messages for different error types
             let errorMessage = 'Microphone access is required for recording.\n\n';
@@ -1894,16 +1923,41 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                 // await api.create('scratch_layers', layerData);
             }
             
-            // LOCAL STORAGE SAVE
-            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
-            localSessions.push(sessionData);
-            localStorage.setItem('scratch_sessions_local', JSON.stringify(localSessions));
+            // Device-local saves are intentional until a configured storage bucket is available.
+            // Prepare both payloads before writing. If the second write hits quota,
+            // restore the first key so a failed save does not leave orphan metadata.
+            let localSessions;
+            let localLayers;
+            const previousSessionsPayload = localStorage.getItem('scratch_sessions_local');
+            const previousLayersPayload = localStorage.getItem('scratch_layers_local');
+            try {
+                const storedSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
+                const storedLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
+                localSessions = Array.isArray(storedSessions) ? [...storedSessions, sessionData] : [sessionData];
+                localLayers = Array.isArray(storedLayers) ? [...storedLayers, ...savedLayers] : savedLayers;
+            } catch (storageError) {
+                throw new Error('Saved Scratch Lab data on this device is unreadable. Clear its local data before saving again.');
+            }
+
+            const sessionsPayload = JSON.stringify(localSessions);
+            const layersPayload = JSON.stringify(localLayers);
+            try {
+                localStorage.setItem('scratch_sessions_local', sessionsPayload);
+                localStorage.setItem('scratch_layers_local', layersPayload);
+            } catch (storageError) {
+                try {
+                    if (previousSessionsPayload === null) {
+                        localStorage.removeItem('scratch_sessions_local');
+                    } else {
+                        localStorage.setItem('scratch_sessions_local', previousSessionsPayload);
+                    }
+                } catch (rollbackError) {
+                    console.error('Could not roll back local Scratch Lab session metadata:', rollbackError);
+                }
+                throw new Error('This recording is too large for device-local storage. Export it or shorten the recording, then try again.');
+            }
             
-            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
-            localLayers.push(...savedLayers);
-            localStorage.setItem('scratch_layers_local', JSON.stringify(localLayers));
-            
-            alert(`Session "${sessionTitle}" saved successfully! (Local Storage)`);
+            alert(`Session "${sessionTitle}" saved on this device.`);
             setShowSaveModal(false);
             
             // Reload saved sessions list
@@ -1911,7 +1965,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
             
         } catch (err) {
             console.error('Error saving session:', err);
-            alert('Failed to save session. Please try again.');
+            alert(err.message || 'Failed to save session. Please try again.');
         } finally {
             setIsSaving(false);
         }

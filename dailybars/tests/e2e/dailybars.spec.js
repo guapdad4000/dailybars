@@ -145,7 +145,8 @@ test.describe('bar creation, editing, and failure recovery', () => {
     await expect(savedBar).toBeVisible();
     expect(state.writes.filter((write) => write.method === 'POST' && write.table === 'bars')).toHaveLength(1);
 
-    await savedBar.locator('.inline-edit').click();
+    await savedBar.locator('.inline-edit').focus();
+    await page.keyboard.press('Enter');
     await page.locator('textarea').fill('Edited draft from the Town');
     await page.locator('textarea').press('Tab');
     await expect(page.locator('article').filter({ hasText: 'Edited draft from the Town' })).toBeVisible();
@@ -189,5 +190,62 @@ test.describe('modal and mobile keyboard paths', () => {
       await expect(page.getByText('#mobile')).toBeVisible();
     }
     await expect(editor).toHaveValue('Mobile draft');
+  });
+
+  test('Daily Drop recovers from a failed refresh without accepting an empty prompt', async ({ page }) => {
+    await startQaSession(page);
+    await page.evaluate(() => {
+      let calls = 0;
+      window.DailyDepositEngine.generatePrompt = () => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('offline test'));
+        return Promise.resolve({
+          type: 'DAILY DEPOSIT',
+          prompt: 'Write from the recovered connection.',
+          challenge: 'Use resilience.',
+          vocab: ['resilience'],
+        });
+      };
+    });
+    await page.getByRole('button', { name: 'Daily Drop - Get Inspired' }).click({ force: true });
+    await page.getByRole('button', { name: /SHUFFLE/i }).click();
+    await expect(page.getByText('COULDN’T MIX A PROMPT. TRY AGAIN.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /USE THIS/i })).toBeDisabled();
+    await page.getByRole('button', { name: /TRY AGAIN/i }).click();
+    await expect(page.getByText('Write from the recovered connection.')).toBeVisible();
+    await expect(page.getByRole('button', { name: /USE THIS/i })).toBeEnabled();
+  });
+
+  test('Syndicate shows a retry state when its feed request rejects', async ({ page }) => {
+    await startQaSession(page);
+    await page.evaluate(() => {
+      let calls = 0;
+      window.DailyDepositEngine.getSyndicateFeed = () => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('offline test'));
+        return Promise.resolve([{
+          id: 'recovered-post',
+          prompt_text: 'Recovered community drop',
+          author: 'qa',
+          likes: 0,
+          submission_type: 'PROMPT',
+        }]);
+      };
+    });
+    await page.getByRole('button', { name: 'Go to SYNDICATE' }).click();
+    await expect(page.getByText('COULDN’T LOAD THE SYNDICATE.')).toBeVisible();
+    await page.getByRole('button', { name: 'TRY AGAIN' }).click();
+    await expect(page.getByText('Recovered community drop')).toBeVisible();
+  });
+
+  test('Escape closes the calendar and restores its trigger focus', async ({ page }) => {
+    await startQaSession(page);
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    const calendarTrigger = page.getByRole('button', { name: 'Open calendar view' });
+    await calendarTrigger.click();
+    await expect(page.getByRole('dialog', { name: 'Song calendar' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog', { name: 'Song calendar' })).toBeHidden();
+    await expect(calendarTrigger).toBeFocused();
   });
 });

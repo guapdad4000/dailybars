@@ -237,10 +237,10 @@ const callAI = async (prompt, systemPrompt) => {
             }
         });
         if (error) throw error;
-        return data?.text || data?.content || "Couldn't generate. Try again.";
+        return data?.text || data?.content || null;
     } catch (error) {
         console.error('AI Error:', error);
-        return "AI unavailable. Try again.";
+        return null;
     }
 };
 
@@ -1081,21 +1081,35 @@ const useSwipe = (onSwipeLeft, onSwipeRight, threshold = 80) => {
     const touchStart = useRef({ x: 0, y: 0 });
     const touchEnd = useRef({ x: 0, y: 0 });
     const swiping = useRef(false);
+    const touchId = useRef(null);
+
+    const resetTouch = () => {
+        touchStart.current = { x: 0, y: 0 };
+        touchEnd.current = { x: 0, y: 0 };
+        touchId.current = null;
+        swiping.current = false;
+    };
     
     const onTouchStart = (e) => {
         const target = e.target;
-        if (target?.closest?.('input, textarea, select, button, a, [contenteditable="true"], audio, video')) {
-            swiping.current = false;
+        if (e.touches.length !== 1 || target?.closest?.('input, textarea, select, button, a, [contenteditable="true"], audio, video')) {
+            resetTouch();
             return;
         }
         touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         touchEnd.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        touchId.current = e.touches[0].identifier;
         swiping.current = false;
     };
     
     const onTouchMove = (e) => {
-        if (!touchStart.current.x && !touchStart.current.y) return;
-        touchEnd.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        if (touchId.current === null || e.touches.length !== 1) {
+            resetTouch();
+            return;
+        }
+        const touch = [...e.touches].find(item => item.identifier === touchId.current);
+        if (!touch) return;
+        touchEnd.current = { x: touch.clientX, y: touch.clientY };
         const dx = Math.abs(touchEnd.current.x - touchStart.current.x);
         const dy = Math.abs(touchEnd.current.y - touchStart.current.y);
         if (dx > dy && dx > 20) swiping.current = true;
@@ -1103,16 +1117,17 @@ const useSwipe = (onSwipeLeft, onSwipeRight, threshold = 80) => {
     };
     
     const onTouchEnd = () => {
-        if (!swiping.current) return;
+        if (!swiping.current) {
+            resetTouch();
+            return;
+        }
         const dx = touchStart.current.x - touchEnd.current.x;
         if (Math.abs(dx) > threshold) {
             haptic('light');
             if (dx > 0) onSwipeLeft?.();
             else onSwipeRight?.();
         }
-        touchStart.current = { x: 0, y: 0 };
-        touchEnd.current = { x: 0, y: 0 };
-        swiping.current = false;
+        resetTouch();
     };
     
     return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: onTouchEnd };
@@ -1189,20 +1204,29 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [currentPrompt, setCurrentPrompt] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [promptError, setPromptError] = useState('');
     const [hasUsedToday, setHasUsedToday] = useState(false);
     const toast = useToast();
+
+    const loadPrompt = async () => {
+        setLoading(true);
+        setPromptError('');
+        try {
+            const prompt = await window.DailyDepositEngine.generatePrompt();
+            if (!prompt?.prompt) throw new Error('No prompt returned');
+            setCurrentPrompt(prompt);
+        } catch (error) {
+            console.error('Daily Drop generation failed:', error);
+            setCurrentPrompt(null);
+            setPromptError('COULDN’T MIX A PROMPT. TRY AGAIN.');
+        } finally {
+            setLoading(false);
+        }
+    };
     
     // Initial Load
     useEffect(() => {
-        const loadInitial = async () => {
-            if (!currentPrompt) {
-                setLoading(true);
-                const prompt = await window.DailyDepositEngine.generatePrompt();
-                setCurrentPrompt(prompt);
-                setLoading(false);
-            }
-        };
-        loadInitial();
+        loadPrompt();
         
         const today = new Date().toDateString();
         const lastUsed = localStorage.getItem('dailydrop_last_used');
@@ -1221,14 +1245,15 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
     };
     
     const handleShuffle = async () => {
-        setLoading(true);
         haptic('light');
-        const newPrompt = await window.DailyDepositEngine.generatePrompt();
-        setCurrentPrompt(newPrompt);
-        setLoading(false);
+        await loadPrompt();
     };
     
     const handleUsePrompt = () => {
+        if (loading || !currentPrompt?.prompt) {
+            toast?.addToast('WAIT FOR A PROMPT FIRST', 'error');
+            return;
+        }
         const today = new Date().toDateString();
         localStorage.setItem('dailydrop_last_used', today);
         setHasUsedToday(true);
@@ -1323,10 +1348,15 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
                         
                         {/* Content */}
                         <div className="daily-drop-content">
-                            {loading || !currentPrompt ? (
+                            {loading ? (
                                 <div style={{ padding: 40, textAlign: 'center' }}>
                                     <span className="animate-spin" style={{ display: 'inline-block', fontSize: 24 }}>⟳</span>
                                     <div style={{ fontSize: 10, marginTop: 10, letterSpacing: '0.1em' }}>MIXING INGREDIENTS...</div>
+                                </div>
+                            ) : promptError ? (
+                                <div role="alert" style={{ padding: 40, textAlign: 'center' }}>
+                                    <div style={{ fontSize: 10, letterSpacing: '0.1em', marginBottom: 16 }}>{promptError}</div>
+                                    <button onClick={loadPrompt} className="daily-drop-btn daily-drop-btn-secondary">TRY AGAIN</button>
                                 </div>
                             ) : (
                                 <>
@@ -1368,6 +1398,7 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
                         <div className="daily-drop-footer">
                             <button 
                                 onClick={handleShuffle}
+                                disabled={loading}
                                 className="daily-drop-btn daily-drop-btn-secondary"
                             >
                                 <Icon name="Shuffle" size={14} style={{ marginRight: 6 }} />
@@ -1375,6 +1406,7 @@ const DailyDropWidget = ({ onUsePrompt, isHeaderMode = false }) => {
                             </button>
                             <button 
                                 onClick={handleUsePrompt}
+                                disabled={loading || !currentPrompt?.prompt}
                                 className="daily-drop-btn daily-drop-btn-primary"
                             >
                                 <Icon name="Zap" size={14} style={{ marginRight: 6, color: 'var(--white)' }} />
@@ -2272,6 +2304,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                         </div>
                         <button 
                             onClick={() => onFavorite(bar.id, !bar.isFavorite)}
+                            aria-label={bar.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                             style={{ color: bar.isFavorite ? 'var(--black)' : 'var(--light-gray)' }}
                         >
                             <Icon name="Star" size={14} />
@@ -2299,6 +2332,15 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                     ) : (
                         <div 
                             onClick={handleTextClick}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    handleTextClick();
+                                }
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Edit bar text"
                             className="inline-edit font-mono"
                             style={{
                                 flex: 1,
@@ -2336,7 +2378,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                                 }}>#{tag}</span>
                             ))}
                         </div>
-                        <button onClick={() => onDelete(bar.id)} style={{ color: 'var(--gray)' }}>
+                        <button onClick={() => onDelete(bar.id)} aria-label="Delete bar" style={{ color: 'var(--gray)' }}>
                             <Icon name="Trash2" size={12} />
                         </button>
                     </div>
@@ -2377,6 +2419,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                 </div>
                 <button 
                     onClick={() => onFavorite(bar.id, !bar.isFavorite)}
+                    aria-label={bar.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                     style={{ color: bar.isFavorite ? 'var(--black)' : 'var(--light-gray)' }}
                 >
                     <Icon name="Star" size={16} />
@@ -2404,6 +2447,15 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
             ) : (
                 <div
                     onClick={handleTextClick}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            handleTextClick();
+                        }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={showAddCaptionCta ? 'Add a caption to this voice note' : 'Edit bar text'}
                     className="inline-edit font-serif"
                     style={{
                         fontSize: 18,
@@ -2491,7 +2543,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
                         </button>
                     )}
                 </div>
-                <button onClick={() => onDelete(bar.id)} style={{ color: 'var(--gray)' }}>
+                        <button onClick={() => onDelete(bar.id)} aria-label="Delete bar" style={{ color: 'var(--gray)' }}>
                     <Icon name="Trash2" size={14} />
                 </button>
             </div>
@@ -2814,16 +2866,23 @@ const QuickInput = ({
         }
         onAIUse?.();
         setAiLoading(true);
-        const prompts = {
-            freestyle: `Freestyle 4-6 bars about: ${text || 'success and the Bay Area lifestyle'}`,
-            expand: `Expand these bars into 4-6 lines:\n\n${text}`,
-            rhyme: `Write 4 bars that rhyme with:\n\n${text}`,
-            hook: `Write a catchy hook about: ${text || 'making it out'}`
-        };
-        const result = await callAI(prompts[mode]);
-        setText(prev => prev + (prev ? '\n\n' : '') + result);
-        setAiLoading(false);
-        toast?.addToast('GENERATED', 'success');
+        try {
+            const prompts = {
+                freestyle: `Freestyle 4-6 bars about: ${text || 'success and the Bay Area lifestyle'}`,
+                expand: `Expand these bars into 4-6 lines:\n\n${text}`,
+                rhyme: `Write 4 bars that rhyme with:\n\n${text}`,
+                hook: `Write a catchy hook about: ${text || 'making it out'}`
+            };
+            const result = await callAI(prompts[mode]);
+            if (!result) throw new Error('No AI response');
+            setText(prev => prev + (prev ? '\n\n' : '') + result);
+            toast?.addToast('GENERATED', 'success');
+        } catch (error) {
+            console.error('Quick input AI failed:', error);
+            toast?.addToast('AI GENERATION FAILED', 'error');
+        } finally {
+            setAiLoading(false);
+        }
     };
     
     const handleRecordToggle = async () => {
@@ -3340,7 +3399,7 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
     const [trophies, setTrophies] = useState([]);
     const [userTrophies, setUserTrophies] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedTrophies, setSelectedTrophies] = useState(user?.selectedTrophies || []);
+    const [selectedTrophies, setSelectedTrophies] = useState(user?.selectedTrophies ?? user?.selected_trophies ?? []);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const modalRef = useRef(null);
     const previousFocusRef = useRef(null);
@@ -3364,6 +3423,10 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
     useEffect(() => {
         loadTrophies();
     }, [user]);
+
+    useEffect(() => {
+        setSelectedTrophies(user?.selectedTrophies ?? user?.selected_trophies ?? []);
+    }, [user?.id, user?.selectedTrophies, user?.selected_trophies]);
 
     const loadTrophies = async () => {
         if (!user) return;
