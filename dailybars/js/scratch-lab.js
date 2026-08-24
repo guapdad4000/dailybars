@@ -197,8 +197,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // Supabase session state
     const [sessionTitle, setSessionTitle] = useState('Untitled Session');
     const [savedSessions, setSavedSessions] = useState([]);
+    const [sessionLoadError, setSessionLoadError] = useState('');
     const [showLoadModal, setShowLoadModal] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [beatStoragePath, setBeatStoragePath] = useState(null);
 
     // Helper to generate IDs
     const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -1474,6 +1476,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         
         setBeatFile(file);
         setBeat(file.name);
+        setBeatStoragePath(null);
         
         try {
             const arrayBuffer = await file.arrayBuffer();
@@ -1826,43 +1829,93 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     // SUPABASE INTEGRATION
     // ============================================================================
     
-    // Upload audio blob to Supabase Storage (Mocked for LocalStorage fallback)
-    const uploadAudioToStorage = async (audioBlob, filename) => {
-        try {
-            // Try Supabase first (will fail if bucket missing)
-            /*
-            const { data, error } = await window.supabase.storage
-                .from('scratch-lab')
-                .upload(`${user.username}/${filename}`, audioBlob, {
-                    contentType: 'audio/webm',
-                    upsert: false
-                });
-            
-            if (error) throw error;
-            
-            const { data: urlData } = window.supabase.storage
-                .from('scratch-lab')
-                .getPublicUrl(`${user.username}/${filename}`);
-            
-            return urlData.publicUrl;
-            */
-           
-            // LocalStorage Fallback: Convert to Base64
-            // Note: This is heavy for localStorage but works for small clips in dev
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(audioBlob);
+    const createStorageId = () => {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    };
+
+    const getAudioExtension = (contentType = '') => ({
+        'audio/mp4': 'm4a',
+        'audio/mpeg': 'mp3',
+        'audio/wav': 'wav',
+        'audio/x-wav': 'wav',
+        'audio/ogg': 'ogg',
+        'audio/aac': 'aac',
+        'audio/webm': 'webm',
+        'audio/flac': 'flac'
+    })[contentType.split(';')[0].toLowerCase()] || 'webm';
+
+    const storagePathFor = (authUserId, sessionId, name, contentType) =>
+        `${authUserId}/${sessionId}/${name}.${getAudioExtension(contentType)}`;
+
+    const uploadAudioToStorage = async (audioBlob, storagePath) => {
+        if (!window.supabase?.storage) {
+            throw new Error('Cloud storage is not available. Please sign in again and try saving.');
+        }
+
+        const { error } = await window.supabase.storage
+            .from('scratch-lab')
+            .upload(storagePath, audioBlob, {
+                contentType: audioBlob.type || 'audio/webm',
+                upsert: false
             });
 
-        } catch (err) {
-            console.error('Error uploading audio:', err);
-            throw err;
+        if (error) {
+            const message = error.message || 'Unknown storage error';
+            if (/size|large|quota|limit|payload|413/i.test(message)) {
+                throw new Error('This recording is too large for your Scratch Lab cloud storage. Shorten the recording or remove a layer, then try again.');
+            }
+            throw new Error(`Scratch Lab cloud storage failed: ${message}`);
+        }
+
+        return storagePath;
+    };
+
+    const removeUploadedAudio = async (storagePaths) => {
+        if (!storagePaths.length || !window.supabase?.storage) return;
+        const { error } = await window.supabase.storage.from('scratch-lab').remove(storagePaths);
+        if (error) {
+            console.warn('[ScratchLab] Could not clean up failed save uploads:', error.message);
         }
     };
-    
-    // Save session to Supabase (Mocked for LocalStorage fallback)
+
+    const wasSessionCommitted = async (sessionId) => {
+        try {
+            const { data, error } = await window.supabase
+                .from('scratch_sessions')
+                .select('id')
+                .eq('id', sessionId)
+                .maybeSingle();
+            if (error) {
+                console.warn('[ScratchLab] Could not verify cloud save status:', error.message);
+                return null;
+            }
+            return Boolean(data);
+        } catch (error) {
+            console.warn('[ScratchLab] Could not verify cloud save status:', error);
+            return null;
+        }
+    };
+
+    const getStorageDownloadUrl = async (storagePath) => {
+        if (!storagePath) return null;
+        // Keep old public URLs/data URLs readable while new saves use private paths.
+        if (/^(https?:|data:|blob:)/i.test(storagePath)) return storagePath;
+
+        const { data, error } = await window.supabase.storage
+            .from('scratch-lab')
+            .createSignedUrl(storagePath, 60 * 60);
+        if (error || !data?.signedUrl) {
+            throw new Error(`Could not download Scratch Lab audio: ${error?.message || 'signed URL unavailable'}`);
+        }
+        return data.signedUrl;
+    };
+
+    // Save session metadata only after all audio is in managed storage.
     const saveSessionToSupabase = async () => {
         if (layers.length === 0) {
             alert('No layers to save!');
@@ -1870,198 +1923,209 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
         }
         
         setIsSaving(true);
+        const uploadedStoragePaths = [];
+        let sessionId = null;
+        let metadataSaveStarted = false;
         
         try {
-            const sessionId = generateId(); // Use local ID generator
-            
-            // 1. Create session record
-            const sessionData = {
-                id: sessionId,
-                username: user.username,
-                user_id: user.id,
-                title: sessionTitle,
-                beat_url: beat || null,
-                beat_title: beatFile?.name || null,
-                created_at: new Date().toISOString()
-            };
-            
-            /*
-            const { data: session, error: sessionError } = await api.create('scratch_sessions', sessionData);
-            if (sessionError) throw sessionError;
-            */
-            
-            // 2. Upload each layer and save metadata
+            const { data: authData, error: authError } = await window.supabase.auth.getUser();
+            const authUser = authData?.user;
+            if (authError || !authUser || !user?.id) {
+                throw new Error('You must be signed in to save Scratch Lab sessions to the cloud.');
+            }
+
+            sessionId = createStorageId();
+            let savedBeatPath = beatStoragePath || null;
+
+            // Upload the beat too: a local File cannot be decoded after switching devices.
+            if (beatFile) {
+                savedBeatPath = storagePathFor(
+                    authUser.id,
+                    sessionId,
+                    'beat',
+                    beatFile.type || 'audio/webm'
+                );
+                uploadedStoragePaths.push(savedBeatPath);
+                await uploadAudioToStorage(beatFile, savedBeatPath);
+            }
+
+            // Upload every layer before creating any database rows.
             const savedLayers = [];
             
             for (let i = 0; i < layers.length; i++) {
                 const layer = layers[i];
-                
-                // Convert audioUrl blob to actual blob for upload
                 const response = await fetch(layer.audioUrl);
+                if (!response.ok) throw new Error(`Could not read recording layer ${i + 1} before upload.`);
                 const audioBlob = await response.blob();
-                
-                // Upload audio file (returns Base64 in fallback)
-                const filename = `${sessionId}_layer_${i + 1}_${Date.now()}.webm`;
-                const audioUrl = await uploadAudioToStorage(audioBlob, filename);
-                
-                // Save layer metadata
-                const layerData = {
-                    id: generateId(),
-                    session_id: sessionId,
+
+                const storagePath = storagePathFor(
+                    authUser.id,
+                    sessionId,
+                    `layer-${i + 1}`,
+                    audioBlob.type || 'audio/webm'
+                );
+                uploadedStoragePaths.push(storagePath);
+                await uploadAudioToStorage(audioBlob, storagePath);
+
+                savedLayers.push({
                     layer_number: layers.length - i, // Newest = 1
-                    audio_url: audioUrl,
-                    waveform_data: layer.waves,
-                    volume: layer.volume,
+                    audio_url: storagePath,
+                    waveform_data: Array.isArray(layer.waves) ? layer.waves : [],
+                    volume: Number.isFinite(Number(layer.volume)) ? Number(layer.volume) : 80,
                     pan: layer.pan || 0,
                     muted: layer.muted || false,
                     solo: layer.solo || false,
-                    duration_seconds: layer.audioBuffer.duration,
-                    created_at: new Date().toISOString()
-                };
-                
-                savedLayers.push(layerData);
-                // await api.create('scratch_layers', layerData);
-            }
-            
-            // Device-local saves are intentional until a configured storage bucket is available.
-            // Prepare both payloads before writing. If the second write hits quota,
-            // restore the first key so a failed save does not leave orphan metadata.
-            let localSessions;
-            let localLayers;
-            const previousSessionsPayload = localStorage.getItem('scratch_sessions_local');
-            const previousLayersPayload = localStorage.getItem('scratch_layers_local');
-            try {
-                const storedSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
-                const storedLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
-                localSessions = Array.isArray(storedSessions) ? [...storedSessions, sessionData] : [sessionData];
-                localLayers = Array.isArray(storedLayers) ? [...storedLayers, ...savedLayers] : savedLayers;
-            } catch (storageError) {
-                throw new Error('Saved Scratch Lab data on this device is unreadable. Clear its local data before saving again.');
+                    duration_seconds: layer.audioBuffer?.duration || 0,
+                    time_shift: Number.isFinite(Number(layer.timeShift)) ? Number(layer.timeShift) : 0
+                });
             }
 
-            const sessionsPayload = JSON.stringify(localSessions);
-            const layersPayload = JSON.stringify(localLayers);
-            try {
-                localStorage.setItem('scratch_sessions_local', sessionsPayload);
-                localStorage.setItem('scratch_layers_local', layersPayload);
-            } catch (storageError) {
-                try {
-                    if (previousSessionsPayload === null) {
-                        localStorage.removeItem('scratch_sessions_local');
-                    } else {
-                        localStorage.setItem('scratch_sessions_local', previousSessionsPayload);
-                    }
-                } catch (rollbackError) {
-                    console.error('Could not roll back local Scratch Lab session metadata:', rollbackError);
-                }
-                throw new Error('This recording is too large for device-local storage. Export it or shorten the recording, then try again.');
+            // The RPC inserts the session and all layers in one database transaction.
+            metadataSaveStarted = true;
+            const { data: savedSession, error: sessionError } = await window.supabase.rpc('save_scratch_session', {
+                p_session_id: sessionId,
+                p_user_id: user.id,
+                p_title: sessionTitle,
+                p_beat_url: savedBeatPath,
+                p_beat_title: beatFile?.name || beat || null,
+                p_layers: savedLayers
+            });
+            if (sessionError || !savedSession) {
+                throw new Error(sessionError?.message || 'Cloud session metadata could not be saved.');
             }
-            
-            alert(`Session "${sessionTitle}" saved on this device.`);
+
+            setBeatStoragePath(savedBeatPath);
+            alert(`Session "${sessionTitle}" saved to the cloud.`);
             setShowSaveModal(false);
-            
-            // Reload saved sessions list
             loadSavedSessions();
             
         } catch (err) {
             console.error('Error saving session:', err);
+            // A connection can drop after PostgreSQL commits but before the browser
+            // receives the RPC response. Confirm before deleting uploaded audio.
+            if (metadataSaveStarted && sessionId) {
+                const sessionCommitted = await wasSessionCommitted(sessionId);
+                if (sessionCommitted) {
+                    setShowSaveModal(false);
+                    loadSavedSessions();
+                    alert(`Session "${sessionTitle}" was saved to the cloud.`);
+                    return;
+                }
+                if (sessionCommitted === null) {
+                    alert('Cloud save status could not be confirmed. Check Saved Sessions before retrying; your uploaded audio was kept so a completed save is not damaged.');
+                    return;
+                }
+            }
+
+            await removeUploadedAudio(uploadedStoragePaths);
             alert(err.message || 'Failed to save session. Please try again.');
         } finally {
             setIsSaving(false);
         }
     };
     
-    // Load saved sessions from Supabase (Mocked for LocalStorage fallback)
+    // Load saved sessions from Supabase. RLS limits this query to the signed-in user.
     const loadSavedSessions = async () => {
         try {
-            // Local Storage Load
-            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
-            const userSessions = localSessions.filter(s => s.username === user.username);
-            
-            /*
-            const response = await api.get('scratch_sessions', { limit: 100 });
-            const userSessions = response.data.filter(s => s.username === user.username);
-            */
-            
-            // Sort by most recent
-            userSessions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            
-            setSavedSessions(userSessions);
+            setSessionLoadError('');
+            if (!user?.id) {
+                setSavedSessions([]);
+                return;
+            }
+
+            const { data, error } = await window.supabase
+                .from('scratch_sessions')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+                .limit(100);
+            if (error) throw error;
+
+            setSavedSessions(data || []);
         } catch (err) {
             console.error('Error loading sessions:', err);
+            setSavedSessions([]);
+            setSessionLoadError(err.message || 'Cloud sessions could not be loaded.');
         }
     };
     
-    // Load a specific session (Mocked for LocalStorage fallback)
+    // Load a specific session and all of its audio from managed storage.
     const loadSession = async (sessionId) => {
+        const loadedObjectUrls = [];
         try {
-            setShowLoadModal(false);
-            
-            // Get session metadata
-            const localSessions = JSON.parse(localStorage.getItem('scratch_sessions_local') || '[]');
-            const session = localSessions.find(s => s.id === sessionId);
-            
-            /*
-            const sessionResponse = await api.get('scratch_sessions', { limit: 1000 });
-            const session = sessionResponse.data.find(s => s.id === sessionId);
-            */
-            
+            await ensureAudioContext();
+            const { data: session, error: sessionError } = await window.supabase
+                .from('scratch_sessions')
+                .select('*')
+                .eq('id', sessionId)
+                .maybeSingle();
+            if (sessionError) throw sessionError;
             if (!session) {
-                alert('Session not found');
-                return;
+                throw new Error('Session not found.');
             }
-            
-            // Get layers for this session
-            const localLayers = JSON.parse(localStorage.getItem('scratch_layers_local') || '[]');
-            const sessionLayers = localLayers.filter(l => l.session_id === sessionId);
-            
-            /*
-            const layersResponse = await api.get('scratch_layers', { limit: 1000 });
-            const sessionLayers = layersResponse.data.filter(l => l.session_id === sessionId);
-            */
-            
-            // Sort by layer number
+
+            const { data: sessionLayers, error: layersError } = await window.supabase
+                .from('scratch_layers')
+                .select('*')
+                .eq('session_id', sessionId)
+                .order('layer_number', { ascending: false });
+            if (layersError) throw layersError;
+
+            let loadedBeatBuffer = null;
+            let loadedBeatWaveform = null;
+            if (session.beat_url) {
+                const beatUrl = await getStorageDownloadUrl(session.beat_url);
+                const beatResponse = await fetch(beatUrl);
+                if (!beatResponse.ok) throw new Error('The saved beat could not be downloaded.');
+                loadedBeatBuffer = await audioContext.current.decodeAudioData(await beatResponse.arrayBuffer());
+                loadedBeatWaveform = generateWaveformFromBuffer(loadedBeatBuffer);
+            }
+
             sessionLayers.sort((a, b) => b.layer_number - a.layer_number);
-            
-            // Download and decode each audio file
             const loadedLayers = [];
             
             for (const layerData of sessionLayers) {
-                try {
-                    // Fetch audio file (works with Base64 data URLs too)
-                    const audioResponse = await fetch(layerData.audio_url);
-                    const audioBlob = await audioResponse.blob();
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    
-                    // Decode to AudioBuffer
-                    const arrayBuffer = await audioBlob.arrayBuffer();
-                    const audioBuffer = await audioContext.current.decodeAudioData(arrayBuffer);
-                    
-                    loadedLayers.push({
-                        id: layerData.id,
-                        timestamp: new Date(layerData.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        volume: layerData.volume,
-                        waves: layerData.waveform_data,
-                        audioBuffer: audioBuffer,
-                        audioUrl: audioUrl,
-                        muted: layerData.muted,
-                        solo: layerData.solo,
-                        pan: layerData.pan
-                    });
-                } catch (err) {
-                    console.error('Error loading layer:', err);
-                }
+                const audioUrl = await getStorageDownloadUrl(layerData.audio_url);
+                const audioResponse = await fetch(audioUrl);
+                if (!audioResponse.ok) throw new Error(`Recording layer ${layerData.layer_number} could not be downloaded.`);
+                const audioBlob = await audioResponse.blob();
+                const objectUrl = URL.createObjectURL(audioBlob);
+                loadedObjectUrls.push(objectUrl);
+                const audioBuffer = await audioContext.current.decodeAudioData(await audioBlob.arrayBuffer());
+
+                loadedLayers.push({
+                    id: layerData.id,
+                    timestamp: new Date(layerData.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    volume: layerData.volume,
+                    waves: layerData.waveform_data,
+                    audioBuffer: audioBuffer,
+                    audioUrl: objectUrl,
+                    muted: layerData.muted,
+                    solo: layerData.solo,
+                    pan: layerData.pan,
+                    timeShift: Number(layerData.time_shift) || 0
+                });
             }
-            
+
+            // Only replace the current work after the entire session decoded successfully.
+            layers.forEach(layer => {
+                if (layer.audioUrl?.startsWith('blob:')) URL.revokeObjectURL(layer.audioUrl);
+            });
             setLayers(loadedLayers);
             setSessionTitle(session.title);
-            setBeat(session.beat_title);
+            setBeat(session.beat_title || null);
+            setBeatFile(null);
+            setBeatStoragePath(session.beat_url || null);
+            beatAudioBuffer.current = loadedBeatBuffer;
+            setBeatWaveform(loadedBeatWaveform);
+            setShowLoadModal(false);
             
             alert(`Session "${session.title}" loaded!`);
             
         } catch (err) {
+            loadedObjectUrls.forEach(url => URL.revokeObjectURL(url));
             console.error('Error loading session:', err);
-            alert('Failed to load session. Please try again.');
+            alert(err.message || 'Failed to load session. Please try again.');
         }
     };
     
@@ -3691,7 +3755,21 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
                             overflowY: 'auto',
                             padding: 16
                         }}>
-                            {savedSessions.length === 0 ? (
+                            {sessionLoadError ? (
+                                <div style={{
+                                    padding: 32,
+                                    textAlign: 'center',
+                                    color: '#991b1b',
+                                    fontSize: 10,
+                                    lineHeight: 1.6,
+                                    fontFamily: 'IBM Plex Mono, monospace'
+                                }}>
+                                    <Icon name="AlertTriangle" size={28} />
+                                    <div style={{ marginTop: 12 }}>
+                                        {sessionLoadError}
+                                    </div>
+                                </div>
+                            ) : savedSessions.length === 0 ? (
                                 <div style={{
                                     padding: 48,
                                     textAlign: 'center',
