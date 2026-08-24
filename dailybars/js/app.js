@@ -1471,7 +1471,7 @@ const BottomBar = ({ currentView, streak, user }) => {
 
     return (
         <>
-            <div style={{
+            <div className="status-bar" style={{
                 position: 'fixed',
                 bottom: 0,
                 left: 0,
@@ -1648,7 +1648,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
     }, [currentView]);
 
     return (
-        <header style={{
+        <header className="app-header" style={{
             position: 'relative',
             zIndex: 10,
             background: 'url(images/smooth-paper-texture.jpg)',
@@ -2148,7 +2148,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
     if (bar.imageUrl) {
         return (
             <article 
-                className="animate-slide-up" 
+                className="idea-card animate-slide-up"
                 style={{
                     display: 'flex',
                     flexDirection: imageOnRight ? 'row' : 'row-reverse',
@@ -2305,7 +2305,7 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
             borderBottom: '2px solid var(--black)',
             padding: 16
         }}>
-            <div style={{
+            <div className="quick-input-collapsed" style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',

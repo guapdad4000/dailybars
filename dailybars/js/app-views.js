@@ -28,7 +28,7 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
     const [previewImage, setPreviewImage] = useState(null);
     
     return (
-        <div>
+        <div className="feed-view">
             <QuickInput
                 onSave={onAddBar}
                 onTyping={onTyping}
@@ -76,7 +76,7 @@ const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading,
 
 const ArchiveView = ({ bars, onSelect }) => {
     return (
-        <div style={{
+        <div className="archive-view" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(2, 1fr)',
             gap: 2,
@@ -228,7 +228,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     ]), []);
 
     return (
-        <div style={{
+        <div className="crates-view" style={{
             position: 'relative',
             minHeight: '100%',
             paddingBottom: 80,
@@ -755,7 +755,7 @@ const FavoritesView = ({ bars, onSelect }) => {
     const favorites = useMemo(() => bars.filter(b => b.isFavorite), [bars]);
     
     return (
-        <div>
+        <div className="favorites-view">
             {favorites.length > 0 ? (
                 favorites.map(bar => (
                     <button key={bar.id} onClick={() => onSelect(bar)} style={{
@@ -3061,14 +3061,14 @@ const LoginScreen = ({ onLogin }) => {
     };
 
     return (
-        <div style={{
+        <div className="login-screen" style={{
             position: 'fixed', inset: 0, 
             backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover', backgroundPosition: 'center',
             zIndex: 9999, display: 'flex', flexDirection: 'column', 
             alignItems: 'center', justifyContent: 'center', padding: 32,
             overflowY: 'auto'
         }}>
-            <div className={`animate-slide-up ${error ? 'animate-rumble' : ''}`} style={{ 
+            <div className={`login-panel animate-slide-up ${error ? 'animate-rumble' : ''}`} style={{
                 width: '100%', maxWidth: 360, textAlign: 'center',
                 padding: '20px 0'
             }}>
@@ -4327,7 +4327,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
     );
 
     return (
-        <div style={{ paddingBottom: 40 }}>
+        <div className="syndicate-view" style={{ paddingBottom: 40 }}>
             {/* Tab Switcher */}
             <div style={{ 
                 display: 'flex', 
@@ -5671,12 +5671,11 @@ const App = () => {
     
     return (
         <ToastProvider>
-            <div style={{ minHeight: '100vh', paddingBottom: 40, display: 'flex', flexDirection: 'column' }}
+            <div className="app-shell swipe-container" style={{ minHeight: '100vh', paddingBottom: 40, display: 'flex', flexDirection: 'column' }}
                 {...(!isInputExpanded && !isScratchLabScrubbing ? swipeHandlers : {})}
-                className="swipe-container"
             >
                 {!isOnline && (
-                    <div role="status" style={{
+                    <div className="offline-banner" role="status" style={{
                         background: 'var(--black)', color: 'var(--electric)', padding: '8px 16px',
                         fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textAlign: 'center'
                     }}>
@@ -5698,7 +5697,7 @@ const App = () => {
                     onArchiveSearch={setArchiveQuery}
                 />
                 
-                <main className="scrollable view-enter" style={{ flex: 1 }} key={view}>
+                <main className="app-main scrollable view-enter" style={{ flex: 1 }} key={view}>
                     {view === 'feed' && (
                         <FeedView 
                             bars={bars} 
@@ -5749,7 +5748,7 @@ const App = () => {
                                 onScrubStateChange={setIsScratchLabScrubbing}
                             />
                         ) : (
-                            <div style={{ 
+                            <div className="premium-gate" style={{
                                 display: 'flex', 
                                 flexDirection: 'column',
                                 alignItems: 'center', 

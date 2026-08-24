@@ -484,3 +484,198 @@ button:active { transform: scale(0.98); }
         box-shadow: none;
     }
 }
+
+/* ============================================================================
+   VISUAL SYSTEM / POLISH PASS
+   Shared editorial surfaces and interaction states
+   ============================================================================ */
+:root {
+    --font-display: 'Archivo Black', sans-serif;
+    --font-body: 'IBM Plex Mono', 'Space Mono', monospace;
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --ink-soft: #252525;
+    --paper-deep: #e9e8e1;
+    --line: rgba(0, 0, 0, 0.18);
+    --shadow-brutal: 5px 5px 0 var(--black);
+    --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.12);
+    --space-1: 6px;
+    --space-2: 10px;
+    --space-3: 16px;
+    --space-4: 24px;
+    --space-5: 32px;
+}
+
+body {
+    font-family: var(--font-body);
+    background-color: var(--paper);
+    background-image: linear-gradient(rgba(244,244,240,.82), rgba(244,244,240,.82)), url('../images/smooth-paper-texture.jpg');
+    background-size: auto, 560px auto;
+    color: var(--ink-soft);
+}
+
+button, input, textarea, select { font-family: var(--font-body); }
+button { min-height: 40px; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+button:hover:not(:disabled) { filter: brightness(.97); }
+
+/* Auth */
+.login-screen {
+    background-color: var(--paper) !important;
+    background-image: linear-gradient(110deg, rgba(244,244,240,.78), rgba(244,244,240,.92)), url('../images/paper-texture.jpg') !important;
+    padding: clamp(20px, 5vw, 48px) !important;
+}
+.login-panel {
+    max-width: 430px !important;
+    padding: clamp(24px, 5vw, 40px) !important;
+    background: rgba(255,255,255,.72);
+    border: 2px solid var(--black);
+    box-shadow: var(--shadow-brutal);
+}
+.login-panel > img {
+    max-width: 290px !important;
+    margin-bottom: 26px !important;
+}
+.login-panel form { gap: 18px !important; }
+.login-panel form > div,
+.login-panel form > label { text-align: left; }
+.login-panel input {
+    min-height: 46px;
+    padding: 10px 8px !important;
+    background: rgba(255,255,255,.58) !important;
+    border: 2px solid var(--black) !important;
+    border-radius: 0;
+    transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+.login-panel input:focus {
+    background: var(--white) !important;
+    border-color: var(--brand-green) !important;
+    box-shadow: 3px 3px 0 var(--electric);
+}
+.login-panel input::placeholder { font-size: 12px; opacity: .7; }
+.login-panel form > button[type="submit"] {
+    min-height: 52px;
+    margin-top: 4px !important;
+    box-shadow: 5px 5px 0 var(--black) !important;
+}
+.login-panel form > button[type="submit"]:active {
+    box-shadow: 1px 1px 0 var(--black) !important;
+    transform: translate(4px, 4px) !important;
+}
+
+/* Application shell */
+.app-shell { background: transparent; }
+.app-header {
+    background-color: rgba(244,244,240,.96) !important;
+    background-image: linear-gradient(rgba(244,244,240,.82), rgba(244,244,240,.82)), url('../images/smooth-paper-texture.jpg') !important;
+    box-shadow: 0 4px 0 var(--black), 0 12px 24px rgba(0,0,0,.08) !important;
+}
+.app-header img { max-width: 260px !important; }
+.app-header input { min-height: 40px; }
+.app-main {
+    width: 100%;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 0 clamp(12px, 3vw, 28px) 96px;
+}
+.offline-banner {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 2px solid var(--electric);
+    box-shadow: 0 3px 0 rgba(0,0,0,.18);
+}
+.status-bar {
+    min-height: 48px;
+    border-top-width: 3px !important;
+    box-shadow: 0 -4px 18px rgba(0,0,0,.08);
+}
+.status-bar button { min-width: 40px; min-height: 40px; }
+
+/* Shared writing, archive and destination surfaces */
+.feed-view > *,
+.archive-view,
+.app-main > .crates-view,
+.app-main > [class*="syndicate"],
+.app-main > [class*="favorites"] {
+    animation: fadeIn .22s ease-out;
+}
+.feed-view > :first-child {
+    margin: clamp(14px, 3vw, 28px) 0 18px;
+    border: 2px solid var(--black) !important;
+    box-shadow: var(--shadow-brutal);
+}
+.quick-input-collapsed {
+    min-height: 72px;
+    align-items: center;
+}
+.quick-input-collapsed button { min-height: 64px; }
+.idea-card {
+    border-color: var(--black) !important;
+    box-shadow: 0 1px 0 rgba(0,0,0,.08);
+}
+.idea-card button { min-width: 40px; min-height: 40px; }
+.favorites-view {
+    margin-top: clamp(14px, 3vw, 28px);
+    border: 2px solid var(--black);
+    box-shadow: var(--shadow-soft);
+}
+.favorites-view > button {
+    min-height: 76px;
+    border-bottom-color: var(--line) !important;
+    transition: background .15s ease, padding-left .15s ease;
+}
+.favorites-view > button:hover {
+    background: #fffdf1 !important;
+    padding-left: 20px !important;
+}
+.syndicate-view {
+    margin-top: clamp(14px, 3vw, 28px);
+}
+.syndicate-view button { min-height: 44px; }
+.archive-view {
+    margin-top: clamp(14px, 3vw, 28px);
+    border: 2px solid var(--black);
+    box-shadow: var(--shadow-soft);
+    background: var(--black);
+}
+.archive-view button {
+    min-height: 0;
+    transition: transform .15s ease, filter .15s ease;
+}
+.archive-view button:hover { transform: translateY(-2px); filter: brightness(1.03); }
+.archive-view button:focus-visible { outline-offset: -4px; }
+.crates-view { width: 100%; }
+
+/* Modal and gate consistency */
+[role="dialog"] button,
+.premium-gate button { min-height: 44px; }
+.premium-gate {
+    min-height: 58vh !important;
+    padding: clamp(28px, 7vw, 64px) 20px !important;
+}
+.premium-gate > div {
+    background: var(--beat-purple) !important;
+    box-shadow: 8px 8px 0 var(--black) !important;
+    border-radius: 0 !important;
+}
+
+/* Mobile-safe spacing and readable controls */
+@media (max-width: 600px) {
+    .app-main { padding-left: 10px; padding-right: 10px; }
+    .login-panel { box-shadow: 4px 4px 0 var(--black); }
+    .login-panel > img { max-width: 235px !important; }
+    .app-header svg { max-width: 100%; }
+    .status-bar {
+        padding-left: 10px !important;
+        padding-right: 10px !important;
+        font-size: 8px !important;
+    }
+    .status-bar > span:first-child { max-width: 42%; line-height: 1.35; }
+    .status-bar > div { gap: 6px !important; }
+    .status-bar > div > span { white-space: nowrap; }
+}
+@media (max-width: 380px) {
+    .login-screen { padding: 14px !important; }
+    .login-panel { padding: 20px 16px !important; }
+    .status-bar > div > span:last-child { display: none; }
+}
