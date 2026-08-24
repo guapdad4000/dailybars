@@ -11,7 +11,7 @@
     "url": "https://github.com/guapdad4000/dailybars.git"
   },
   "scripts": {
-    "build": "echo 'Static site - no build required'",
+    "build": "node js/build.js",
     "serve": "npx serve .",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed",
@@ -28,6 +28,8 @@
     "@revenuecat/purchases-js": "^1.53.1"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/preset-react": "^7.29.7",
     "@capacitor/cli": "^6.0.0",
     "@capacitor/core": "^6.0.0",
     "@capacitor/ios": "^6.0.0",

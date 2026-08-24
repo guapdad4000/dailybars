@@ -42,8 +42,8 @@
                 '/',
                 'index.html',
                 'css/style.css',
-                'js/app.js',
-                'js/app-views.js',
+                'js/dist/app.js',
+                'js/dist/app-views.js',
                 'js/daily-deposit-engine.js',
                 'images/icon-32.png',
                 'images/icon-48.png',
@@ -100,7 +100,6 @@
     <!-- React & Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -119,11 +118,11 @@
     <script src="js/daily-deposit-engine.js"></script>
     <!-- <script src="js/beat-analyzer.js"></script> --> <!-- Disabled until better BPM detection library found -->
     <script src="js/restore-data.js"></script>
-    <script type="text/babel" src="js/visualizer.js"></script>
-    <script type="text/babel" src="js/ui-components.js"></script>
-    <script type="text/babel" src="js/app.js"></script>
-    <script type="text/babel" src="js/scratch-lab.js"></script>
-    <script type="text/babel" src="js/app-views.js"></script>
+    <script defer src="js/dist/visualizer.js"></script>
+    <script defer src="js/dist/ui-components.js"></script>
+    <script defer src="js/dist/app.js"></script>
+    <script defer src="js/dist/scratch-lab.js"></script>
+    <script defer src="js/dist/app-views.js"></script>
 
     <!-- PWA Service Worker Registration with Auto-Update -->
     <script>

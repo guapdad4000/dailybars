@@ -1,1 +1,2 @@
 - [Native toolchain installs](native-toolchain-installs.md) — Keep the static web preview independent from the legacy Capacitor install path until native dependencies are updated safely.
+- [Compiled static builds](compiled-static-builds.md) — Isolate generated classic scripts when source files share top-level lexical names.
