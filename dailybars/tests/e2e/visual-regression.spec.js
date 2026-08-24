@@ -53,6 +53,26 @@ async function signInQa(page, options) {
   await stabilize(page);
 }
 
+async function signInRegularUser(page) {
+  await installVisualFixtures(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('dailybars_session', JSON.stringify({
+      user: {
+        id: 'visual-user',
+        username: 'member',
+        email: 'member@example.com',
+        xp: 0,
+        level: 1
+      },
+      expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000),
+      createdAt: Date.now()
+    }));
+  });
+  await page.goto('/index.html');
+  await expect(page.getByText('DROP A BAR...')).toBeVisible();
+  await stabilize(page);
+}
+
 async function openView(page, label) {
   const viewIndex = ['FEED', 'ARCHIVE', 'FAVORITES', 'CRATES', 'SCRATCH LAB', 'SYNDICATE'].indexOf(label);
   await page.evaluate((index) => {
@@ -95,7 +115,7 @@ test.describe('editorial visual contract', () => {
     ['ARCHIVE', 'archive-empty.png'],
     ['FAVORITES', 'favorites-empty.png'],
     ['CRATES', 'crates-empty.png'],
-    ['SCRATCH LAB', 'scratch-lab-gate.png'],
+    ['SCRATCH LAB', 'scratch-lab-qa.png'],
     ['SYNDICATE', 'syndicate-empty.png'],
   ]) {
     test(`${label.toLowerCase()} stable empty or gated state`, async ({ page }) => {
@@ -121,8 +141,8 @@ test.describe('editorial visual contract', () => {
     await expect(page).toHaveScreenshot('feed-loading.png', screenshotOptions);
   });
 
-  test('premium prompt from Scratch Lab gate', async ({ page }) => {
-    await signInQa(page);
+  test('premium prompt from non-QA Scratch Lab gate', async ({ page }) => {
+    await signInRegularUser(page);
     await openView(page, 'SCRATCH LAB');
     await page.getByRole('button', { name: 'Unlock Premium' }).click();
     await expect(page.getByText('PREMIUM REQUIRED')).toBeVisible();

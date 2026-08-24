@@ -131,6 +131,13 @@ test.describe('authentication and navigation', () => {
     await expect(page.getByText('DROP A BAR...')).toBeVisible();
     expect(errors, errors.join('\n')).toEqual([]);
   });
+
+  test('development QA account can use Scratch Lab without premium', async ({ page }) => {
+    await startQaSession(page);
+    await page.getByRole('button', { name: 'Go to SCRATCH LAB' }).click();
+    await expect(page.getByRole('heading', { name: 'SCRATCH LAB' })).toBeVisible();
+    await expect(page.locator('.premium-gate')).toHaveCount(0);
+  });
 });
 
 test.describe('bar creation, editing, and failure recovery', () => {

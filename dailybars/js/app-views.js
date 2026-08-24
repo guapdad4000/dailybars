@@ -5594,6 +5594,9 @@ const App = () => {
         { id: 'scratchlab', label: 'SCRATCH LAB', subtitle: 'VOCAL STUDIO' },
         { id: 'syndicate', label: 'SYNDICATE', subtitle: 'COMMUNITY' }
     ];
+    const canAccessScratchLab = hasPremium ||
+        user?.username?.toLowerCase() === 'guap' ||
+        (isDevelopmentPreview() && user?.isDevAccount === true);
     
     const currentIndex = views.findIndex(v => v.id === view);
     const currentView = views[currentIndex] || views[0];
@@ -5904,7 +5907,7 @@ const App = () => {
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
                     {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
                     {view === 'scratchlab' && ScratchLabViewComponent && (
-                        hasPremium || user?.username?.toLowerCase() === 'guap' ? (
+                        canAccessScratchLab ? (
                             <ScratchLabViewComponent 
                                 user={user} 
                                 isPremium={hasPremium} 
