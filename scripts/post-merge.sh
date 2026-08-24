@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Apply the checked-in native schema to the development database. Production
-# schema changes are handled only by Replit's Publish flow.
-test -f dailybars/index.html
-test -f dailybars/js/app-views.js
-npm --prefix dailybars run db:setup
+cd "$(dirname "$0")/../dailybars"
 
-echo "Native database schema is ready for workflow reconciliation."
+# Reconcile package.json/package-lock.json before any Node script imports a
+# dependency introduced by the merge.
+npm install --no-audit --no-fund --include=dev
+
+DAILYBARS_ENVIRONMENT=development npm run db:setup
+DAILYBARS_ENVIRONMENT=development npm run build
+
+echo "Daily Raps dependencies, development schema, and build are ready."
