@@ -109,6 +109,49 @@ const NewspaperModal = ({
     actions = [],
     size = 'medium' // small, medium, large, fullscreen
 }) => {
+    const modalRef = React.useRef(null);
+    const previouslyFocusedRef = React.useRef(null);
+    const onCloseRef = React.useRef(onClose);
+    onCloseRef.current = onClose;
+
+    React.useEffect(() => {
+        if (!isOpen) return undefined;
+        previouslyFocusedRef.current = document.activeElement;
+        const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        const focusInitial = () => {
+            const first = modalRef.current?.querySelector(focusableSelector);
+            first?.focus();
+        };
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                onCloseRef.current?.();
+                return;
+            }
+            if (event.key !== 'Tab' || !modalRef.current) return;
+            const focusable = [...modalRef.current.querySelectorAll(focusableSelector)];
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+        const frame = requestAnimationFrame(focusInitial);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            if (previouslyFocusedRef.current?.focus) {
+                previouslyFocusedRef.current.focus();
+            }
+        };
+    }, [isOpen]);
+
     if (!isOpen) return null;
     
     const sizes = {
@@ -121,7 +164,9 @@ const NewspaperModal = ({
     const sizeStyle = sizes[size] || sizes.medium;
     
     return (
-        <div style={{
+        <div
+            role="presentation"
+            style={{
             position: 'fixed',
             inset: 0,
             zIndex: 9999,
@@ -142,7 +187,13 @@ const NewspaperModal = ({
             />
             
             {/* Modal Content */}
-            <div style={{
+            <div
+                ref={modalRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={`modal-title-${title.replace(/\W+/g, '-').toLowerCase()}`}
+                tabIndex={-1}
+                style={{
                 position: 'relative',
                 width: '100%',
                 maxWidth: sizeStyle.maxWidth,
@@ -163,7 +214,7 @@ const NewspaperModal = ({
                     padding: `${sizeStyle.padding}px ${sizeStyle.padding}px 12px`,
                     borderBottom: '2px solid var(--black)'
                 }}>
-                    <h2 style={{
+                    <h2 id={`modal-title-${title.replace(/\W+/g, '-').toLowerCase()}`} style={{
                         margin: 0,
                         fontSize: 14,
                         fontWeight: 900,
@@ -174,7 +225,9 @@ const NewspaperModal = ({
                     }}>
                         {title}
                     </h2>
-                    <button 
+                    <button
+                        type="button"
+                        aria-label={`Close ${title}`}
                         onClick={onClose}
                         style={{
                             background: 'none',
@@ -675,7 +728,10 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
         if (isPlaying) {
             audio.pause();
         } else {
-            audio.play();
+            audio.play().catch((error) => {
+                console.warn('Audio playback could not start:', error);
+                setIsPlaying(false);
+            });
         }
     };
 
@@ -720,6 +776,8 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
 
             {/* Play/Pause Button - Simple circle */}
             <button
+                type="button"
+                aria-label={isPlaying ? 'Pause audio' : 'Play audio'}
                 onClick={togglePlay}
                 style={{
                     width: buttonSize,
@@ -781,9 +839,32 @@ const VinylAudioPlayer = ({ src, compact = false }) => {
             {/* Progress section */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {/* Progress bar */}
-                <div
+            <div
                     ref={progressRef}
                     onClick={handleProgressClick}
+                role="slider"
+                tabIndex={duration ? 0 : -1}
+                aria-label="Audio progress"
+                aria-valuemin="0"
+                aria-valuemax={duration || 0}
+                aria-valuenow={currentTime}
+                onKeyDown={(event) => {
+                    if (!duration) return;
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                        event.preventDefault();
+                        const delta = event.key === 'ArrowRight' ? 5 : -5;
+                        const nextTime = Math.max(0, Math.min(duration, (audioRef.current?.currentTime || 0) + delta));
+                        if (audioRef.current) audioRef.current.currentTime = nextTime;
+                        setCurrentTime(nextTime);
+                        setProgress((nextTime / duration) * 100);
+                    } else if (event.key === 'Home' || event.key === 'End') {
+                        event.preventDefault();
+                        const nextTime = event.key === 'End' ? duration : 0;
+                        if (audioRef.current) audioRef.current.currentTime = nextTime;
+                        setCurrentTime(nextTime);
+                        setProgress((nextTime / duration) * 100);
+                    }
+                }}
                     style={{
                         width: '100%',
                         height: 4,

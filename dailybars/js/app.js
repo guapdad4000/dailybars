@@ -870,9 +870,16 @@ const useVoiceRecorder = (maxDuration = 30000) => {
     const startRecording = async () => {
         try {
             setError(null);
+            if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+                setError('RECORDING NOT SUPPORTED IN THIS BROWSER');
+                return;
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             setStream(stream);
-            mediaRecorder.current = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            const mimeType = MediaRecorder.isTypeSupported?.('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : MediaRecorder.isTypeSupported?.('audio/mp4') ? 'audio/mp4' : '';
+            mediaRecorder.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
             chunks.current = [];
             
             mediaRecorder.current.ondataavailable = (e) => {
@@ -880,7 +887,7 @@ const useVoiceRecorder = (maxDuration = 30000) => {
             };
             
             mediaRecorder.current.onstop = () => {
-                const blob = new Blob(chunks.current, { type: 'audio/webm' });
+                const blob = new Blob(chunks.current, { type: mediaRecorder.current?.mimeType || mimeType || 'audio/webm' });
                 setAudioBlob(blob);
                 setAudioUrl(URL.createObjectURL(blob));
                 stream.getTracks().forEach(track => track.stop());
@@ -924,6 +931,11 @@ const useVoiceRecorder = (maxDuration = 30000) => {
         setAudioUrl(null);
         setDuration(0);
     };
+
+    useEffect(() => () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        mediaRecorder.current?.stream?.getTracks?.().forEach(track => track.stop());
+    }, []);
     
     const getBase64 = () => {
         return new Promise((resolve, reject) => {
@@ -974,16 +986,23 @@ const useSwipe = (onSwipeLeft, onSwipeRight, threshold = 80) => {
     const swiping = useRef(false);
     
     const onTouchStart = (e) => {
+        const target = e.target;
+        if (target?.closest?.('input, textarea, select, button, a, [contenteditable="true"], audio, video')) {
+            swiping.current = false;
+            return;
+        }
         touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         touchEnd.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         swiping.current = false;
     };
     
     const onTouchMove = (e) => {
+        if (!touchStart.current.x && !touchStart.current.y) return;
         touchEnd.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         const dx = Math.abs(touchEnd.current.x - touchStart.current.x);
         const dy = Math.abs(touchEnd.current.y - touchStart.current.y);
         if (dx > dy && dx > 20) swiping.current = true;
+        else if (dy > dx && dy > 20) swiping.current = false;
     };
     
     const onTouchEnd = () => {
@@ -994,9 +1013,12 @@ const useSwipe = (onSwipeLeft, onSwipeRight, threshold = 80) => {
             if (dx > 0) onSwipeLeft?.();
             else onSwipeRight?.();
         }
+        touchStart.current = { x: 0, y: 0 };
+        touchEnd.current = { x: 0, y: 0 };
+        swiping.current = false;
     };
     
-    return { onTouchStart, onTouchMove, onTouchEnd };
+    return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: onTouchEnd };
 };
 
 // ============================================================================

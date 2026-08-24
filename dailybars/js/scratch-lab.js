@@ -35,6 +35,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
     // Fetch audio input devices
     const refreshAudioInputs = useCallback(async () => {
+        if (!navigator.mediaDevices?.enumerateDevices) {
+            setAudioInputs([]);
+            return;
+        }
         try {
             // Ensure permission first - usually this is called after first getUserMedia
             // or if we already have permission
@@ -57,6 +61,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     useEffect(() => {
         refreshAudioInputs();
         // Also listen for device changes
+        if (!navigator.mediaDevices?.addEventListener) return undefined;
         navigator.mediaDevices.addEventListener('devicechange', refreshAudioInputs);
         return () => navigator.mediaDevices.removeEventListener('devicechange', refreshAudioInputs);
     }, [refreshAudioInputs]);
@@ -504,6 +509,10 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
 
     // Request microphone access and start recording
     const startRecording = async (startOffset = 0) => {
+        if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+            alert('Recording is not supported in this browser. Try the latest Chrome or Safari over HTTPS.');
+            return;
+        }
         try {
             // CRITICAL FOR iOS: Unlock audio IMMEDIATELY in user gesture
             // BEFORE any async operations like getUserMedia

@@ -58,6 +58,10 @@ const MicVisualizer = ({ stream, audioUrl, isRecording, isPlaying, width = 300, 
 
         return () => {
             if (animationRef.current) cancelAnimationFrame(animationRef.current);
+            if (sourceRef.current) {
+                sourceRef.current.disconnect();
+                sourceRef.current = null;
+            }
         };
     }, [isRecording, isPlaying, stream, audioUrl]);
 

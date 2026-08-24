@@ -132,8 +132,6 @@
             window.addEventListener('load', async () => {
                 try {
                     // Unregister old SW first to ensure clean slate
-                    const registrations = await navigator.serviceWorker.getRegistrations();
-                    
                     // Register with cache-busting
                     const registration = await navigator.serviceWorker.register('/service-worker.js?v=27', {
                         updateViaCache: 'none' // Never use cached SW

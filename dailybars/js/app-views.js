@@ -2750,6 +2750,14 @@ const LoginInputField = ({ label, type, value, onChange, placeholder, error, sho
         <div style={{ position: 'relative' }}>
             <input 
                 type={showToggle ? (showValue ? 'text' : 'password') : type}
+                autoComplete={
+                    label === 'PASSWORD' ? 'current-password' :
+                    label === 'CREATE PASSWORD' ? 'new-password' :
+                    label === 'CONFIRM PASSWORD' ? 'new-password' :
+                    label === 'EMAIL ADDRESS' ? 'email' :
+                    label === 'EMAIL OR USERNAME' ? 'username' :
+                    label === 'ARTIST NAME' ? 'username' : 'off'
+                }
                 value={value}
                 onChange={onChange}
                 placeholder={placeholder}
@@ -2839,7 +2847,7 @@ const LoginScreen = ({ onLogin }) => {
     }, [isSignUp]);
 
     useEffect(() => {
-        const remembered = localStorage.getItem('dailybars_remembered_login');
+        const remembered = localStorage.getItem('dailybars_remembered_login') || localStorage.getItem('dailybars_remembered_email');
         if (remembered) {
             setLoginIdentifier(remembered);
             setRememberMe(true);
@@ -3230,8 +3238,18 @@ const LoginScreen = ({ onLogin }) => {
                                 display: 'flex', alignItems: 'flex-start', gap: 12, 
                                 textAlign: 'left', cursor: 'pointer'
                             }}>
-                                <div 
-                                    onClick={() => setAgreedToTerms(!agreedToTerms)}
+                                 <button
+                                     type="button"
+                                     role="checkbox"
+                                     aria-checked={agreedToTerms}
+                                     aria-label="Agree to Terms of Service and Privacy Policy"
+                                     onClick={() => setAgreedToTerms(!agreedToTerms)}
+                                     onKeyDown={(event) => {
+                                         if (event.key === 'Enter' || event.key === ' ') {
+                                             event.preventDefault();
+                                             setAgreedToTerms(value => !value);
+                                         }
+                                     }}
                                     style={{
                                         width: 20, height: 20, flexShrink: 0,
                                         border: `2px solid ${fieldErrors.terms ? '#EF4444' : 'var(--black)'}`,
@@ -3239,9 +3257,9 @@ const LoginScreen = ({ onLogin }) => {
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         marginTop: 2
                                     }}
-                                >
+                                 >
                                     {agreedToTerms && <Icon name="Check" size={14} color="white" />}
-                                </div>
+                                 </button>
                                 <span style={{ fontSize: 10, color: 'var(--gray)', lineHeight: 1.5, letterSpacing: '0.05em' }}>
                                     I agree to the <span style={{ color: 'var(--black)', textDecoration: 'underline' }}>Terms of Service</span> and <span style={{ color: 'var(--black)', textDecoration: 'underline' }}>Privacy Policy</span>
                                 </span>
@@ -3254,8 +3272,18 @@ const LoginScreen = ({ onLogin }) => {
                             display: 'flex', alignItems: 'center', gap: 12, 
                             cursor: 'pointer', justifyContent: 'flex-start'
                         }}>
-                            <div 
-                                onClick={() => setRememberMe(!rememberMe)}
+                             <button
+                                 type="button"
+                                 role="checkbox"
+                                 aria-checked={rememberMe}
+                                 aria-label="Remember me"
+                                 onClick={() => setRememberMe(value => !value)}
+                                 onKeyDown={(event) => {
+                                     if (event.key === 'Enter' || event.key === ' ') {
+                                         event.preventDefault();
+                                         setRememberMe(value => !value);
+                                     }
+                                 }}
                                 style={{
                                     width: 18, height: 18,
                                     border: '2px solid var(--black)',
@@ -3263,8 +3291,8 @@ const LoginScreen = ({ onLogin }) => {
                                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                                 }}
                             >
-                                {rememberMe && <Icon name="Check" size={12} color="white" />}
-                            </div>
+                                 {rememberMe && <Icon name="Check" size={12} color="white" />}
+                             </button>
                             <span style={{ fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em' }}>
                                 REMEMBER ME
                             </span>
@@ -3315,7 +3343,8 @@ const LoginScreen = ({ onLogin }) => {
                         <button 
                             type="button"
                             onClick={() => {
-                                if (email && isValidEmail(email)) {
+                                 const resetIdentifier = loginIdentifier.trim();
+                                 if (isValidEmail(resetIdentifier)) {
                                     toast?.addToast('PASSWORD RESET COMING SOON', 'info');
                                 } else {
                                     toast?.addToast('ENTER YOUR EMAIL FIRST', 'warning');
@@ -4819,7 +4848,11 @@ const App = () => {
     const [user, setUser] = useState(null);
     const [isCheckingAuth, setIsCheckingAuth] = useState(true);
     // Initialize view from storage or default to feed
-    const [view, setView] = useState(() => localStorage.getItem('dailybars_view') || 'feed');
+    const validViewIds = ['feed', 'archive', 'favorites', 'crates', 'scratchlab', 'syndicate'];
+    const [view, setView] = useState(() => {
+        const storedView = localStorage.getItem('dailybars_view');
+        return validViewIds.includes(storedView) ? storedView : 'feed';
+    });
     const [bars, setBars] = useState([]);
     const [archiveQuery, setArchiveQuery] = useState('');
     const [songs, setSongs] = useState([]);
@@ -4843,6 +4876,7 @@ const App = () => {
     const [aiUsageCount, setAiUsageCount] = useState(0);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [profileModalUser, setProfileModalUser] = useState(null);
+    const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
     const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
 
@@ -4873,7 +4907,7 @@ const App = () => {
     }, [user]);
 
     const syncRevenueCatToSupabase = useCallback(async (info) => {
-        if (!info || typeof supabase === 'undefined') return;
+        if (!info || !user || !navigator.onLine || typeof supabase === 'undefined') return;
         try {
             const payload = {
                 user_key: userKey,
@@ -4983,6 +5017,17 @@ const App = () => {
     }, [premiumKey, user, customerInfo]);
 
     useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    useEffect(() => {
         const storedUses = parseInt(localStorage.getItem(aiUsageKey) || '0');
         setAiUsageCount(Number.isFinite(storedUses) ? storedUses : 0);
     }, [aiUsageKey]);
@@ -5069,7 +5114,7 @@ const App = () => {
     }, [aiUsageCount, aiUsageKey]);
 
     const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
-        if (typeof supabase === 'undefined') return;
+        if (!user || !navigator.onLine || typeof supabase === 'undefined') return;
         try {
             const payload = {
                 user_key: userKey,
@@ -5384,7 +5429,7 @@ const App = () => {
     ];
     
     const currentIndex = views.findIndex(v => v.id === view);
-    const currentView = views[currentIndex];
+    const currentView = views[currentIndex] || views[0];
     
     const swipeHandlers = useSwipe(
         () => {
@@ -5626,6 +5671,14 @@ const App = () => {
                 {...(!isInputExpanded && !isScratchLabScrubbing ? swipeHandlers : {})}
                 className="swipe-container"
             >
+                {!isOnline && (
+                    <div role="status" style={{
+                        background: 'var(--black)', color: 'var(--electric)', padding: '8px 16px',
+                        fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textAlign: 'center'
+                    }}>
+                        OFFLINE — SAVED CHANGES WILL SYNC WHEN YOU RECONNECT
+                    </div>
+                )}
                 <Header
                     title={currentView.label}
                     subtitle={currentView.subtitle}
