@@ -1701,16 +1701,27 @@ const BottomBar = ({ currentView, streak, user }) => {
 // UNIFIED HEADER
 // ============================================================================
 
-const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse, archiveQuery, onArchiveSearch }) => {
+const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, onDailyDropUse, archiveQuery, onArchiveSearch, stationMetrics = {}, isRecording = false }) => {
     const activeIndex = Math.max(0, views.findIndex(v => v.id === currentView));
+    const [isArriving, setIsArriving] = useState(false);
 
     const isArchive = currentView === 'archive';
     const isCrates = currentView === 'crates';
     const isScratchLab = currentView === 'scratchlab';
     const isMinimized = isCrates || isScratchLab;
+    const currentStation = views[activeIndex] || views[0];
+    const currentMetrics = stationMetrics[currentView] || {};
+    const stationNumber = String(activeIndex + 1).padStart(2, '0');
+    const routeStatus = isScratchLab && isRecording ? 'LIVE TAKE IN PROGRESS' : isArriving ? 'ARRIVING NOW' : 'ON PLATFORM';
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, [currentView]);
+
+    useEffect(() => {
+        setIsArriving(true);
+        const arrivalTimer = window.setTimeout(() => setIsArriving(false), 900);
+        return () => window.clearTimeout(arrivalTimer);
     }, [currentView]);
 
     return (
@@ -1831,7 +1842,7 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                     </div>
                 )}
 
-                {/* Navigation Dots (Subway Train Style) */}
+                {/* Navigation route (subway train style) */}
                 <div style={{
                     display: 'flex',
                     justifyContent: 'center',
@@ -1841,7 +1852,15 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                     paddingBottom: isMinimized ? 2 : 0,
                     height: 32
                 }}>
-                    <svg width="260" height="32" viewBox="0 0 260 32" style={{ overflow: 'visible' }}>
+                    <svg
+                        className="route-map"
+                        width="260"
+                        height="32"
+                        viewBox="0 0 260 32"
+                        role="navigation"
+                        aria-label="Daily Bars route"
+                        style={{ overflow: 'visible' }}
+                    >
                         <line x1="10" y1="26" x2="250" y2="26" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
                         <line x1="10" y1="29" x2="250" y2="29" stroke="var(--black)" strokeWidth="2" strokeLinecap="square" opacity="0.3" />
 
@@ -1849,6 +1868,9 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                             const cx = 30 + (i * 40);
                             const isActive = currentView === v.id;
                             const letter = v.id === 'favorites' ? '★' : v.id === 'scratchlab' ? 'S' : v.label[0];
+                            const metric = stationMetrics[v.id] || {};
+                            const hasActivity = Number(metric.count) > 0;
+                            const isLiveStation = v.id === 'scratchlab' && isRecording;
                             const activateView = () => {
                                 onViewChange(v.id);
                                 haptic('light');
@@ -1857,9 +1879,11 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                             return (
                                 <g
                                     key={v.id}
+                                    className={`route-station ${isActive ? 'route-station-active' : ''}`}
                                     role="button"
                                     tabIndex={0}
                                     aria-label={`Go to ${v.label}`}
+                                    aria-describedby={`route-station-${v.id}`}
                                     aria-current={isActive ? 'page' : undefined}
                                     onClick={activateView}
                                     onKeyDown={(event) => {
@@ -1870,18 +1894,40 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                                     }}
                                     style={{ cursor: 'pointer' }}
                                 >
+                                    <title id={`route-station-${v.id}`}>{`${v.label}: ${metric.label || v.subtitle}`}</title>
+                                    {(hasActivity || isLiveStation) && (
+                                        <circle
+                                            className={isLiveStation ? 'station-activity station-activity-live' : 'station-activity'}
+                                            cx={cx}
+                                            cy="16"
+                                            r="2"
+                                            fill={isLiveStation ? 'var(--recording-red)' : 'var(--electric)'}
+                                        />
+                                    )}
+                                    {isActive && (
+                                        <circle
+                                            className="station-ring"
+                                            cx={cx}
+                                            cy="26"
+                                            r={isMinimized ? 10.5 : 11}
+                                            fill="none"
+                                            stroke={isLiveStation ? 'var(--recording-red)' : 'var(--brand-green)'}
+                                            strokeWidth="1"
+                                            strokeDasharray="2 2"
+                                        />
+                                    )}
                                     <circle
                                         cx={cx} cy="26"
                                         r={isMinimized ? 6.5 : 7}
-                                        fill={isActive ? "var(--brand-red)" : "var(--white)"}
-                                        stroke="var(--black)"
-                                        strokeWidth="1.5"
+                                        fill={isActive ? "var(--black)" : "var(--white)"}
+                                        stroke={isLiveStation ? "var(--recording-red)" : isActive ? "var(--brand-green)" : "var(--black)"}
+                                        strokeWidth={isActive ? "2" : "1.5"}
                                         style={{ transition: 'fill 0.3s ease, r 0.2s ease' }}
                                     />
                                     <text
                                         x={cx} y="26" dy="3"
                                         textAnchor="middle"
-                                        fill={isActive ? "var(--white)" : "var(--black)"}
+                                        fill={isActive ? "var(--electric)" : "var(--black)"}
                                         fontSize={v.id === 'favorites' ? "10" : "8"}
                                         fontFamily="'Archivo Black', sans-serif"
                                         fontWeight="bold"
@@ -1893,9 +1939,11 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                         })}
 
                         <g
+                            className={isArriving ? 'train-arriving' : ''}
                             style={{
                                 transition: 'transform 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
                                 transform: `translateX(${30 + (activeIndex * 40) - 30}px)`,
+                                pointerEvents: 'none',
                             }}
                         >
                             <g className={isTyping ? 'animate-rock' : ''}>
@@ -1914,7 +1962,15 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                                 <rect x="32" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
                                 <rect x="39.5" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
                                 <rect x="47" y="17.5" width="5" height="5" fill="#FFFFFF" stroke="var(--black)" strokeWidth="0.8" className={isTyping ? 'animate-flash' : ''} />
-                                <circle cx="30" cy="25" r="3.5" fill="#DC2626" stroke="var(--black)" strokeWidth="1.2"/>
+                                <circle
+                                    className={isRecording && isScratchLab ? 'train-live-light' : ''}
+                                    cx="30"
+                                    cy="25"
+                                    r="3.5"
+                                    fill={isRecording && isScratchLab ? 'var(--recording-red)' : '#DC2626'}
+                                    stroke="var(--black)"
+                                    strokeWidth="1.2"
+                                />
                                 <text x="30" y="25" dy="1.2" textAnchor="middle" fill="var(--white)" fontSize="6" fontFamily="'Helvetica', 'Arial', sans-serif" fontWeight="bold">R</text>
                                 <circle cx="15" cy="29" r="2.5" fill="var(--black)" stroke="var(--black)" strokeWidth="1"/>
                                 <circle cx="15" cy="29" r="1" fill="#52525B" stroke="var(--black)" strokeWidth="0.5"/>
@@ -1926,6 +1982,24 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                             </g>
                         </g>
                     </svg>
+                </div>
+                <div
+                    className={`route-readout ${isRecording && isScratchLab ? 'route-readout-live' : ''}`}
+                    aria-live="polite"
+                    aria-atomic="true"
+                >
+                    <div className="route-readout-primary">
+                        <span className="route-readout-kicker">
+                            <span className="route-signal" aria-hidden="true" />
+                            ROUTE {stationNumber} / {String(views.length).padStart(2, '0')}
+                        </span>
+                        <span className="route-readout-title">{currentStation?.label || title}</span>
+                        <span className="route-readout-count">{currentMetrics.label || subtitle}</span>
+                    </div>
+                    <div className="route-readout-secondary">
+                        <span>{routeStatus}</span>
+                        {currentMetrics.countLabel && <span>{currentMetrics.countLabel}</span>}
+                    </div>
                 </div>
             </div>
         </header>

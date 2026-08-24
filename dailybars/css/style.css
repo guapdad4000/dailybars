@@ -111,6 +111,22 @@ body {
     50% { transform: translateY(-5px); }
 }
 
+@keyframes trainArrivalGlow {
+    0% { opacity: .65; filter: drop-shadow(0 0 0 rgba(234,179,8,0)); }
+    45% { opacity: 1; filter: drop-shadow(0 0 6px rgba(234,179,8,.65)); }
+    100% { opacity: 1; filter: drop-shadow(0 0 0 rgba(234,179,8,0)); }
+}
+
+@keyframes stationPulse {
+    0%, 100% { opacity: .8; }
+    50% { opacity: .25; }
+}
+
+@keyframes liveLight {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .35; }
+}
+
 /* Animation Classes */
 .animate-slide-up { animation: slideUp 0.3s ease-out; }
 .animate-slide-in { animation: slideIn 0.3s ease-out; }
@@ -129,6 +145,80 @@ body {
     animation: shimmer 1.5s infinite;
 }
 .animate-bounce { animation: bounce 0.5s ease-in-out; }
+.train-arriving { animation: trainArrivalGlow .9s ease-out; }
+.station-ring { animation: stationPulse 1.6s ease-in-out infinite; transform-origin: center; }
+.station-activity-live, .train-live-light { animation: liveLight .8s ease-in-out infinite; }
+
+/* Train route readout */
+.route-station:focus-visible { outline: 2px solid var(--brand-green); outline-offset: 3px; }
+.route-station-active text { font-weight: 900; }
+.route-readout {
+    width: min(100%, 390px);
+    border-top: 1px solid rgba(0,0,0,.28);
+    border-bottom: 1px solid rgba(0,0,0,.18);
+    padding: 6px 8px 5px;
+    margin-top: 2px;
+    font-size: 8px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    line-height: 1.35;
+    transition: border-color .2s ease, background-color .2s ease;
+}
+.route-readout-live {
+    border-color: var(--recording-red);
+    background: rgba(239,68,68,.06);
+}
+.route-readout-primary,
+.route-readout-secondary {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 0;
+}
+.route-readout-primary { font-weight: 700; }
+.route-readout-secondary {
+    color: var(--gray);
+    font-size: 7px;
+    margin-top: 3px;
+}
+.route-readout-kicker,
+.route-readout-count,
+.route-readout-secondary span {
+    white-space: nowrap;
+}
+.route-readout-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--gray);
+    font-size: 7px;
+}
+.route-readout-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.route-readout-count {
+    color: var(--brand-green);
+    font-size: 7px;
+}
+.route-readout-live .route-readout-title,
+.route-readout-live .route-readout-count {
+    color: var(--recording-red);
+}
+.route-signal {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--brand-green);
+    box-shadow: 0 0 0 2px rgba(22,101,52,.14);
+}
+.route-readout-live .route-signal {
+    background: var(--recording-red);
+    box-shadow: 0 0 0 2px rgba(239,68,68,.16);
+    animation: liveLight .8s ease-in-out infinite;
+}
 
 /* ============================================================================
    UTILITY PATTERNS
@@ -665,6 +755,9 @@ button:hover:not(:disabled) { filter: brightness(.97); }
     .login-panel { box-shadow: 4px 4px 0 var(--black); }
     .login-panel > img { max-width: 235px !important; }
     .app-header svg { max-width: 100%; }
+    .route-readout { width: min(100%, 340px); }
+    .route-readout-primary { gap: 5px; }
+    .route-readout-secondary { gap: 6px; }
     .status-bar {
         padding-left: 10px !important;
         padding-right: 10px !important;

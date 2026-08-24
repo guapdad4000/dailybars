@@ -74,12 +74,7 @@ async function signInRegularUser(page) {
 }
 
 async function openView(page, label) {
-  const viewIndex = ['FEED', 'ARCHIVE', 'FAVORITES', 'CRATES', 'SCRATCH LAB', 'SYNDICATE'].indexOf(label);
-  await page.evaluate((index) => {
-    const nav = document.querySelector('header svg[viewBox="0 0 260 32"]');
-    const stations = nav?.querySelectorAll('circle');
-    stations?.[index]?.parentElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  }, viewIndex);
+  await page.getByRole('button', { name: `Go to ${label}` }).click();
   await page.waitForTimeout(150);
   await stabilize(page);
 }

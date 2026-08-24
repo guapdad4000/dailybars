@@ -22,7 +22,7 @@ const Icon = window.DailyBarsApp?.Icon || (({ name, size = 20 }) => {
 // Get API from global exports
 const api = window.DailyBarsApp?.api;
 
-const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
+const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateChange }) => {
     // Session State
     const [isRecording, setIsRecording] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -387,7 +387,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange }) => {
     useEffect(() => {
         // Disable swipe when: scrubbing, popped (vinyl out), or recording
         onScrubStateChange?.(isScrubbing || isPopped || isRecording);
-    }, [isScrubbing, isPopped, isRecording, onScrubStateChange]);
+        onRecordingStateChange?.(isRecording);
+    }, [isScrubbing, isPopped, isRecording, onScrubStateChange, onRecordingStateChange]);
 
     const playBackingTracks = (startOffset = 0) => {
         if (layers.length === 0 && !beatAudioBuffer.current) return;

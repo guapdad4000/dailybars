@@ -5023,6 +5023,7 @@ const App = () => {
     const [showXPStore, setShowXPStore] = useState(false);
     const [levelUpModal, setLevelUpModal] = useState(null); // Level number to show
     const [isScratchLabScrubbing, setIsScratchLabScrubbing] = useState(false); // Disable swipe during scrubbing
+    const [isScratchLabRecording, setIsScratchLabRecording] = useState(false);
     const [hasPremium, setHasPremium] = useState(false);
     const [showPremiumPrompt, setShowPremiumPrompt] = useState(false);
     const [premiumMessage, setPremiumMessage] = useState('');
@@ -5594,6 +5595,14 @@ const App = () => {
         { id: 'scratchlab', label: 'SCRATCH LAB', subtitle: 'VOCAL STUDIO' },
         { id: 'syndicate', label: 'SYNDICATE', subtitle: 'COMMUNITY' }
     ];
+    const stationMetrics = {
+        feed: { label: 'YOUR IDEAS', count: bars.length, countLabel: `${bars.length} BAR${bars.length === 1 ? '' : 'S'}` },
+        archive: { label: 'FLYER GRID', count: bars.length, countLabel: `${bars.length} FILE${bars.length === 1 ? '' : 'S'}` },
+        favorites: { label: 'STARRED', count: bars.filter(bar => bar.isFavorite).length, countLabel: `${bars.filter(bar => bar.isFavorite).length} SAVED` },
+        crates: { label: 'TRACKS', count: songs.length, countLabel: `${songs.length} TRACK${songs.length === 1 ? '' : 'S'}` },
+        scratchlab: { label: 'VOCAL STUDIO', count: 0, countLabel: isScratchLabRecording ? 'LIVE TAKE' : 'READY TO RECORD' },
+        syndicate: { label: 'COMMUNITY', count: 0, countLabel: 'OPEN CHANNEL' }
+    };
     const canAccessScratchLab = hasPremium ||
         user?.username?.toLowerCase() === 'guap' ||
         (isDevelopmentPreview() && user?.isDevAccount === true);
@@ -5853,6 +5862,8 @@ const App = () => {
                     subtitle={currentView.subtitle}
                     currentView={view}
                     views={views}
+                    stationMetrics={stationMetrics}
+                    isRecording={isScratchLabRecording}
                     onViewChange={(newView) => {
                         setView(newView);
                         localStorage.setItem('dailybars_view', newView);
@@ -5912,6 +5923,7 @@ const App = () => {
                                 user={user} 
                                 isPremium={hasPremium} 
                                 onScrubStateChange={setIsScratchLabScrubbing}
+                                onRecordingStateChange={setIsScratchLabRecording}
                             />
                         ) : (
                             <div className="premium-gate" style={{

@@ -2,3 +2,4 @@
 - [Compiled static builds](compiled-static-builds.md) — Isolate generated classic scripts when source files share top-level lexical names.
 - [Visual regression baselines](visual-regression-baselines.md) — Review expected-versus-actual images before refreshing snapshots after upstream UI changes.
 - [Preview-only QA access](preview-qa-access.md) — QA-only entitlements must use the preview-host boundary, not the static build environment label.
+- [Train route navigation](train-route-navigation.md) — The train is a core Daily Raps identity element; extend it with useful state instead of replacing it.
