@@ -2711,9 +2711,12 @@ const PasswordStrengthBar = ({ password, passwordStrength }) => (
     </div>
 );
 
-const LoginInputField = ({ label, type, value, onChange, placeholder, error, showToggle, onToggle, showValue, hint }) => (
+const LoginInputField = ({ label, type, value, onChange, placeholder, error, showToggle, onToggle, showValue, hint }) => {
+    const inputId = `login-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+    return (
     <div>
-        <label style={{ 
+        <label htmlFor={inputId} style={{
             display: 'block', fontSize: 10, fontWeight: 700, 
             letterSpacing: '0.2em', marginBottom: 8, textAlign: 'left',
             color: error ? '#EF4444' : 'var(--black)'
@@ -2722,6 +2725,7 @@ const LoginInputField = ({ label, type, value, onChange, placeholder, error, sho
         </label>
         <div style={{ position: 'relative' }}>
             <input 
+                id={inputId}
                 type={showToggle ? (showValue ? 'text' : 'password') : type}
                 autoComplete={
                     label === 'PASSWORD' ? 'current-password' :
@@ -2735,7 +2739,7 @@ const LoginInputField = ({ label, type, value, onChange, placeholder, error, sho
                 onChange={onChange}
                 placeholder={placeholder}
                 className="font-mono"
-                required
+                aria-invalid={Boolean(error)}
                 style={{
                     width: '100%', padding: '12px 0', 
                     paddingRight: showToggle ? 40 : 0,
@@ -2775,7 +2779,8 @@ const LoginInputField = ({ label, type, value, onChange, placeholder, error, sho
             </div>
         )}
     </div>
-);
+    );
+};
 
 // ============================================================================
 // LOGIN SCREEN
@@ -4772,11 +4777,20 @@ const CassetteButton = ({ user, onClick, isOpen }) => {
                 <svg 
                     id="cassette-svg" 
                     className={isUnspooling ? 'unspooling' : ''}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Open profile"
                     width="450" 
                     height="300" 
                     viewBox="0 0 450 300" 
                     xmlns="http://www.w3.org/2000/svg" 
                     onClick={toggleUnspool}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            toggleUnspool();
+                        }
+                    }}
                     style={{
                         cursor: 'pointer',
                         overflow: 'visible',

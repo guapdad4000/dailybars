@@ -126,7 +126,7 @@ test.describe('authentication and navigation', () => {
     const errors = captureBrowserErrors(page);
     await startQaSession(page);
     for (const view of ['ARCHIVE', 'FAVORITES', 'CRATES', 'SCRATCH LAB', 'SYNDICATE', 'FEED']) {
-      await page.getByText(view, { exact: true }).first().click();
+      await page.getByRole('button', { name: `Go to ${view}` }).click();
     }
     await expect(page.getByText('DROP A BAR...')).toBeVisible();
     expect(errors, errors.join('\n')).toEqual([]);
@@ -141,14 +141,14 @@ test.describe('bar creation, editing, and failure recovery', () => {
     await editor.fill('First draft from the Town');
 
     await page.getByRole('button', { name: 'SAVE' }).dblclick();
-    await expect(page.getByText('First draft from the Town')).toBeVisible();
+    const savedBar = page.locator('article').filter({ hasText: 'First draft from the Town' });
+    await expect(savedBar).toBeVisible();
     expect(state.writes.filter((write) => write.method === 'POST' && write.table === 'bars')).toHaveLength(1);
 
-    await page.getByText('First draft from the Town').click();
-    await page.getByText('First draft from the Town').click();
+    await savedBar.locator('.inline-edit').click();
     await page.locator('textarea').fill('Edited draft from the Town');
-    await page.getByRole('button', { name: 'SAVE' }).click();
-    await expect(page.getByText('Edited draft from the Town')).toBeVisible();
+    await page.locator('textarea').press('Tab');
+    await expect(page.locator('article').filter({ hasText: 'Edited draft from the Town' })).toBeVisible();
     expect(state.writes.filter((write) => write.method === 'PATCH' && write.table === 'bars')).toHaveLength(1);
   });
 
@@ -173,6 +173,7 @@ test.describe('modal and mobile keyboard paths', () => {
     await expect(page.getByText('LOGOUT')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.getByText('LOGOUT')).toBeHidden();
+    await expect(profileTrigger).toBeFocused();
   });
 
   test('mobile keyboard input and tag entry work without losing the editor', async ({ page }) => {

@@ -1817,11 +1817,25 @@ const Header = ({ title, subtitle, currentView, views, onViewChange, isTyping, o
                             const cx = 30 + (i * 40);
                             const isActive = currentView === v.id;
                             const letter = v.id === 'favorites' ? '★' : v.id === 'scratchlab' ? 'S' : v.label[0];
+                            const activateView = () => {
+                                onViewChange(v.id);
+                                haptic('light');
+                            };
 
                             return (
                                 <g
                                     key={v.id}
-                                    onClick={() => { onViewChange(v.id); haptic('light'); }}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Go to ${v.label}`}
+                                    aria-current={isActive ? 'page' : undefined}
+                                    onClick={activateView}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            activateView();
+                                        }
+                                    }}
                                     style={{ cursor: 'pointer' }}
                                 >
                                     <circle
@@ -3328,6 +3342,24 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
     const [loading, setLoading] = useState(true);
     const [selectedTrophies, setSelectedTrophies] = useState(user?.selectedTrophies || []);
     const [deleteLoading, setDeleteLoading] = useState(false);
+    const modalRef = useRef(null);
+    const previousFocusRef = useRef(null);
+
+    useEffect(() => {
+        previousFocusRef.current = document.activeElement;
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            onClose?.();
+        };
+        const frame = requestAnimationFrame(() => modalRef.current?.focus());
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocusRef.current?.focus?.();
+        };
+    }, [onClose]);
 
     useEffect(() => {
         loadTrophies();
@@ -3394,7 +3426,13 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
     const displayTrophies = trophies.filter(t => earnedTrophyIds.includes(t.id));
 
     return (
-        <div style={{
+        <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Profile for ${user?.username || 'user'}`}
+            tabIndex={-1}
+            style={{
             position: 'fixed',
             inset: 0,
             zIndex: 10000,
@@ -3440,7 +3478,7 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
                             JOINED {formatDate(user?.created_at)}
                         </div>
                     </div>
-                    <button onClick={onClose} style={{
+                    <button type="button" aria-label="Close profile" onClick={onClose} style={{
                         background: 'transparent',
                         border: 'none',
                         fontSize: 20,

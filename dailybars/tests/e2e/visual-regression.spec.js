@@ -84,7 +84,7 @@ test.describe('editorial visual contract', () => {
   test('sign-in focus state', async ({ page }) => {
     await installVisualFixtures(page);
     await page.goto('/index.html');
-    const email = page.locator('input[placeholder="your@email.com or @username"]');
+    const email = page.getByLabel('EMAIL');
     await email.focus();
     await stabilize(page);
     await expect(page).toHaveScreenshot('sign-in-focus.png', screenshotOptions);
