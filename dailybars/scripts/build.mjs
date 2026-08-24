@@ -7,12 +7,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dist = path.join(root, 'dist');
 const temp = path.join(root, '.build-temp');
 
+const environment = process.env.DAILYBARS_ENVIRONMENT || 'production';
+const useDevelopmentDefaults = environment !== 'production';
+
 const env = {
-  environment: process.env.DAILYBARS_ENVIRONMENT || 'production',
-  supabaseUrl: process.env.DAILYBARS_SUPABASE_URL || 'https://tilpgwoyyervbgdlucap.supabase.co',
-  supabaseAnonKey: process.env.DAILYBARS_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0',
+  environment,
+  releaseEnabled: process.env.DAILYBARS_RELEASE_ENABLED === 'true',
+  supabaseUrl: process.env.DAILYBARS_SUPABASE_URL ||
+    (useDevelopmentDefaults ? 'https://tilpgwoyyervbgdlucap.supabase.co' : ''),
+  supabaseAnonKey: process.env.DAILYBARS_SUPABASE_ANON_KEY ||
+    (useDevelopmentDefaults ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0' : ''),
   aiFunctionName: process.env.DAILYBARS_AI_FUNCTION || 'dailybars-ai',
   deleteAccountFunctionName: process.env.DAILYBARS_DELETE_ACCOUNT_FUNCTION || 'delete-account',
+  authRedirectUrl: process.env.DAILYBARS_AUTH_REDIRECT_URL || '',
   revenueCat: {
     webApiKey: process.env.DAILYBARS_REVENUECAT_WEB_KEY || '',
     iosApiKey: process.env.DAILYBARS_REVENUECAT_IOS_KEY || '',

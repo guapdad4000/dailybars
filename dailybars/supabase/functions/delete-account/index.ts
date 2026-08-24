@@ -15,6 +15,51 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
     }
   });
 
+const listStorageFiles = async (
+  adminClient: ReturnType<typeof createClient>,
+  bucket: string,
+  prefix: string
+): Promise<string[]> => {
+  const files: string[] = [];
+  let offset = 0;
+  const pageSize = 1000;
+
+  do {
+    const { data, error } = await adminClient.storage.from(bucket).list(prefix, {
+      limit: pageSize,
+      offset,
+      sortBy: { column: 'name', order: 'asc' }
+    });
+    if (error) throw error;
+
+    for (const entry of data || []) {
+      const path = `${prefix}/${entry.name}`;
+      if (entry.id) {
+        files.push(path);
+      } else {
+        files.push(...await listStorageFiles(adminClient, bucket, path));
+      }
+    }
+
+    if (!data || data.length < pageSize) break;
+    offset += data.length;
+  } while (true);
+
+  return files;
+};
+
+const removeStoragePrefix = async (
+  adminClient: ReturnType<typeof createClient>,
+  bucket: string,
+  prefix: string
+) => {
+  const files = await listStorageFiles(adminClient, bucket, prefix);
+  for (let start = 0; start < files.length; start += 1000) {
+    const { error } = await adminClient.storage.from(bucket).remove(files.slice(start, start + 1000));
+    if (error) throw error;
+  }
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -29,8 +74,12 @@ Deno.serve(async (req) => {
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const authorization = req.headers.get('Authorization') || '';
 
-  if (!supabaseUrl || !anonKey || !authorization) {
+  if (!supabaseUrl || !anonKey) {
     return jsonResponse({ error: 'Missing Supabase auth configuration' }, 500);
+  }
+
+  if (!authorization) {
+    return jsonResponse({ error: 'Not authenticated' }, 401);
   }
 
   const userClient = createClient(supabaseUrl, anonKey, {
@@ -94,6 +143,10 @@ Deno.serve(async (req) => {
         adminClient.from('songs').delete().eq('username', profile.username)
       ]);
     }
+
+    // Scratch Lab recordings are stored under the Auth user's private prefix.
+    // Delete the objects before the Auth record so no private media is orphaned.
+    await removeStoragePrefix(adminClient, 'scratch-lab', user.id);
 
     if (profile?.id) {
       await adminClient.from('users').delete().eq('id', profile.id);

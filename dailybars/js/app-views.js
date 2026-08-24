@@ -2896,6 +2896,7 @@ const LoginScreen = ({ onLogin }) => {
     const submitInFlightRef = useRef(false);
     const [step, setStep] = useState(1);
     const toast = useToast();
+    const customerAccessEnabled = window.DailyBarsApp?.customerAccessEnabled === true;
 
     const passwordStrength = checkPasswordStrength(password);
     
@@ -3045,6 +3046,38 @@ const LoginScreen = ({ onLogin }) => {
         toast?.addToast('DEV QA ACCOUNT READY', 'success');
         onLogin(qaUser);
     };
+
+    if (!customerAccessEnabled) {
+        return (
+            <div className="login-screen" style={{
+                position: 'fixed', inset: 0,
+                backgroundImage: 'url(images/smooth-paper-texture.jpg)', backgroundSize: 'cover', backgroundPosition: 'center',
+                zIndex: 9999, display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center', padding: 32
+            }}>
+                <div className="login-panel animate-slide-up" style={{ width: '100%', maxWidth: 360, textAlign: 'center', padding: '20px 0' }}>
+                    <img src={LOGO_SOLID} alt="Daily Bars" style={{ width: '100%', maxWidth: 280, height: 'auto', margin: '0 auto 32px' }} />
+                    <div style={{ border: '2px solid var(--black)', background: 'var(--white)', padding: 20, fontSize: 11, lineHeight: 1.6, letterSpacing: '0.08em' }}>
+                        CUSTOMER ACCESS IS NOT YET ENABLED FOR THIS RELEASE.
+                    </div>
+                    {isDevelopmentPreview() && (
+                        <div style={{ marginTop: 18, paddingTop: 18, borderTop: '1px dashed rgba(0,0,0,0.25)' }}>
+                            <button type="button" onClick={handleDevQALogin} style={{
+                                width: '100%', padding: '12px 16px', border: '1px solid var(--black)',
+                                background: 'rgba(234, 179, 8, 0.18)', color: 'var(--black)', fontSize: 10,
+                                fontWeight: 800, letterSpacing: '0.14em', boxShadow: '2px 2px 0 var(--black)'
+                            }}>
+                                ENTER DEV QA ACCOUNT
+                            </button>
+                            <div style={{ marginTop: 8, color: 'var(--gray)', fontSize: 9, letterSpacing: '0.08em' }}>
+                                LOCAL PREVIEW ONLY · NO PASSWORD REQUIRED
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="login-screen" style={{
@@ -5023,6 +5056,10 @@ const App = () => {
     const [aiUsageCount, setAiUsageCount] = useState(0);
     const [showProfileModal, setShowProfileModal] = useState(false);
     const [profileModalUser, setProfileModalUser] = useState(null);
+    const purchasesEnabled = window.DailyBarsApp?.APP_ENVIRONMENT !== 'production' || Boolean(
+        window.DailyBarsApp?.customerAccessEnabled &&
+        window.RevenueCat?.isPurchaseConfigured?.()
+    );
     const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
     const PAYWALL_OFFERING_ID = useMemo(() => window.RevenueCat?.DEFAULT_OFFERING || 'dailybars_pro', []);
     const typingTimeoutRef = useRef(null);
@@ -5256,19 +5293,25 @@ const App = () => {
                         {revenueCatError}
                     </div>
                 ) : null}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                    <button onClick={openRevenueCatPaywall} style={{ width: '100%', padding: 12, background: 'var(--black)', color: 'var(--white)', fontWeight: 800, letterSpacing: '0.1em', border: '2px solid var(--black)' }}>
-                        UPGRADE WITH REVENUECAT
-                    </button>
-                    <button onClick={restoreRevenueCatPurchases} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px dashed var(--black)' }}>
-                        RESTORE PURCHASES
-                    </button>
-                    {window.RevenueCat?.presentCustomerCenter ? (
-                        <button onClick={openRevenueCatCustomerCenter} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
-                            OPEN CUSTOMER CENTER
+                {purchasesEnabled ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                        <button onClick={openRevenueCatPaywall} style={{ width: '100%', padding: 12, background: 'var(--black)', color: 'var(--white)', fontWeight: 800, letterSpacing: '0.1em', border: '2px solid var(--black)' }}>
+                            UPGRADE WITH REVENUECAT
                         </button>
-                    ) : null}
-                </div>
+                        <button onClick={restoreRevenueCatPurchases} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px dashed var(--black)' }}>
+                            RESTORE PURCHASES
+                        </button>
+                        {window.RevenueCat?.presentCustomerCenter ? (
+                            <button onClick={openRevenueCatCustomerCenter} style={{ width: '100%', padding: 10, background: 'var(--white)', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '2px solid var(--black)' }}>
+                                OPEN CUSTOMER CENTER
+                            </button>
+                        ) : null}
+                    </div>
+                ) : (
+                    <div style={{ fontSize: 11, padding: 10, marginBottom: 12, background: 'rgba(0,0,0,0.05)', border: '1px solid var(--black)' }}>
+                        PURCHASES ARE NOT ENABLED FOR THIS BUILD.
+                    </div>
+                )}
                 <button onClick={() => setShowPremiumPrompt(false)} style={{ width: '100%', padding: 10, background: 'transparent', color: 'var(--black)', fontWeight: 700, letterSpacing: '0.08em', border: '1px solid var(--black)' }}>
                     CLOSE
                 </button>
@@ -5318,6 +5361,13 @@ const App = () => {
     useEffect(() => {
         let mounted = true;
         const restoreSession = async () => {
+            if (!window.DailyBarsApp?.customerAccessEnabled) {
+                localStorage.removeItem('dailybars_session');
+                localStorage.removeItem('guap_user');
+                if (mounted) setIsCheckingAuth(false);
+                return;
+            }
+
             try {
                 const authUser = await authApi.getSessionUser();
                 if (authUser && mounted) {

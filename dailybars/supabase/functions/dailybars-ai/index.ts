@@ -1,12 +1,9 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
-};
-
-type GenerateRequest = {
-  prompt?: string;
-  systemPrompt?: string;
 };
 
 const jsonResponse = (body: Record<string, unknown>, status = 200) =>
@@ -17,6 +14,11 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
       'Content-Type': 'application/json'
     }
   });
+
+type GenerateRequest = {
+  prompt?: string;
+  systemPrompt?: string;
+};
 
 async function generateWithGemini(prompt: string, systemPrompt: string) {
   const apiKey = Deno.env.get('GEMINI_API_KEY');
@@ -90,6 +92,26 @@ Deno.serve(async (req) => {
 
   if (req.method !== 'POST') {
     return jsonResponse({ error: 'Method not allowed' }, 405);
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+  const authorization = req.headers.get('Authorization') || '';
+
+  if (!supabaseUrl || !anonKey) {
+    return jsonResponse({ error: 'Missing Supabase auth configuration' }, 500);
+  }
+
+  if (!authorization) {
+    return jsonResponse({ error: 'Not authenticated' }, 401);
+  }
+
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: authorization } }
+  });
+  const { data: authData, error: authError } = await userClient.auth.getUser();
+  if (authError || !authData.user) {
+    return jsonResponse({ error: 'Not authenticated' }, 401);
   }
 
   try {

@@ -29,6 +29,47 @@ npx cap open ios
 
 ---
 
+## RELEASE GATE — REQUIRED BEFORE CUSTOMER ACCESS
+
+`npm run check` proves that the production bundle renders locally. It does **not** prove that the live Supabase, RevenueCat, email, or native-store integrations work. Do not enable customer sign-in or purchases until each item below has a recorded passing result against the intended production projects.
+
+### 1. Supabase account and deletion flow
+
+- [ ] Set `DAILYBARS_RELEASE_ENABLED=true` only after every item in this release gate passes and a matching platform RevenueCat public key is configured. Without these, customer sign-in and purchase controls are suppressed.
+- [ ] Confirm the configured `DAILYBARS_SUPABASE_URL` is the Daily Raps project, not a different Supabase project.
+- [ ] Deploy the database migration:
+  ```bash
+  supabase db push
+  ```
+- [ ] Deploy both functions:
+  ```bash
+  supabase functions deploy dailybars-ai
+  supabase functions deploy delete-account
+  ```
+- [ ] With a disposable account, create an account, send a reset email, follow the reset link on the supported target, sign in, and delete the account.
+- [ ] Confirm the Auth user and the matching `users` profile are gone after deletion. Confirm related user content follows the documented retention policy.
+- [ ] Exercise each function response:
+  - unauthenticated request → `401`
+  - unsupported method → `405`
+  - `dailybars-ai` empty prompt → `400`
+  - `dailybars-ai` with no configured provider → `501`
+  - valid authenticated requests → successful JSON response
+
+### 2. Password reset redirect
+
+- [ ] Set `DAILYBARS_AUTH_REDIRECT_URL` to the public HTTPS URL users should return to after resetting a password.
+- [ ] Add the same exact URL to **Supabase Auth → URL Configuration → Redirect URLs**.
+- [ ] Test the delivered email link in the release browser or native wrapper. A local or Replit preview URL is not a substitute for the release target.
+
+### 3. RevenueCat and native-store flow
+
+- [ ] Create and configure a live RevenueCat app for every shipped target (web, iOS, and/or Android). A Test Store alone is not a customer release target.
+- [ ] Set only the required matching public keys in `DAILYBARS_REVENUECAT_WEB_KEY`, `DAILYBARS_REVENUECAT_IOS_KEY`, and `DAILYBARS_REVENUECAT_ANDROID_KEY`.
+- [ ] Create the `dailybars_pro` offering and attach a purchasable package that grants the `daily raps Pro` entitlement.
+- [ ] On a supported native device using a sandbox store tester, verify offering retrieval, purchase, restore, entitlement update, premium unlock, and Customer Center.
+
+---
+
 ## PRE-SUBMISSION CHECKLIST
 
 ### Apple Developer Account

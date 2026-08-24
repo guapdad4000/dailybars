@@ -3,7 +3,7 @@
 
 > *A unique mobile experience blending brutalist design with Bay Area flavor*
 
-**Version 3.0.0** | **App Store Ready** 🍎
+**Version 3.0.0** | **App Store preparation — live-service verification required** 🍎
 
 ---
 
@@ -40,7 +40,7 @@ The result is something truly unique - underground venue meets music journalism 
 - ✅ **Privacy Manifest**: iOS privacy report metadata included
 - ✅ **Account Deletion + UGC Safety**: Supabase migration and Edge Function updates ready
 - ✅ **Safe Area Support**: iPhone notch/Dynamic Island handled
-- ✅ **RevenueCat Integration**: In-app purchases ready
+- ✅ **RevenueCat Client Integration**: Live offering, public-key, and native-store verification still required
 
 **To Build for App Store:**
 ```bash

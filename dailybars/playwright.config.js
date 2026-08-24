@@ -14,7 +14,7 @@ module.exports = defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: 'npm run build && python3 -m http.server 5001 --bind 127.0.0.1 --directory dist',
+    command: 'DAILYBARS_ENVIRONMENT=development npm run build && python3 -m http.server 5001 --bind 127.0.0.1 --directory dist',
     cwd: '.',
     url: 'http://127.0.0.1:5001/index.html',
     reuseExistingServer: false,

@@ -25,10 +25,12 @@
 
     const apiKeyForPlatform = () => {
         const current = platform();
-        if (current === 'ios') return config.iosApiKey || config.webApiKey || '';
-        if (current === 'android') return config.androidApiKey || config.webApiKey || '';
+        if (current === 'ios') return config.iosApiKey || '';
+        if (current === 'android') return config.androidApiKey || '';
         return config.webApiKey || '';
     };
+
+    const isPurchaseConfigured = () => Boolean(apiKeyForPlatform());
 
     const nativePurchases = () => window.CapacitorPurchases || null;
 
@@ -46,6 +48,29 @@
             console.warn('RevenueCat API key not configured for this platform.');
         }
         return null;
+    };
+
+    const configurationError = () => {
+        if (!apiKeyForPlatform()) {
+            return `RevenueCat is not configured for ${platform()}.`;
+        }
+        return 'RevenueCat could not be initialized for this platform.';
+    };
+
+    const offeringForConfig = (offerings) => {
+        const namedOffering = offerings?.all?.[DEFAULT_OFFERING];
+        if (namedOffering) return namedOffering;
+
+        const currentOffering = offerings?.current;
+        const currentIdentifier = currentOffering?.identifier ||
+            currentOffering?.offeringIdentifier ||
+            currentOffering?.id;
+        return currentIdentifier === DEFAULT_OFFERING ? currentOffering : null;
+    };
+
+    const ensurePurchaseReady = async (appUserId) => {
+        await ensureConfigured(appUserId);
+        if (!configured) throw new Error(configurationError());
     };
 
     const configureNative = async (appUserId, apiKey) => {
@@ -124,10 +149,10 @@
         try {
             if (platform() !== 'web' && nativePurchases()?.getOfferings) {
                 const offerings = await nativePurchases().getOfferings();
-                return offerings?.current || offerings?.all?.[DEFAULT_OFFERING] || null;
+                return offeringForConfig(offerings);
             }
             const offerings = await purchasesInstance?.getOfferings?.();
-            return offerings?.current || offerings?.all?.[DEFAULT_OFFERING] || null;
+            return offeringForConfig(offerings);
         } catch (err) {
             console.error('RevenueCat getOfferings failed', err);
             return null;
@@ -135,7 +160,7 @@
     };
 
     const purchasePackage = async (pkg) => {
-        await ensureConfigured(configuredUserId);
+        await ensurePurchaseReady(configuredUserId);
         try {
             let result = null;
             if (platform() !== 'web' && nativePurchases()?.purchasePackage) {
@@ -154,7 +179,7 @@
     };
 
     const restorePurchases = async () => {
-        await ensureConfigured(configuredUserId);
+        await ensurePurchaseReady(configuredUserId);
         try {
             if (platform() !== 'web' && nativePurchases()?.restorePurchases) {
                 const result = await nativePurchases().restorePurchases();
@@ -171,7 +196,7 @@
     };
 
     const presentCustomerCenter = async (mode = 'manage-subscriptions') => {
-        await ensureConfigured(configuredUserId);
+        await ensurePurchaseReady(configuredUserId);
         if (platform() !== 'web' && nativePurchases()?.presentCustomerCenter) {
             return nativePurchases().presentCustomerCenter({ mode });
         }
@@ -179,7 +204,7 @@
     };
 
     const showPaywall = async (opts = {}) => {
-        await ensureConfigured(opts.appUserID || configuredUserId);
+        await ensurePurchaseReady(opts.appUserID || configuredUserId);
         if (platform() !== 'web' && nativePurchases()?.presentPaywall) {
             return nativePurchases().presentPaywall({ offeringIdentifier: opts.offeringIdentifier || DEFAULT_OFFERING });
         }
@@ -187,8 +212,14 @@
             return purchasesInstance.presentPaywall({ offeringIdentifier: opts.offeringIdentifier || DEFAULT_OFFERING });
         }
         const offering = opts.offering || await getOfferings();
-        const pkg = opts.packageToPurchase || offering?.availablePackages?.[0];
-        return pkg ? purchasePackage(pkg) : null;
+        if (!offering) {
+            throw new Error(`RevenueCat offering "${DEFAULT_OFFERING}" is not available for ${platform()}.`);
+        }
+        const pkg = opts.packageToPurchase || offering.availablePackages?.[0];
+        if (!pkg) {
+            throw new Error(`RevenueCat offering "${DEFAULT_OFFERING}" has no purchasable package for ${platform()}.`);
+        }
+        return purchasePackage(pkg);
     };
 
     const addCustomerInfoListener = (cb) => {
@@ -203,6 +234,7 @@
         ensureConfigured,
         getCustomerInfo,
         getOfferings,
+        isPurchaseConfigured,
         hasPro,
         purchasePackage,
         restorePurchases,
