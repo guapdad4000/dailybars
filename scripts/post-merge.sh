@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The Replit preview is a static site served from dailybars/.
-# Keep this hook fast and avoid the legacy Capacitor dependency path, which is
-# not required for browser previews.
+# Apply the checked-in native schema to the development database. Production
+# schema changes are handled only by Replit's Publish flow.
 test -f dailybars/index.html
 test -f dailybars/js/app-views.js
+npm --prefix dailybars run db:setup
 
-echo "Static preview is ready for workflow reconciliation."
+echo "Native database schema is ready for workflow reconciliation."

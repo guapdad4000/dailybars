@@ -1,0 +1,17 @@
+{
+  "exportedAt": "2026-08-24T00:00:00.000Z",
+  "tables": {
+    "prompts_feelings": [
+      {"id":"77777777-7777-7777-7777-777777777777","value":"Hunger"}
+    ],
+    "users": [
+      {"id":"44444444-4444-4444-4444-444444444444","auth_user_id":null,"username":"legacy-fixture","email":"legacy-fixture@example.invalid","xp":0,"level":1}
+    ],
+    "songs": [
+      {"id":"55555555-5555-5555-5555-555555555555","user_id":"44444444-4444-4444-4444-444444444444","title":"Legacy Song","blocks":[],"status":"draft","username":"legacy-fixture","otherArtists":"Legacy Guest"}
+    ],
+    "beats": [
+      {"id":"66666666-6666-6666-6666-666666666666","user_id":"44444444-4444-4444-4444-444444444444","filename":"legacy.mp3","file_size_bytes":1,"mime_type":"audio/mpeg","storage_path":"legacy.mp3","tags":"legacy,import","embedded_year":"2024"}
+    ]
+  }
+}

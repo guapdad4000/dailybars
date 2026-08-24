@@ -1,16 +1,22 @@
 # Daily Raps on Replit
 
-The imported app is a static PWA located in `dailybars/`.
+Daily Raps serves its compiled PWA and same-origin Node API from `dailybars/`.
 
 ## Run
 
-Use the **Start application** workflow. It creates the production browser build and serves `dailybars/dist/` on port 5000:
+Use the **Start application** workflow. It creates the browser build and starts
+the combined static/API server on port 5000:
 
 ```bash
-cd dailybars && npm run build && python3 -m http.server 5000 --bind 0.0.0.0 --directory dist
+cd dailybars && DAILYBARS_ENVIRONMENT=development npm run build && DAILYBARS_ENVIRONMENT=development node server/server.mjs
 ```
 
-The production browser build bundles its UI libraries locally. It connects to the project’s existing external Supabase service for account and data-sync features; those features require that service to be reachable.
+The Replit PostgreSQL database is the canonical source for application data and
+XP accounting. The retained external Supabase service is used only for Auth,
+managed audio storage, and the existing AI function. `DATABASE_URL`,
+`DAILYBARS_SUPABASE_URL`, and `DAILYBARS_SUPABASE_ANON_KEY` are server-side
+configuration; never put service-role credentials in browser config. Production
+schema changes are applied by Replit Publish after its database-diff review.
 
 Native Capacitor dependencies are retained for iOS/Android builds but are not needed for the Replit web preview.
 

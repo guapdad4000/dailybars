@@ -1886,16 +1886,8 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateC
 
     const wasSessionCommitted = async (sessionId) => {
         try {
-            const { data, error } = await window.supabase
-                .from('scratch_sessions')
-                .select('id')
-                .eq('id', sessionId)
-                .maybeSingle();
-            if (error) {
-                console.warn('[ScratchLab] Could not verify cloud save status:', error.message);
-                return null;
-            }
-            return Boolean(data);
+            await window.dailyBarsApi.request(`/scratch-sessions/${sessionId}`);
+            return true;
         } catch (error) {
             console.warn('[ScratchLab] Could not verify cloud save status:', error);
             return null;
@@ -1981,19 +1973,18 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateC
                 });
             }
 
-            // The RPC inserts the session and all layers in one database transaction.
+            // The native API inserts the session and all layers in one database transaction.
             metadataSaveStarted = true;
-            const { data: savedSession, error: sessionError } = await window.supabase.rpc('save_scratch_session', {
-                p_session_id: sessionId,
-                p_user_id: user.id,
-                p_title: sessionTitle,
-                p_beat_url: savedBeatPath,
-                p_beat_title: beatFile?.name || beat || null,
-                p_layers: savedLayers
+            await window.dailyBarsApi.request('/scratch-sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                    id: sessionId,
+                    title: sessionTitle,
+                    beatUrl: savedBeatPath,
+                    beatTitle: beatFile?.name || beat || null,
+                    layers: savedLayers
+                })
             });
-            if (sessionError || !savedSession) {
-                throw new Error(sessionError?.message || 'Cloud session metadata could not be saved.');
-            }
 
             setBeatStoragePath(savedBeatPath);
             alert(`Session "${sessionTitle}" saved to the cloud.`);
@@ -2025,7 +2016,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateC
         }
     };
     
-    // Load saved sessions from Supabase. RLS limits this query to the signed-in user.
+    // Load saved sessions from the native API, which enforces ownership server-side.
     const loadSavedSessions = async () => {
         try {
             setSessionLoadError('');
@@ -2034,14 +2025,7 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateC
                 return;
             }
 
-            const { data, error } = await window.supabase
-                .from('scratch_sessions')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('created_at', { ascending: false })
-                .limit(100);
-            if (error) throw error;
-
+            const data = await window.dailyBarsApi.request('/scratch-sessions');
             setSavedSessions(data || []);
         } catch (err) {
             console.error('Error loading sessions:', err);
@@ -2055,22 +2039,11 @@ const ScratchLabView = ({ user, isPremium, onScrubStateChange, onRecordingStateC
         const loadedObjectUrls = [];
         try {
             await ensureAudioContext();
-            const { data: session, error: sessionError } = await window.supabase
-                .from('scratch_sessions')
-                .select('*')
-                .eq('id', sessionId)
-                .maybeSingle();
-            if (sessionError) throw sessionError;
+            const session = await window.dailyBarsApi.request(`/scratch-sessions/${sessionId}`);
             if (!session) {
                 throw new Error('Session not found.');
             }
-
-            const { data: sessionLayers, error: layersError } = await window.supabase
-                .from('scratch_layers')
-                .select('*')
-                .eq('session_id', sessionId)
-                .order('layer_number', { ascending: false });
-            if (layersError) throw layersError;
+            const sessionLayers = session.layers || [];
 
             let loadedBeatBuffer = null;
             let loadedBeatWaveform = null;

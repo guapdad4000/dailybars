@@ -15,9 +15,10 @@ async function getPort() {
 }
 
 const port = await getPort();
-const server = spawn('npx', ['serve', 'dist', '-l', String(port)], {
+const server = spawn('sh', ['-c', 'npm run db:setup && node server/server.mjs'], {
   stdio: 'ignore',
-  detached: true
+  detached: true,
+  env: { ...process.env, PORT: String(port), DAILYBARS_ENVIRONMENT: 'development' }
 });
 
 const shutdown = () => {
@@ -42,6 +43,12 @@ try {
   });
   await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('text=/DAILY RAPS|SIGN IN|ARTIST/i', { timeout: 15000 });
+  const health = await page.request.get(`http://127.0.0.1:${port}/api/health`);
+  if (!health.ok()) throw new Error(`Native API health check failed: ${health.status()}`);
+  const profile = await page.request.get(`http://127.0.0.1:${port}/api/me`, { headers: { 'X-DailyBars-QA': 'true' } });
+  if (!profile.ok() || !(await profile.json()).id) throw new Error('Native authenticated profile check failed.');
+  const protectedTable = await page.request.get(`http://127.0.0.1:${port}/api/revenuecat_customers`, { headers: { 'X-DailyBars-QA': 'true' } });
+  if (protectedTable.status() !== 404) throw new Error('Sensitive telemetry table must not be exposed by the generic API.');
   await page.waitForTimeout(500);
   await browser.close();
   if (errors.length) throw new Error(errors.join('\n'));

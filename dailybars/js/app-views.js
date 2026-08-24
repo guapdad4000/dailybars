@@ -3402,7 +3402,7 @@ const LoginScreen = ({ onLogin }) => {
 // TROPHY CASE VIEW (REPLACES XP STORE)
 // ============================================================================
 
-const TrophyCaseView = ({ user, onClose, onSpendXP, onSelectForShowcase }) => {
+const TrophyCaseView = ({ user, onClose, onUserUpdated, onSelectForShowcase }) => {
     const [tiles, setTiles] = useState([]);
     const [loading, setLoading] = useState(true);
     const [userUnlocks, setUserUnlocks] = useState(new Set());
@@ -3533,15 +3533,8 @@ const TrophyCaseView = ({ user, onClose, onSpendXP, onSelectForShowcase }) => {
     
     const executeUnlock = async (trophy) => {
         try {
-            // 1. Spend the XP first
-            if (onSpendXP) {
-                await onSpendXP(trophy.xp_cost);
-            }
-            
-            // 2. Record the trophy unlock
-            await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
-            
-            // 3. Optimistic UI update
+            const result = await window.DailyDepositEngine.unlockTrophy(user.id, trophy.id);
+            if (result?.user && onUserUpdated) onUserUpdated(result.user);
             const newUnlocks = new Set(userUnlocks);
             newUnlocks.add(trophy.id);
             setUserUnlocks(newUnlocks);
@@ -4245,8 +4238,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
         setSubmission(true);
         try {
             await window.DailyDepositEngine.submitToSyndicate(promptText, user.username, 'PROMPT', user.id);
-            toast?.addToast('PROMPT SUBMITTED +50 XP', 'success');
-            if (onAction) onAction(50, 'PROMPT SUBMITTED');
+            toast?.addToast('PROMPT SUBMITTED +25 XP', 'success');
             setPromptText('');
             await loadFeed();
         } catch (err) {
@@ -4554,8 +4546,7 @@ const SyndicateView = ({ user, onTyping, onOpenStore, onAction, onShowProfile })
                                                                     ));
                                                                     setUpvotedPosts(prev => new Set([...prev, p.id]));
                                                                     haptic('success');
-                                                                    toast?.addToast('UPVOTED! +10 XP', 'success');
-                                                                    if (onAction) onAction(10, 'UPVOTED PROMPT');
+                                                                toast?.addToast(result.awardedXp ? 'UPVOTED! +10 XP' : 'UPVOTED!', 'success');
                                                                 } else if (result.alreadyVoted) {
                                                                     setUpvotedPosts(prev => new Set([...prev, p.id]));
                                                                     toast?.addToast('ALREADY UPVOTED', 'info');
@@ -5067,26 +5058,18 @@ const App = () => {
     }, [user?.id]);
 
     const syncRevenueCatToSupabase = useCallback(async (info) => {
-        if (!info || !user?.id || !navigator.onLine || typeof supabase === 'undefined') return;
+        if (!info || !user?.id || !navigator.onLine) return;
         try {
             const payload = {
                 user_key: userKey,
-                user_id: user?.id || null,
-                username: user?.username || null,
                 app_user_id: info?.appUserID || info?.originalAppUserId || userKey,
                 entitlement_pro_active: window.RevenueCat?.hasPro(info) || false,
                 entitlements: info?.entitlements || null,
                 customer_info: info,
                 environment: info?.managementURL ? 'production' : null,
                 last_synced: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
             };
-            const { error } = await supabase
-                .from('revenuecat_customers')
-                .upsert(payload, { onConflict: 'user_key' });
-            if (error) {
-                console.warn('RevenueCat sync to Supabase failed', error.message);
-            }
+            await window.dailyBarsApi.request('/telemetry/revenuecat', { method: 'PUT', body: JSON.stringify(payload) });
         } catch (err) {
             console.warn('RevenueCat sync to Supabase error', err);
         }
@@ -5104,65 +5087,27 @@ const App = () => {
     }, []);
 
     // XP SYSTEM LOGIC
-    const addExperience = async (amount, reason) => {
+    const addExperience = async (amount, reason, eventKey = null, metadata = {}) => {
         if (!user) {
             console.warn('⚠️ addExperience called but no user');
-            return;
+            return null;
         }
-        if (!user.id) {
-            console.warn('⚠️ addExperience called but user has no ID:', user);
-            // Try to fetch user ID from database
-            try {
-                const res = await api.get('users', { limit: 1000 });
-                const dbUser = res.data?.find(u => u.username?.toLowerCase() === user.username?.toLowerCase());
-                if (dbUser?.id) {
-                    console.log('🔧 Found user ID in DB, updating local user');
-                    user.id = dbUser.id;
-                    user.xp = dbUser.xp || 0;
-                    user.level = dbUser.level || 1;
-                } else {
-                    console.error('❌ Could not find user in database');
-                    return;
-                }
-            } catch (e) {
-                console.error('❌ Failed to fetch user ID:', e);
-                return;
-            }
-        }
-        
         try {
-            const currentXp = user.xp || 0;
             const currentLevel = user.level || 1;
-            const newXp = currentXp + amount;
-            const newLevel = Math.floor(newXp / 100) + 1;
-            
-            console.log(`⭐ +${amount} XP: ${reason} (${currentXp} -> ${newXp})`);
-            
-            // Optimistic update
-            const updatedUser = { ...user, xp: newXp, level: newLevel };
+            const stableEventKey = eventKey || `client:${String(reason || 'xp').toLowerCase().replace(/\s+/g, '-')}:${new Date().toISOString().slice(0, 10)}`;
+            const result = await api.awardXp(amount, reason, stableEventKey, metadata);
+            const updatedUser = { ...user, ...result.user };
             setUser(updatedUser);
             localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
-            
-            // API Update
-            await api.update('users', user.id, { xp: newXp, level: newLevel });
-            
-            // Check and award XP trophies
-            try {
-                await supabase.rpc('check_xp_trophies', { p_user_id: user.id, p_xp: newXp });
-            } catch (trophyErr) {
-                console.warn('⚠️ Failed to check XP trophies:', trophyErr);
-            }
-            
-            // Visual feedback - show XP gain briefly
             haptic('light');
-            
-            if (newLevel > currentLevel) {
-                // Level Up! Show in-app modal
+            if (updatedUser.level > currentLevel) {
                 haptic('success');
-                setTimeout(() => setLevelUpModal(newLevel), 500);
+                setTimeout(() => setLevelUpModal(updatedUser.level), 500);
             }
+            return result;
         } catch (err) {
             console.error('❌ XP Update failed:', err);
+            return null;
         }
     };
 
@@ -5274,22 +5219,14 @@ const App = () => {
     }, [aiUsageCount, aiUsageKey]);
 
     const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
-        if (!user?.id || !navigator.onLine || typeof supabase === 'undefined' || usageCount <= 0) return;
+        if (!user?.id || !navigator.onLine || usageCount <= 0) return;
         try {
             const payload = {
                 user_key: userKey,
-                user_id: user?.id || null,
-                username: user?.username || null,
                 ai_uses: usageCount,
                 last_ai_use: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
             };
-            const { error } = await supabase
-                .from('premium_usage')
-                .upsert(payload, { onConflict: 'user_key' });
-            if (error) {
-                console.warn('Premium usage sync failed', error.message);
-            }
+            await window.dailyBarsApi.request('/telemetry/premium', { method: 'PUT', body: JSON.stringify(payload) });
         } catch (err) {
             console.warn('Premium usage sync error', err);
         }
@@ -5360,7 +5297,7 @@ const App = () => {
             setStreak(currentStreak);
             
             // Award XP for daily activity (once per day)
-            addExperience(10, 'DAILY CHECK-IN');
+            addExperience(10, 'DAILY CHECK-IN', `daily-check-in:${new Date().toISOString().slice(0, 10)}`);
         }
     }, [user]);
 
@@ -5669,27 +5606,8 @@ const App = () => {
             });
             setBars(prev => [newBar, ...prev]);
             updateStreak();
-            addExperience(5, 'BAR WRITTEN');
-            
-            // Update user stats in database (streak, total_bars)
-            if (user?.username) {
-                try {
-                    await supabase.rpc('update_user_stats', { p_username: user.username });
-                    
-                    // Refresh user data to get updated stats
-                    const { data: userData } = await supabase
-                        .from('users')
-                        .select('*')
-                        .eq('username', user.username)
-                        .single();
-                    
-                    if (userData) {
-                        setUser(prev => ({ ...prev, ...userData }));
-                    }
-                } catch (statsErr) {
-                    console.warn('⚠️ Failed to update user stats:', statsErr);
-                }
-            }
+            const refreshed = await api.get('users', { limit: 1 });
+            if (refreshed.data?.[0]) setUser(prev => ({ ...prev, ...refreshed.data[0] }));
         } catch (err) { console.error(err); }
     };
     
@@ -5800,7 +5718,8 @@ const App = () => {
         try {
             await window.DailyDepositEngine.submitToSyndicate(bar.text, user.username, 'VERSE', user.id);
             console.log('Sent to free game'); 
-            addExperience(25, 'CONTRIBUTED TO FREE GAME');
+            const refreshed = await api.get('users', { limit: 1 });
+            if (refreshed.data?.[0]) setUser(prev => ({ ...prev, ...refreshed.data[0] }));
         } catch (err) {
             console.error(err);
         }
@@ -6003,14 +5922,10 @@ const App = () => {
                 <TrophyCaseView 
                     user={user} 
                     onClose={() => setShowXPStore(false)}
-                    onSpendXP={async (amount) => {
-                        // Subtract XP when spending on trophies
-                        const newXp = Math.max(0, (user.xp || 0) - amount);
-                        const updatedUser = { ...user, xp: newXp };
+                    onUserUpdated={(serverUser) => {
+                        const updatedUser = { ...user, ...serverUser };
                         setUser(updatedUser);
                         localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
-                        await api.update('users', user.id, { xp: newXp });
-                        return true;
                     }}
                     onSelectForShowcase={async (trophyId) => {
                         // Toggle trophy selection for showcase
@@ -6031,14 +5946,8 @@ const App = () => {
                             }
                         }
                         
-                        // Update database
-                        await supabase
-                            .from('users')
-                            .update({ selected_trophies: newSelected })
-                            .eq('id', user.id);
-                        
-                        // Update local state
-                        const updatedUser = { ...user, selected_trophies: newSelected, selectedTrophies: newSelected };
+                        const serverUser = await api.updateShowcase(newSelected);
+                        const updatedUser = { ...user, ...serverUser, selected_trophies: newSelected, selectedTrophies: newSelected };
                         setUser(updatedUser);
                         localStorage.setItem('dailybars_session', JSON.stringify({ ...JSON.parse(localStorage.getItem('dailybars_session') || '{}'), user: updatedUser }));
                     }}

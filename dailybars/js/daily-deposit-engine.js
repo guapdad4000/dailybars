@@ -57,20 +57,12 @@ const DailyDepositEngine = {
     ],
 
     // ========================================================================
-    // Supabase Config (uses same client from app.js)
+    // Native application-data API (Supabase remains only for Auth and audio storage)
     // ========================================================================
     
-    getSupabase() {
-        // Use the global supabase client initialized in app.js
-        if (window.supabaseClient) return window.supabaseClient;
-        
-        // Fallback: create our own if app.js hasn't loaded yet
-        const config = window.DAILYBARS_CONFIG || {};
-        const sdk = window.supabaseSdk || window.supabase;
-        if (!sdk?.createClient) {
-            throw new Error('Supabase SDK is not loaded');
-        }
-        return sdk.createClient(config.supabaseUrl, config.supabaseAnonKey);
+    request(path, options = {}) {
+        if (!window.dailyBarsApi?.request) throw new Error('Native data API is not available.');
+        return window.dailyBarsApi.request(path, options);
     },
 
     // ========================================================================
@@ -79,18 +71,8 @@ const DailyDepositEngine = {
     
     async fetchTable(tableName) {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from(tableName)
-                .select('*')
-                .limit(100);
-            
-            if (error) {
-                console.warn(`⚠️ ${tableName} Supabase error:`, error.message);
-                return [];
-            }
-            
-            return data || [];
+            const result = await this.request(`/${tableName}?limit=100`);
+            return result.data || [];
         } catch (error) {
             console.error(`❌ Error fetching ${tableName}:`, error);
             return [];
@@ -161,21 +143,10 @@ const DailyDepositEngine = {
     
     async submitToSyndicate(promptText, author, type = 'PROMPT', userId = null) {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_submissions')
-                .insert({
-                    prompt_text: promptText,
-                    author: author || 'Anonymous',
-                    user_id: userId,
-                    likes: 0,
-                    submission_type: type
-                })
-                .select()
-                .single();
-            
-            if (error) throw error;
-            return data;
+            return window.dailyBarsApi.api.create('community_submissions', {
+                promptText,
+                submissionType: type
+            });
         } catch (error) {
             console.error("❌ Failed to submit to Syndicate:", error);
             throw error;
@@ -184,19 +155,8 @@ const DailyDepositEngine = {
 
     async getSyndicateFeed() {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_submissions')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50);
-            
-            if (error) {
-                console.error("❌ Syndicate fetch error:", error.message);
-                return [];
-            }
-            
-            return data || [];
+            const result = await window.dailyBarsApi.api.get('community_submissions', { sort: '-created_at', limit: 50 });
+            return result.data || [];
         } catch (error) {
             console.error("❌ Failed to fetch Syndicate feed:", error);
             return [];
@@ -206,16 +166,10 @@ const DailyDepositEngine = {
     async reportPost(postId, userId, reason = 'inappropriate') {
         if (!postId || !userId) return { error: 'Missing report target' };
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_reports')
-                .insert({ submission_id: postId, reporter_id: userId, reason })
-                .select()
-                .single();
-            if (error?.code === '23505') return { alreadyReported: true };
-            if (error) throw error;
-            await client.rpc('increment_submission_report_count', { p_submission_id: postId }).catch(() => null);
-            return { success: true, data };
+            return await this.request('/community/report', {
+                method: 'POST',
+                body: JSON.stringify({ submissionId: postId, reason })
+            });
         } catch (error) {
             console.error('❌ Failed to report post:', error);
             return { error: error.message || 'Failed to report post' };
@@ -227,15 +181,10 @@ const DailyDepositEngine = {
         const normalizedAuthor = String(blockedAuthor).trim().toLowerCase();
         if (!normalizedAuthor) return { error: 'Missing block target' };
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_blocks')
-                .insert({ user_id: userId, blocked_author: normalizedAuthor })
-                .select()
-                .single();
-            if (error?.code === '23505') return { alreadyBlocked: true };
-            if (error) throw error;
-            return { success: true, data };
+            return await this.request('/community/block', {
+                method: 'POST',
+                body: JSON.stringify({ author: normalizedAuthor })
+            });
         } catch (error) {
             console.error('❌ Failed to block author:', error);
             const storageKey = `dailybars_blocked_authors_${userId}`;
@@ -263,12 +212,7 @@ const DailyDepositEngine = {
             localBlocked = [];
         }
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_blocks')
-                .select('blocked_author')
-                .eq('user_id', userId);
-            if (error) throw error;
+            const data = await this.request('/community/blocks');
             return Array.from(new Set([
                 ...(data || []).map(row => row.blocked_author),
                 ...localBlocked
@@ -280,16 +224,7 @@ const DailyDepositEngine = {
     
     async likeSyndicatePost(id, currentLikes) {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_submissions')
-                .update({ likes: (currentLikes || 0) + 1 })
-                .eq('id', id)
-                .select()
-                .single();
-            
-            if (error) throw error;
-            return data;
+            return this.upvotePost(id, true);
         } catch (error) {
             console.error("❌ Failed to like post:", error);
             throw error;
@@ -304,95 +239,17 @@ const DailyDepositEngine = {
         }
         
         try {
-            const client = this.getSupabase();
-
-            const { data: voteResult, error: voteError } = await client.rpc('upvote_submission', {
-                p_submission_id: postId,
-                p_user_id: userId,
-                p_username: username || 'Anonymous'
+            const result = await this.request('/community/upvote', {
+                method: 'POST',
+                body: JSON.stringify({ submissionId: postId })
             });
-
-            if (!voteError) {
-                const storageKey = `upvoted_posts_${userId}`;
-                const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
-                if (!upvotedPosts.includes(postId)) {
-                    upvotedPosts.push(postId);
-                    localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
-                }
-
-                return {
-                    success: Boolean(voteResult?.success),
-                    alreadyVoted: Boolean(voteResult?.alreadyVoted),
-                    newLikes: voteResult?.newLikes || voteResult?.new_likes || 0
-                };
-            }
-
-            if (voteError?.message?.toLowerCase().includes('already')) {
-                return { alreadyVoted: true };
-            }
-            
-            // Check database first to see if user already upvoted
-            const { data: existingVote, error: checkError } = await client
-                .from('community_upvotes')
-                .select('id')
-                .eq('submission_id', postId)
-                .eq('user_id', userId)
-                .maybeSingle();
-            
-            if (checkError && checkError.code !== 'PGRST116') {
-                throw checkError;
-            }
-            
-            if (existingVote) {
-                console.log('⚠️ User already upvoted this post');
-                return { alreadyVoted: true };
-            }
-            
-            // Get current post likes
-            const { data: post, error: fetchError } = await client
-                .from('community_submissions')
-                .select('likes')
-                .eq('id', postId)
-                .single();
-            
-            if (fetchError) throw fetchError;
-            
-            // Record the upvote in community_upvotes table
-            const { error: insertError } = await client
-                .from('community_upvotes')
-                .insert({
-                    submission_id: postId,
-                    user_id: userId,
-                    username: username || 'Anonymous'
-                });
-            
-            if (insertError) {
-                // If unique constraint violation, user already voted
-                if (insertError.code === '23505') {
-                    return { alreadyVoted: true };
-                }
-                throw insertError;
-            }
-            
-            // Increment likes count on the submission
-            const { data: updatedPost, error: updateError } = await client
-                .from('community_submissions')
-                .update({ likes: (post.likes || 0) + 1 })
-                .eq('id', postId)
-                .select()
-                .single();
-            
-            if (updateError) throw updateError;
-            
-            // Also save to localStorage as backup
             const storageKey = `upvoted_posts_${userId}`;
             const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
             if (!upvotedPosts.includes(postId)) {
                 upvotedPosts.push(postId);
                 localStorage.setItem(storageKey, JSON.stringify(upvotedPosts));
             }
-            
-            return { success: true, newLikes: updatedPost.likes };
+            return result;
         } catch (error) {
             console.error("❌ Failed to upvote:", error);
             return { error: error.message || 'Failed to upvote' };
@@ -404,23 +261,8 @@ const DailyDepositEngine = {
         if (!userId) return false;
         
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('community_upvotes')
-                .select('id')
-                .eq('submission_id', postId)
-                .eq('user_id', userId)
-                .maybeSingle();
-            
-            if (error && error.code !== 'PGRST116') {
-                console.error('Error checking upvote:', error);
-                // Fallback to localStorage
-                const storageKey = `upvoted_posts_${userId}`;
-                const upvotedPosts = JSON.parse(localStorage.getItem(storageKey) || '[]');
-                return upvotedPosts.includes(postId);
-            }
-            
-            return !!data;
+            const result = await this.request(`/community/upvotes/${postId}`);
+            return Boolean(result.hasUpvoted);
         } catch (error) {
             console.error('Error checking upvote:', error);
             return false;
@@ -433,85 +275,24 @@ const DailyDepositEngine = {
 
     // Subscribe to real-time changes on a song
     subscribeToSong(songId, callback) {
-        const client = this.getSupabase();
-        
-        const channel = client
-            .channel(`song_${songId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'songs',
-                    filter: `id=eq.${songId}`
-                },
-                (payload) => {
-                    console.log('🔄 Song updated in real-time:', payload);
-                    callback(payload.new);
-                }
-            )
-            .subscribe((status) => {
-                console.log(`📡 Song subscription status: ${status}`);
-            });
-        
-        return channel;
+        // Collaborative edits are refreshed through the native API; do not expose
+        // application table changes through the browser's Supabase connection.
+        return null;
     },
 
     // Unsubscribe from song updates
     unsubscribeFromSong(channel) {
-        if (channel) {
-            const client = this.getSupabase();
-            client.removeChannel(channel);
-        }
+        return undefined;
     },
 
     // Get active collaborators on a song (presence)
     async joinSongSession(songId, userId, username) {
-        const client = this.getSupabase();
-        
-        const channel = client.channel(`song_presence_${songId}`, {
-            config: {
-                presence: {
-                    key: userId || 'guest_' + Math.random().toString(36).slice(2)
-                }
-            }
-        });
-
-        channel.on('presence', { event: 'sync' }, () => {
-            const state = channel.presenceState();
-            console.log('👥 Collaborators:', state);
-        });
-
-        channel.on('presence', { event: 'join' }, ({ key, newPresences }) => {
-            console.log('👋 User joined:', key, newPresences);
-        });
-
-        channel.on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-            console.log('👋 User left:', key, leftPresences);
-        });
-
-        await channel.subscribe(async (status) => {
-            if (status === 'SUBSCRIBED') {
-                await channel.track({
-                    user_id: userId,
-                    username: username || 'Anonymous',
-                    online_at: new Date().toISOString()
-                });
-            }
-        });
-
-        return channel;
+        return null;
     },
 
     // Broadcast cursor/selection position to collaborators
     broadcastCursor(channel, userId, position) {
-        if (channel) {
-            channel.send({
-                type: 'broadcast',
-                event: 'cursor',
-                payload: { userId, position }
-            });
-        }
+        return undefined;
     },
 
     // Create a shareable collaboration link
@@ -520,26 +301,9 @@ const DailyDepositEngine = {
         const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
         
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('song_collaborators')
-                .insert({
-                    song_id: songId,
-                    invite_token: token,
-                    created_by: ownerId,
-                    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
-                })
-                .select()
-                .single();
-            
-            if (error) {
-                // Check if table doesn't exist (500 error or relation not found)
-                if (error.code === '42P01' || error.message?.includes('relation') || error.code === 'PGRST200') {
-                    console.warn('⚠️ song_collaborators table not created in Supabase. Collaboration feature unavailable.');
-                    throw new Error('Collaboration coming soon! Backend setup in progress.');
-                }
-                throw error;
-            }
+            await this.request('/collaborators/invite', { method: 'POST', body: JSON.stringify({
+                songId, token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            }) });
             
             // Return the shareable link
             const baseUrl = window.location.origin;
@@ -553,40 +317,7 @@ const DailyDepositEngine = {
     // Join a song via collaboration link
     async joinViaCollabLink(token, userId, username) {
         try {
-            const client = this.getSupabase();
-            
-            // Find the invite
-            const { data: invite, error: findError } = await client
-                .from('song_collaborators')
-                .select('song_id, expires_at')
-                .eq('invite_token', token)
-                .single();
-            
-            if (findError || !invite) {
-                throw new Error('Invalid or expired invite link');
-            }
-            
-            // Check expiration
-            if (new Date(invite.expires_at) < new Date()) {
-                throw new Error('Invite link has expired');
-            }
-            
-            // Add user as collaborator
-            const { error: addError } = await client
-                .from('song_collaborators')
-                .insert({
-                    song_id: invite.song_id,
-                    user_id: userId,
-                    username: username,
-                    role: 'editor'
-                });
-            
-            // Ignore duplicate errors (user already collaborator)
-            if (addError && !addError.message.includes('duplicate')) {
-                throw addError;
-            }
-            
-            return { songId: invite.song_id };
+            return await this.request('/collaborators/join', { method: 'POST', body: JSON.stringify({ token }) });
         } catch (error) {
             console.error("❌ Failed to join via collab link:", error);
             throw error;
@@ -596,22 +327,7 @@ const DailyDepositEngine = {
     // Get collaborators for a song
     async getSongCollaborators(songId) {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('song_collaborators')
-                .select('user_id, username, role, created_at')
-                .eq('song_id', songId)
-                .not('user_id', 'is', null);
-            
-            if (error) {
-                // Silently handle missing table - feature not yet deployed
-                if (error.code === '42P01' || error.message?.includes('relation') || error.code === 'PGRST200') {
-                    console.warn('⚠️ song_collaborators table not available');
-                    return [];
-                }
-                throw error;
-            }
-            return data || [];
+            return await this.request(`/collaborators/${songId}`);
         } catch (error) {
             console.error("❌ Failed to get collaborators:", error);
             return [];
@@ -624,14 +340,7 @@ const DailyDepositEngine = {
 
     async getTrophies() {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('trophies')
-                .select('*')
-                .order('xp_cost', { ascending: true });
-            
-            if (error) throw error;
-            return data || [];
+            return (await window.dailyBarsApi.api.get('trophies', { sort: 'xp_cost' })).data || [];
         } catch (error) {
             console.error("❌ Failed to fetch trophies:", error);
             return [];
@@ -641,14 +350,7 @@ const DailyDepositEngine = {
     async getUserTrophies(userId) {
         if (!userId) return [];
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('user_trophies')
-                .select('trophy_id')
-                .eq('user_id', userId);
-            
-            if (error) throw error;
-            return data.map(t => t.trophy_id);
+            return (await this.request('/me/trophies')).map(t => t.trophy_id);
         } catch (error) {
             console.error("❌ Failed to fetch user trophies:", error);
             return [];
@@ -657,15 +359,7 @@ const DailyDepositEngine = {
 
     async unlockTrophy(userId, trophyId) {
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('user_trophies')
-                .insert({ user_id: userId, trophy_id: trophyId })
-                .select()
-                .single();
-            
-            if (error) throw error;
-            return data;
+            return await window.dailyBarsApi.api.purchaseTrophy(trophyId);
         } catch (error) {
             console.error("❌ Failed to unlock trophy:", error);
             throw error;
@@ -680,14 +374,8 @@ const DailyDepositEngine = {
     async canUploadBeats(userId) {
         if (!userId) return false;
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('users')
-                .select('role, subscription_status')
-                .eq('id', userId)
-                .single();
-            
-            if (error) return false;
+            const data = (await window.dailyBarsApi.api.get('users', { limit: 1 })).data?.[0];
+            if (!data) return false;
             return data.role === 'admin' || ['premium', 'lifetime'].includes(data.subscription_status);
         } catch (error) {
             console.error("❌ Failed to check upload permission:", error);
@@ -699,14 +387,8 @@ const DailyDepositEngine = {
     async isAdmin(userId) {
         if (!userId) return false;
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('users')
-                .select('role')
-                .eq('id', userId)
-                .single();
-            
-            if (error) return false;
+            const data = (await window.dailyBarsApi.api.get('users', { limit: 1 })).data?.[0];
+            if (!data) return false;
             return data.role === 'admin';
         } catch (error) {
             return false;
@@ -717,14 +399,8 @@ const DailyDepositEngine = {
     async getStorageInfo(userId) {
         if (!userId) return { used: 0, limit: 0, remaining: 0, unlimited: false };
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('users')
-                .select('storage_used_bytes, storage_limit_bytes, role')
-                .eq('id', userId)
-                .single();
-            
-            if (error) throw error;
+            const data = (await window.dailyBarsApi.api.get('users', { limit: 1 })).data?.[0];
+            if (!data) throw new Error('Profile not found');
             
             const isUnlimited = data.role === 'admin';
             return {
@@ -742,7 +418,7 @@ const DailyDepositEngine = {
     // Upload beat to Supabase Storage
     async uploadBeat(userId, file, songId = null, metadata = {}) {
         try {
-            const client = this.getSupabase();
+            const client = window.supabaseClient;
             
             // Check permission first
             const canUpload = await this.canUploadBeats(userId);
@@ -829,13 +505,7 @@ const DailyDepositEngine = {
                 }
             });
             
-            const { data: beatRecord, error: dbError } = await client
-                .from('beats')
-                .insert(beatData)
-                .select()
-                .single();
-            
-            if (dbError) throw dbError;
+            const beatRecord = await window.dailyBarsApi.api.create('beats', beatData);
             
             return {
                 success: true,
@@ -852,15 +522,7 @@ const DailyDepositEngine = {
     async getUserBeats(userId) {
         if (!userId) return [];
         try {
-            const client = this.getSupabase();
-            const { data, error } = await client
-                .from('beats')
-                .select('*')
-                .eq('user_id', userId)
-                .order('created_at', { ascending: false });
-            
-            if (error) throw error;
-            return data || [];
+            return (await window.dailyBarsApi.api.get('beats', { sort: '-created_at' })).data || [];
         } catch (error) {
             console.error("❌ Failed to get user beats:", error);
             return [];
@@ -870,17 +532,10 @@ const DailyDepositEngine = {
     // Delete a beat
     async deleteBeat(beatId, userId) {
         try {
-            const client = this.getSupabase();
-            
-            // Get beat info first
-            const { data: beat, error: fetchError } = await client
-                .from('beats')
-                .select('*')
-                .eq('id', beatId)
-                .eq('user_id', userId)
-                .single();
-            
-            if (fetchError || !beat) throw new Error('Beat not found');
+            const client = window.supabaseClient;
+            const beats = await window.dailyBarsApi.api.get('beats', { eq: { id: beatId }, limit: 1 });
+            const beat = beats.data?.[0];
+            if (!beat) throw new Error('Beat not found');
             
             // Delete from storage
             const { error: storageError } = await client
@@ -890,13 +545,7 @@ const DailyDepositEngine = {
             
             if (storageError) console.warn('Storage delete error:', storageError);
             
-            // Delete from database (this will trigger storage usage update)
-            const { error: dbError } = await client
-                .from('beats')
-                .delete()
-                .eq('id', beatId);
-            
-            if (dbError) throw dbError;
+            await window.dailyBarsApi.api.delete('beats', beatId);
             
             return { success: true };
         } catch (error) {
@@ -908,7 +557,7 @@ const DailyDepositEngine = {
     // Get signed URL for private beat (if bucket is private)
     async getBeatSignedUrl(beatPath, expiresIn = 3600) {
         try {
-            const client = this.getSupabase();
+            const client = window.supabaseClient;
             const { data, error } = await client
                 .storage
                 .from('beats')

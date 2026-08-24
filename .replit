@@ -1,4 +1,4 @@
-modules = ["web", "python-base-3.13", "nodejs-22"]
+modules = ["web", "python-base-3.13", "nodejs-22", "postgresql-16"]
 
 [nix]
 channel = "stable-25_05"
@@ -28,7 +28,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd dailybars && npm run build && python3 -m http.server 5000 --bind 0.0.0.0 --directory dist"
+args = "cd dailybars && DAILYBARS_ENVIRONMENT=development npm run db:setup && DAILYBARS_ENVIRONMENT=development npm run build && DAILYBARS_ENVIRONMENT=development node server/server.mjs"
 waitForPort = 5000
 
 [[ports]]

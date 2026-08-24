@@ -1,6 +1,6 @@
 const { test, expect } = require('playwright/test');
 
-const SUPABASE_REST = 'https://tilpgwoyyervbgdlucap.supabase.co/rest/v1/';
+const NATIVE_API = '**/api/**';
 
 function makeBar(overrides = {}) {
   return {
@@ -17,14 +17,21 @@ function makeBar(overrides = {}) {
 async function installApiMock(page, { bars = [], failNextWrite = false } = {}) {
   const state = { bars: [...bars], writes: [], failNextWrite };
 
-  await page.route(`${SUPABASE_REST}**`, async (route) => {
+  await page.route(NATIVE_API, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    const table = url.pathname.split('/').pop();
+    const parts = url.pathname.split('/').filter(Boolean);
+    const table = parts[1];
     const method = request.method();
 
-    if (method === 'POST' && table === 'rpc') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    if (url.pathname === '/api/me') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+        id: 'qa-user', username: 'qa', email: 'qa@dailybars.dev', xp: 0, level: 1, selected_trophies: []
+      }) });
+      return;
+    }
+    if (url.pathname === '/api/me/trophies') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
       return;
     }
 
@@ -33,8 +40,7 @@ async function installApiMock(page, { bars = [], failNextWrite = false } = {}) {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        headers: { 'content-range': `0-${Math.max(0, body.length - 1)}/*` },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ data: body }),
       });
       return;
     }
@@ -66,7 +72,7 @@ async function installApiMock(page, { bars = [], failNextWrite = false } = {}) {
 
       if (method === 'PATCH' && table === 'bars') {
         const body = request.postDataJSON();
-        const id = url.searchParams.get('id') || state.bars[0]?.id;
+        const id = parts[2] || state.bars[0]?.id;
         const index = state.bars.findIndex((bar) => bar.id === id);
         const updated = { ...(state.bars[index] || makeBar({ id })), ...body };
         if (index >= 0) state.bars[index] = updated;

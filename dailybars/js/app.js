@@ -36,7 +36,7 @@ const LOGO_SOLID = "https://www.genspark.ai/api/files/s/5t2t8CLW";
 const LOGO_HOLLOW = "https://i.postimg.cc/zBFYHrDy/Hollow.png";
 
 // ============================================================================
-// API WRAPPER (Supabase-powered)
+// API WRAPPER (same-origin Replit API)
 // ============================================================================
 
 // Debug flag - set to true in console to see API calls
@@ -90,143 +90,55 @@ const toCamelCase = (obj) => {
     return mapped;
 };
 
+const nativeRequest = async (path, options = {}) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
+    if (sessionData?.session?.access_token) headers.Authorization = `Bearer ${sessionData.session.access_token}`;
+    if (localStorage.getItem('dailybars_qa_mode') === 'true') headers['X-DailyBars-QA'] = 'true';
+    const response = await fetch(`/api${path}`, { ...options, headers });
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = {}; }
+    if (!response.ok) throw new Error(payload.error || `API request failed (${response.status})`);
+    return payload;
+};
+
 const api = {
     async get(table, params = {}) {
-        if (window.DEBUG_API) console.log(`🔵 SUPABASE GET: ${table}`, params);
-        
-        try {
-            let query = supabase.from(table).select('*');
-            
-            // Handle sorting
-            if (params.sort) {
-                const sortField = params.sort.startsWith('-') ? params.sort.slice(1) : params.sort;
-                const ascending = !params.sort.startsWith('-');
-                // Convert camelCase to snake_case for sort field
-                const snakeSortField = sortField.replace(/([A-Z])/g, '_$1').toLowerCase();
-                query = query.order(snakeSortField, { ascending });
-            } else {
-                query = query.order('created_at', { ascending: false });
-            }
-            
-            // Handle limit
-            if (params.limit) {
-                query = query.limit(parseInt(params.limit));
-            }
-
-            if (params.eq) {
-                Object.entries(params.eq).forEach(([field, value]) => {
-                    const snakeField = field.replace(/([A-Z])/g, '_$1').toLowerCase();
-                    query = query.eq(snakeField, value);
-                });
-            }
-            
-            const { data, error } = await query;
-            
-            if (error) {
-                console.error(`❌ SUPABASE GET /${table} failed:`, error.message);
-                return { data: [], error: true, message: error.message };
-            }
-            
-            const camelData = data.map(toCamelCase);
-            if (window.DEBUG_API) console.log(`✅ SUPABASE GET /${table}:`, camelData);
-            return { data: camelData };
-        } catch (err) {
-            console.error(`❌ SUPABASE GET /${table} error:`, err);
-            return { data: [], error: true, message: err.message };
-        }
+        const query = new URLSearchParams();
+        if (params.sort) query.set('sort', params.sort);
+        if (params.limit) query.set('limit', String(params.limit));
+        Object.entries(params.eq || {}).forEach(([field, value]) => query.set(`eq_${field.replace(/([A-Z])/g, '_$1').toLowerCase()}`, String(value)));
+        const payload = await nativeRequest(`/${table}${query.toString() ? `?${query}` : ''}`);
+        const rows = Array.isArray(payload) ? payload : (payload.data || []);
+        return { data: rows.map(toCamelCase) };
     },
-    
     async create(table, data) {
-        if (window.DEBUG_API) console.log(`🟢 SUPABASE INSERT: ${table}`, data);
-        
-        try {
-            // Remove fields Supabase handles automatically
-            const { id, created_at, updated_at, ...cleanData } = data;
-            const snakeData = toSnakeCase(cleanData);
-            
-            // HOTFIX: Ensure we never send user_id to songs table (it uses username)
-            if (table === 'songs' && snakeData.user_id) {
-                console.warn('⚠️ Stripping user_id from songs insert');
-                delete snakeData.user_id;
-            }
-            
-            const { data: result, error } = await supabase
-                .from(table)
-                .insert(snakeData)
-                .select()
-                .single();
-            
-            if (error) {
-                console.error(`❌ SUPABASE INSERT /${table} failed:`, error.message);
-                throw new Error(`Create failed: ${error.message}`);
-            }
-            
-            const camelResult = toCamelCase(result);
-            if (window.DEBUG_API) console.log(`✅ SUPABASE INSERT /${table} success:`, camelResult);
-            return camelResult;
-        } catch (err) {
-            console.error(`❌ SUPABASE INSERT /${table} error:`, err);
-            throw err;
-        }
+        const { id, created_at, updated_at, ...cleanData } = data || {};
+        const payload = await nativeRequest(`/${table}`, { method: 'POST', body: JSON.stringify(toSnakeCase(cleanData)) });
+        return toCamelCase(payload);
     },
-    
     async update(table, id, data) {
-        if (window.DEBUG_API) console.log(`🟡 SUPABASE UPDATE: ${table}/${id}`, data);
-        
-        try {
-            const { created_at, updated_at, ...cleanData } = data;
-            const snakeData = toSnakeCase(cleanData);
-            
-            // HOTFIX: Ensure we never send user_id to songs table
-            if (table === 'songs' && snakeData.user_id) {
-                delete snakeData.user_id;
-            }
-            
-            const { data: result, error } = await supabase
-                .from(table)
-                .update(snakeData)
-                .eq('id', id)
-                .select()
-                .single();
-            
-            if (error) {
-                console.error(`❌ SUPABASE UPDATE /${table}/${id} failed:`, error.message);
-                throw new Error(`Update failed: ${error.message}`);
-            }
-            
-            return toCamelCase(result);
-        } catch (err) {
-            console.error(`❌ SUPABASE UPDATE /${table}/${id} error:`, err);
-            throw err;
-        }
+        const { created_at, updated_at, ...cleanData } = data || {};
+        const payload = await nativeRequest(`/${table}/${id}`, { method: 'PATCH', body: JSON.stringify(toSnakeCase(cleanData)) });
+        return toCamelCase(payload);
     },
-    
-    async patch(table, id, data) {
-        // Patch is same as update in Supabase (partial update)
-        return this.update(table, id, data);
-    },
-    
+    async patch(table, id, data) { return this.update(table, id, data); },
     async delete(table, id) {
-        if (window.DEBUG_API) console.log(`🔴 SUPABASE DELETE: ${table}/${id}`);
-        
-        try {
-            const { error } = await supabase
-                .from(table)
-                .delete()
-                .eq('id', id);
-            
-            if (error) {
-                console.error(`❌ SUPABASE DELETE /${table}/${id} failed:`, error.message);
-                throw new Error(`Delete failed: ${error.message}`);
-            }
-            
-            if (window.DEBUG_API) console.log(`✅ SUPABASE DELETE /${table}/${id} success`);
-        } catch (err) {
-            console.error(`❌ SUPABASE DELETE /${table}/${id} error:`, err);
-            throw err;
-        }
+        await nativeRequest(`/${table}/${id}`, { method: 'DELETE' });
+    },
+    async awardXp(amount, reason, eventKey, metadata = {}) {
+        const result = await nativeRequest('/xp/award', { method: 'POST', body: JSON.stringify({ amount, reason, eventKey, metadata }) });
+        return { ...result, user: toCamelCase(result.user), ledger: toCamelCase(result.ledger) };
+    },
+    async purchaseTrophy(trophyId) {
+        const result = await nativeRequest(`/trophies/${trophyId}/purchase`, { method: 'POST' });
+        return { ...result, user: toCamelCase(result.user), trophy: toCamelCase(result.trophy) };
+    },
+    async updateShowcase(selectedTrophies) {
+        return toCamelCase(await nativeRequest('/me/showcase', { method: 'PATCH', body: JSON.stringify({ selectedTrophies }) }));
     }
 };
+window.dailyBarsApi = { request: nativeRequest, api };
 
 const callAI = async (prompt, systemPrompt) => {
     try {
@@ -253,45 +165,19 @@ const loadAuthProfile = async (authUser, fallback = {}) => {
     if (!authUser) return null;
     const metadata = authUser.user_metadata || {};
     const preferredUsername = fallback.username || metadata.username || deriveUsernameFromEmail(authUser.email);
-
-    let profile = null;
     try {
-        const { data } = await supabase
-            .from('users')
-            .select('*')
-            .eq('auth_user_id', authUser.id)
-            .maybeSingle();
-        profile = data;
+        return toCamelCase(await nativeRequest('/me'));
     } catch (error) {
-        console.warn('Auth profile lookup skipped:', error.message);
+        console.warn('Native auth profile lookup skipped:', error.message);
+        return toCamelCase({
+            id: authUser.id,
+            auth_user_id: authUser.id,
+            username: preferredUsername,
+            email: authUser.email,
+            xp: 0,
+            level: 1
+        });
     }
-
-    if (!profile) {
-        try {
-            const { data } = await supabase
-                .from('users')
-                .upsert({
-                    auth_user_id: authUser.id,
-                    username: preferredUsername,
-                    email: authUser.email,
-                    last_login: new Date().toISOString()
-                }, { onConflict: 'auth_user_id' })
-                .select()
-                .single();
-            profile = data;
-        } catch (error) {
-            console.warn('Auth profile upsert skipped:', error.message);
-        }
-    }
-
-    return toCamelCase(profile || {
-        id: authUser.id,
-        auth_user_id: authUser.id,
-        username: preferredUsername,
-        email: authUser.email,
-        xp: 0,
-        level: 1
-    });
 };
 
 const authApi = {
@@ -3513,14 +3399,8 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
             setTrophies(allTrophies || []);
             
             // Fetch user's earned trophies
-            const { data, error } = await supabase
-                .from('user_trophies')
-                .select('trophy_id, earned_at, earned_via')
-                .eq('user_id', user.id);
-            
-            if (!error) {
-                setUserTrophies(data || []);
-            }
+            const earned = await nativeRequest('/me/trophies');
+            setUserTrophies(earned || []);
             
             setLoading(false);
         } catch (error) {
@@ -3550,10 +3430,7 @@ const UserProfileModal = ({ user, onClose, onLogout, onDeleteAccount, isOwnProfi
         
         // Update in database
         try {
-            await supabase
-                .from('users')
-                .update({ selected_trophies: newSelected })
-                .eq('id', user.id);
+            await api.updateShowcase(newSelected);
         } catch (error) {
             console.error('Error updating selected trophies:', error);
         }
