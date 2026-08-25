@@ -257,6 +257,15 @@ CREATE TABLE IF NOT EXISTS song_collaborators (
 CREATE INDEX IF NOT EXISTS idx_song_collaborators_song ON song_collaborators(song_id);
 CREATE INDEX IF NOT EXISTS idx_song_collaborators_user ON song_collaborators(user_id);
 
+CREATE TABLE IF NOT EXISTS song_presence (
+  song_id UUID NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  username TEXT NOT NULL,
+  last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY(song_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_song_presence_active ON song_presence(song_id, last_seen DESC);
+
 CREATE TABLE IF NOT EXISTS trophies (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,

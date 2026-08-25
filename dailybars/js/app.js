@@ -119,7 +119,12 @@ const nativeRequest = async (path, options = {}) => {
     const response = await fetch(`/api${path}`, { ...options, headers });
     let payload = null;
     try { payload = await response.json(); } catch { payload = {}; }
-    if (!response.ok) throw new Error(payload.error || `API request failed (${response.status})`);
+    if (!response.ok) {
+        const error = new Error(payload.error || payload.message || `API request failed (${response.status})`);
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
+    }
     return payload;
 };
 
@@ -132,6 +137,10 @@ const api = {
         const payload = await nativeRequest(`/${table}${query.toString() ? `?${query}` : ''}`);
         const rows = Array.isArray(payload) ? payload : (payload.data || []);
         return { data: rows.map(toCamelCase) };
+    },
+    async getOne(table, id) {
+        const payload = await nativeRequest(`/${table}/${id}`);
+        return toCamelCase(payload);
     },
     async create(table, data) {
         const { id, created_at, updated_at, ...cleanData } = data || {};
@@ -146,6 +155,16 @@ const api = {
     async patch(table, id, data) { return this.update(table, id, data); },
     async delete(table, id) {
         await nativeRequest(`/${table}/${id}`, { method: 'DELETE' });
+    },
+    async appendBarToSong(songId, data) {
+        const payload = await nativeRequest(`/songs/${songId}/append-bar`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        return {
+            alreadyAdded: Boolean(payload.alreadyAdded),
+            song: toCamelCase(payload.song)
+        };
     },
     async awardXp(amount, reason, eventKey, metadata = {}) {
         const result = await nativeRequest('/xp/award', { method: 'POST', body: JSON.stringify({ amount, reason, eventKey, metadata }) });
@@ -3398,19 +3417,49 @@ const QuickInput = ({
 
 const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
     const [selectedSongId, setSelectedSongId] = useState(null);
+    const [pending, setPending] = useState(false);
+    const [status, setStatus] = useState('');
+    const closeRef = useRef(null);
+    const previousFocusRef = useRef(null);
 
-    const handleConfirm = () => {
+    useEffect(() => {
+        previousFocusRef.current = document.activeElement;
+        const frame = requestAnimationFrame(() => closeRef.current?.focus());
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape' || pending) return;
+            event.preventDefault();
+            onClose();
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocusRef.current?.focus?.();
+        };
+    }, [onClose, pending]);
+
+    const handleConfirm = async () => {
         if (!selectedSongId) return;
-        if (selectedSongId === 'new') {
-            onCreateNew();
-        } else {
-            onSave(selectedSongId, bar);
+        setPending(true);
+        setStatus(selectedSongId === 'new' ? 'CREATING CRATE...' : 'ADDING TO CRATE...');
+        try {
+            const result = selectedSongId === 'new'
+                ? await onCreateNew()
+                : await onSave(selectedSongId, bar);
+            setStatus(result?.alreadyAdded ? 'ALREADY IN THIS CRATE' : 'ADDED TO CRATE');
+            setTimeout(onClose, 450);
+        } catch (error) {
+            setStatus(
+                navigator.onLine === false
+                    ? 'OFFLINE — BAR WAS NOT ADDED'
+                    : (error?.message || 'ADD FAILED — TRY AGAIN').toUpperCase()
+            );
+            setPending(false);
         }
-        onClose();
     };
 
     return (
-        <div className="animate-fade-in" style={{
+        <div className="animate-fade-in" role="dialog" aria-modal="true" aria-labelledby="add-to-crate-title" style={{
             position: 'fixed', inset: 0,
             background: 'rgba(0,0,0,0.8)',
             zIndex: 500,
@@ -3429,8 +3478,8 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
                     color: 'var(--white)',
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                 }}>
-                    <span style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em' }}>ADD TO CRATE</span>
-                    <button onClick={onClose} style={{ color: 'var(--white)' }}>
+                    <span id="add-to-crate-title" style={{ fontSize: 12, fontWeight: 900, letterSpacing: '0.1em' }}>ADD TO CRATE</span>
+                    <button ref={closeRef} onClick={onClose} disabled={pending} aria-label="Close add to crate" style={{ color: 'var(--white)' }}>
                         <Icon name="X" size={18} />
                     </button>
                 </div>
@@ -3443,6 +3492,7 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <button 
                             onClick={() => setSelectedSongId('new')}
+                            disabled={pending}
                             style={{
                                 padding: 12,
                                 border: `2px solid ${selectedSongId === 'new' ? 'var(--electric)' : 'var(--black)'}`,
@@ -3464,6 +3514,7 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
                             <button 
                                 key={song.id}
                                 onClick={() => setSelectedSongId(song.id)}
+                                disabled={pending}
                                 style={{
                                     padding: 12,
                                     border: `2px solid ${selectedSongId === song.id ? 'var(--electric)' : 'var(--light-gray)'}`,
@@ -3492,9 +3543,19 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
                 </div>
                 
                 <div style={{ padding: 16, borderTop: '1px solid var(--light-gray)' }}>
+                    {status && (
+                        <div role="status" aria-live="polite" style={{
+                            marginBottom: 10, padding: 9, border: '1px solid var(--black)',
+                            background: /FAILED|OFFLINE|LIMIT|PREMIUM/.test(status) ? '#FEE2E2' : 'var(--paper)',
+                            fontSize: 10, fontWeight: 800, letterSpacing: '0.06em'
+                        }}>
+                            {status}
+                        </div>
+                    )}
                     <button 
                         onClick={handleConfirm}
-                        disabled={!selectedSongId}
+                        disabled={!selectedSongId || pending}
+                        aria-busy={pending}
                         style={{
                             width: '100%',
                             padding: 14,
@@ -3504,7 +3565,7 @@ const AddToCrateModal = ({ bar, songs, onSave, onClose, onCreateNew }) => {
                             opacity: selectedSongId ? 1 : 0.5
                         }}
                     >
-                        CONFIRM INSERT
+                        {pending ? 'WORKING...' : 'CONFIRM INSERT'}
                     </button>
                 </div>
             </div>

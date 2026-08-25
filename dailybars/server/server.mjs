@@ -42,9 +42,10 @@ const safeSorts = new Set(['created_at', 'updated_at', 'xp_cost', 'layer_number'
 const QA_ID = '00000000-0000-0000-0000-000000000015';
 
 class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = null) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -112,7 +113,10 @@ const send = (res, status, body, headers = {}) => {
 const errorResponse = (res, error) => {
   const status = error instanceof HttpError ? error.status : 500;
   if (status >= 500) console.error('[api]', error);
-  send(res, status, { error: error.message || 'Request failed' });
+  send(res, status, {
+    error: error.message || 'Request failed',
+    ...(error instanceof HttpError && error.details ? error.details : {}),
+  });
 };
 
 const withTransaction = async (operation) => {
@@ -439,6 +443,27 @@ const userOwns = async (client, table, id, user) => {
     return rows[0];
   }
   const { rows } = await client.query(`SELECT * FROM ${table} WHERE id = $1 AND user_id = $2`, [id, user.id]);
+  return rows[0];
+};
+
+const userCanAccessSong = async (client, id, user, { edit = false } = {}) => {
+  const { rows } = await client.query(`
+    SELECT s.*
+    FROM songs s
+    WHERE s.id = $1
+      AND (
+        s.user_id = $2
+        OR (s.user_id IS NULL AND lower(s.username) = lower($3))
+        OR EXISTS (
+          SELECT 1
+          FROM song_collaborators sc
+          WHERE sc.song_id = s.id
+            AND sc.user_id = $2
+            AND sc.accepted_at IS NOT NULL
+            AND ($4::boolean = false OR sc.role IN ('editor', 'owner'))
+        )
+      )
+  `, [id, user.id, user.username, edit]);
   return rows[0];
 };
 
@@ -848,8 +873,17 @@ const routeApi = async (req, res, pathname, url) => {
     try {
       const song = await userOwns(client, 'songs', body.songId, user);
       if (!song) throw new HttpError(403, 'Only a song owner can invite collaborators.');
-      await client.query(`INSERT INTO song_collaborators (song_id, invite_token, created_by, expires_at) VALUES ($1,$2,$3,$4) ON CONFLICT (invite_token) DO UPDATE SET expires_at = EXCLUDED.expires_at`, [body.songId, String(body.token), user.id, body.expiresAt]);
-      return send(res, 201, { success: true });
+      const token = crypto.randomBytes(32).toString('base64url');
+      const { rows } = await client.query(`
+        INSERT INTO song_collaborators (song_id, invite_token, created_by, expires_at)
+        VALUES ($1,$2,$3,now() + interval '7 days')
+        RETURNING invite_token, expires_at
+      `, [body.songId, token, user.id]);
+      return send(res, 201, {
+        success: true,
+        token: rows[0].invite_token,
+        expiresAt: rows[0].expires_at,
+      });
     } finally { client.release(); }
   }
   if (resource === 'collaborators' && parts[1] === 'join' && req.method === 'POST') {
@@ -857,7 +891,35 @@ const routeApi = async (req, res, pathname, url) => {
     const invite = (await pool.query(`SELECT * FROM song_collaborators WHERE invite_token = $1 AND expires_at > now()`, [String(body.token)])).rows[0];
     if (!invite) throw new HttpError(404, 'Invalid or expired invite link.');
     await pool.query(`INSERT INTO song_collaborators (song_id, user_id, username, role, accepted_at) VALUES ($1,$2,$3,'editor',now()) ON CONFLICT (song_id, user_id) DO NOTHING`, [invite.song_id, user.id, user.username]);
+    await pool.query(`UPDATE songs SET is_collaborative = true, collaborator_count = (SELECT count(*) FROM song_collaborators WHERE song_id = $1 AND user_id IS NOT NULL), updated_at = now() WHERE id = $1`, [invite.song_id]);
     return send(res, 200, { songId: invite.song_id });
+  }
+  if (resource === 'collaborators' && parts[2] === 'presence') {
+    requireUuid(parts[1], 'song id');
+    const permitted = await userCanAccessSong(pool, parts[1], user);
+    if (!permitted) throw new HttpError(403, 'You do not have access to this song.');
+    if (req.method === 'PUT') {
+      await pool.query(`
+        INSERT INTO song_presence (song_id, user_id, username, last_seen)
+        VALUES ($1,$2,$3,now())
+        ON CONFLICT (song_id, user_id)
+        DO UPDATE SET username = EXCLUDED.username, last_seen = now()
+      `, [parts[1], user.id, user.username]);
+      return send(res, 200, { success: true });
+    }
+    if (req.method === 'DELETE') {
+      await pool.query('DELETE FROM song_presence WHERE song_id = $1 AND user_id = $2', [parts[1], user.id]);
+      return send(res, 200, { success: true });
+    }
+    if (req.method === 'GET') {
+      const { rows } = await pool.query(`
+        SELECT user_id, username, last_seen
+        FROM song_presence
+        WHERE song_id = $1 AND last_seen > now() - interval '45 seconds'
+        ORDER BY last_seen DESC
+      `, [parts[1]]);
+      return send(res, 200, rows);
+    }
   }
   if (resource === 'collaborators' && parts[1] && req.method === 'GET') {
     requireUuid(parts[1], 'song id');
@@ -865,6 +927,47 @@ const routeApi = async (req, res, pathname, url) => {
     if (!permitted.rowCount) throw new HttpError(403, 'You do not have access to this song.');
     const { rows } = await pool.query(`SELECT user_id, username, role, created_at FROM song_collaborators WHERE song_id = $1 AND user_id IS NOT NULL`, [parts[1]]);
     return send(res, 200, rows);
+  }
+  if (resource === 'songs' && parts[1] && parts[2] === 'append-bar' && req.method === 'POST') {
+    requireUuid(parts[1], 'song id');
+    const body = await parseBody(req);
+    const sourceBarId = String(body.sourceBarId || '').trim();
+    const blocks = Array.isArray(body.blocks) ? body.blocks : [];
+    if (!sourceBarId || blocks.length === 0) throw new HttpError(400, 'A source bar and at least one block are required.');
+    if (blocks.length > 3) throw new HttpError(400, 'A bar can add at most three blocks.');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const song = await userCanAccessSong(client, parts[1], user, { edit: true });
+      if (!song) throw new HttpError(403, 'You do not have permission to edit this crate.');
+      const locked = (await client.query('SELECT * FROM songs WHERE id = $1 FOR UPDATE', [parts[1]])).rows[0];
+      const existingBlocks = Array.isArray(locked.blocks) ? locked.blocks : [];
+      const alreadyAdded = existingBlocks.some((block) => block?.sourceBarId === sourceBarId);
+      if (alreadyAdded) {
+        await client.query('COMMIT');
+        return send(res, 200, { song: locked, alreadyAdded: true });
+      }
+      const normalizedBlocks = blocks.map((block) => ({
+        id: String(block?.id || crypto.randomUUID()),
+        type: ['text', 'audio', 'image'].includes(block?.type) ? block.type : 'text',
+        content: String(block?.content || ''),
+        sourceBarId,
+      })).filter((block) => block.content);
+      if (!normalizedBlocks.length) throw new HttpError(400, 'The selected bar has no content to add.');
+      const { rows } = await client.query(`
+        UPDATE songs
+        SET blocks = $2::jsonb, updated_by = $3, updated_by_username = $4, updated_at = now()
+        WHERE id = $1
+        RETURNING *
+      `, [parts[1], JSON.stringify([...existingBlocks, ...normalizedBlocks]), user.id, user.username]);
+      await client.query('COMMIT');
+      return send(res, 200, { song: rows[0], alreadyAdded: false });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
   if (resource === 'telemetry' && parts[1] === 'revenuecat' && req.method === 'PUT') {
     const body = await parseBody(req);
@@ -887,11 +990,28 @@ const routeApi = async (req, res, pathname, url) => {
   }
   if (table === 'users' && req.method !== 'GET') throw new HttpError(403, 'User balances can only be changed by server operations.');
   if (req.method === 'GET') {
+    if (table === 'songs' && id) {
+      requireUuid(id);
+      const song = await userCanAccessSong(pool, id, user);
+      if (!song) throw new HttpError(404, 'Crate not found.');
+      return send(res, 200, song);
+    }
     const values = [];
     const conditions = [];
     if (table === 'users') { conditions.push('id = $1'); values.push(user.id); }
     else if (ownedTables.has(table)) {
-      if (table === 'bars' || table === 'songs') { conditions.push('(user_id = $1 OR (user_id IS NULL AND lower(username) = lower($2)))'); values.push(user.id, user.username); }
+      if (table === 'bars') { conditions.push('(user_id = $1 OR (user_id IS NULL AND lower(username) = lower($2)))'); values.push(user.id, user.username); }
+      else if (table === 'songs') {
+        conditions.push(`(
+          user_id = $1
+          OR (user_id IS NULL AND lower(username) = lower($2))
+          OR EXISTS (
+            SELECT 1 FROM song_collaborators sc
+            WHERE sc.song_id = songs.id AND sc.user_id = $1 AND sc.accepted_at IS NOT NULL
+          )
+        )`);
+        values.push(user.id, user.username);
+      }
       else if (table !== 'community_submissions') { conditions.push('user_id = $1'); values.push(user.id); }
     } else if (table === 'community_submissions') conditions.push(`moderation_status = 'visible'`);
     for (const [field, value] of Object.entries(url.searchParams)) {
@@ -954,16 +1074,50 @@ const routeApi = async (req, res, pathname, url) => {
   if ((req.method === 'PATCH' || req.method === 'PUT') && id) {
     requireUuid(id);
     const client = await pool.connect();
+    let inTransaction = false;
     try {
-      const existing = await userOwns(client, table, id, user);
+      const body = await parseBody(req);
+      if (table === 'songs') {
+        await client.query('BEGIN');
+        inTransaction = true;
+      }
+      const existing = table === 'songs'
+        ? await userCanAccessSong(client, id, user, { edit: true })
+        : await userOwns(client, table, id, user);
       if (!existing && table !== 'community_submissions') throw new HttpError(404, 'Record not found.');
       if (table === 'community_submissions' && existing?.user_id !== user.id) throw new HttpError(403, 'You do not own this post.');
-      const data = mapInput(table, await parseBody(req));
+      let lockedSong = existing;
+      if (table === 'songs') {
+        const expectedUpdatedAt = body.expectedUpdatedAt || body.expected_updated_at;
+        if (!expectedUpdatedAt) {
+          throw new HttpError(428, 'A current crate version is required before saving.');
+        }
+        lockedSong = (await client.query('SELECT * FROM songs WHERE id = $1 FOR UPDATE', [id])).rows[0];
+        const expectedTime = Date.parse(expectedUpdatedAt);
+        const currentTime = new Date(lockedSong.updated_at).getTime();
+        if (!Number.isFinite(expectedTime)) throw new HttpError(400, 'The crate version is invalid.');
+        if (expectedTime !== currentTime) {
+          throw new HttpError(409, 'This crate changed before your save completed.', {
+            code: 'CRATE_VERSION_CONFLICT',
+            currentSong: lockedSong,
+          });
+        }
+      }
+      const data = mapInput(table, body);
       if (table === 'songs' && data.beat_url && data.beat_url !== existing.beat_url) {
         requirePremiumUser(await lockCurrentUser(client, user.id));
       }
+      if (table === 'songs') {
+        data.updated_by = user.id;
+        data.updated_by_username = user.username;
+      }
       if (table === 'bars' || table === 'songs') delete data.user_id;
-      return send(res, 200, await updateRow(client, table, id, data));
+      const updated = await updateRow(client, table, id, data);
+      if (inTransaction) await client.query('COMMIT');
+      return send(res, 200, updated);
+    } catch (error) {
+      if (inTransaction) await client.query('ROLLBACK');
+      throw error;
     } finally { client.release(); }
   }
   if (req.method === 'DELETE' && id) {

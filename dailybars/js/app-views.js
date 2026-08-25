@@ -13,7 +13,7 @@ const {
     useVoiceRecorder, useMetronome, processImage, useSwipe,
     ToastProvider, useToast, Icon,
     DailyDropWidget, ImagePreview, BottomBar, Header,
-    SocialExportModal, IdeaCard, RhymePopup, QuickInput,
+    SocialExportModal, AddToCrateModal, IdeaCard, RhymePopup, QuickInput,
     RhymeTextarea, RhymeHighlightedText, applySuggestionToText,
     RadioWidget,
     LOGO_SOLID, LOGO_HOLLOW,
@@ -26,7 +26,7 @@ const {
 
 const FeedView = ({ bars, onAddBar, onDeleteBar, onFavorite, onEditBar, loading, onTyping, onInputExpandChange, dailyPrompt, onAddToCrate, onSendToFreeGame, canUseAI, onAIUse, onPremiumRequired }) => {
     const [previewImage, setPreviewImage] = useState(null);
-    
+
     return (
         <div className="feed-view">
             <QuickInput
@@ -125,13 +125,26 @@ const ArchiveView = ({ bars, onSelect }) => {
 // CRATES VIEW - NEWSPAPER STACK
 // ============================================================================
 
-const CratesView = ({ songs, onCreateSong, onEditSong }) => {
+const CratesView = ({
+    songs,
+    onCreateSong,
+    onEditSong,
+    onDeleteSong,
+    onDuplicateSong,
+    loadState = 'ready',
+    loadError = '',
+    onRetry
+}) => {
     const [isWide, setIsWide] = useState(window.innerWidth > 768);
     const [showCalendar, setShowCalendar] = useState(false);
     const [calendarMonth, setCalendarMonth] = useState(() => new Date());
     const [activeDate, setActiveDate] = useState(() => new Date());
     const calendarCloseRef = useRef(null);
     const calendarPreviousFocusRef = useRef(null);
+    const deleteCancelRef = useRef(null);
+    const [pendingAction, setPendingAction] = useState('');
+    const [feedback, setFeedback] = useState('');
+    const [deleteTarget, setDeleteTarget] = useState(null);
     const featuredArtists = [
         {
             name: 'GUAPDAD 4000',
@@ -179,6 +192,72 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
         };
     }, [showCalendar]);
 
+    useEffect(() => {
+        if (!deleteTarget) return;
+        const previousFocus = document.activeElement;
+        const frame = requestAnimationFrame(() => deleteCancelRef.current?.focus());
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape' || pendingAction) return;
+            event.preventDefault();
+            setDeleteTarget(null);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocus?.focus?.();
+        };
+    }, [deleteTarget, pendingAction]);
+
+    const runCreate = async () => {
+        setPendingAction('create');
+        setFeedback('CREATING CRATE...');
+        try {
+            await onCreateSong();
+            setFeedback('');
+        } catch (error) {
+            setFeedback(
+                navigator.onLine === false
+                    ? 'OFFLINE — RECONNECT TO CREATE A CRATE'
+                    : (error?.message || 'CREATE FAILED — TRY AGAIN').toUpperCase()
+            );
+        } finally {
+            setPendingAction('');
+        }
+    };
+
+    const runDuplicate = async (song) => {
+        setPendingAction(`duplicate:${song.id}`);
+        setFeedback(`DUPLICATING “${song.title || 'UNTITLED'}”...`);
+        try {
+            await onDuplicateSong(song);
+            setFeedback('CRATE DUPLICATED');
+        } catch (error) {
+            setFeedback((error?.message || 'DUPLICATE FAILED — ORIGINAL KEPT').toUpperCase());
+        } finally {
+            setPendingAction('');
+        }
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        setPendingAction(`delete:${deleteTarget.id}`);
+        setFeedback(`DELETING “${deleteTarget.title || 'UNTITLED'}”...`);
+        try {
+            await onDeleteSong(deleteTarget);
+            setFeedback('CRATE DELETED — ONE FREE SLOT IS NOW AVAILABLE');
+            setDeleteTarget(null);
+        } catch (error) {
+            setFeedback(
+                navigator.onLine === false
+                    ? 'OFFLINE — CRATE WAS NOT DELETED'
+                    : (error?.message || 'DELETE FAILED — CRATE KEPT').toUpperCase()
+            );
+        } finally {
+            setPendingAction('');
+        }
+    };
+
     const backgroundUrl = isWide ? 'images/crate/crate-bg-wide.png' : 'images/crate/crate-bg-vertical.png';
     const calendarYear = calendarMonth.getFullYear();
     const calendarMonthIndex = calendarMonth.getMonth();
@@ -197,7 +276,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     const songsByDay = useMemo(() => {
         const map = new Map();
         songs.forEach(song => {
-            const dateValue = song.updated_at || song.created_at;
+            const dateValue = song.updatedAt || song.updated_at || song.createdAt || song.created_at;
             if (!dateValue) return;
             const dateKey = new Date(dateValue);
             const key = `${dateKey.getFullYear()}-${dateKey.getMonth()}-${dateKey.getDate()}`;
@@ -207,7 +286,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
     }, [songs]);
     const activeSongs = useMemo(() => {
         return songs.filter(song => {
-            const dateValue = song.updated_at || song.created_at;
+            const dateValue = song.updatedAt || song.updated_at || song.createdAt || song.created_at;
             if (!dateValue) return false;
             return isSameDay(new Date(dateValue), activeDate);
         });
@@ -294,7 +373,9 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 position: 'relative'
             }}>
                 <button
-                    onClick={onCreateSong}
+                    onClick={runCreate}
+                    disabled={Boolean(pendingAction)}
+                    aria-busy={pendingAction === 'create'}
                     className="animate-slide-in"
                     style={{
                         flex: 1,
@@ -325,7 +406,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                         letterSpacing: '0.05em',
                         textTransform: 'uppercase' 
                     }}>
-                        START NEW SONG
+                        {pendingAction === 'create' ? 'CREATING...' : 'START NEW SONG'}
                     </span>
                 </button>
                 <button
@@ -353,6 +434,69 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                     </svg>
                 </button>
             </div>
+
+            {(feedback || loadState === 'loading' || loadState === 'error') && (
+                <div
+                    className="crate-state-banner"
+                    role={loadState === 'error' || /FAILED|OFFLINE|LIMIT|PREMIUM/.test(feedback) ? 'alert' : 'status'}
+                    aria-live="polite"
+                    style={{
+                        width: '90%', maxWidth: 420, zIndex: 16, margin: '-22px 0 28px',
+                        padding: 12, border: '2px solid var(--black)', background: 'var(--paper)',
+                        boxShadow: '4px 4px 0 var(--black)', fontSize: 10, fontWeight: 800,
+                        letterSpacing: '0.06em', textAlign: 'center'
+                    }}
+                >
+                    {loadState === 'loading' ? 'LOADING CRATES...' : loadState === 'error' ? (loadError || 'CRATES COULD NOT LOAD') : feedback}
+                    {loadState === 'error' && (
+                        <button onClick={onRetry} style={{ marginLeft: 10, textDecoration: 'underline', fontWeight: 900 }}>
+                            TRY AGAIN
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {deleteTarget && (
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="delete-crate-title"
+                    style={{
+                        position: 'fixed', inset: 0, zIndex: 500, background: 'rgba(0,0,0,.82)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+                    }}
+                >
+                    <div style={{
+                        width: '100%', maxWidth: 360, background: 'var(--paper)', border: '4px solid var(--black)',
+                        boxShadow: '10px 10px 0 var(--electric)', padding: 20
+                    }}>
+                        <h2 id="delete-crate-title" className="font-display" style={{ fontSize: 20, marginBottom: 10 }}>
+                            DELETE THIS CRATE?
+                        </h2>
+                        <p style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 18 }}>
+                            “{deleteTarget.title || 'UNTITLED'}” and its saved blocks will be permanently removed. This immediately frees one free-plan crate slot.
+                        </p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                ref={deleteCancelRef}
+                                onClick={() => setDeleteTarget(null)}
+                                disabled={Boolean(pendingAction)}
+                                style={{ flex: 1, padding: 12, border: '2px solid var(--black)', background: 'var(--white)', fontWeight: 800 }}
+                            >
+                                KEEP CRATE
+                            </button>
+                            <button
+                                onClick={confirmDelete}
+                                disabled={Boolean(pendingAction)}
+                                aria-busy={pendingAction === `delete:${deleteTarget.id}`}
+                                style={{ flex: 1, padding: 12, border: '2px solid var(--black)', background: '#B91C1C', color: 'white', fontWeight: 800 }}
+                            >
+                                {pendingAction ? 'DELETING...' : 'DELETE'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showCalendar && (
                 <div
@@ -600,7 +744,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                         >
                                             <span>{song.title || 'UNTITLED SONG'}</span>
                                             <span className="font-mono" style={{ fontSize: 9, color: '#6B7280' }}>
-                                                {formatTime(song.updated_at || song.created_at)}
+                                                {formatTime(song.updatedAt || song.updated_at || song.createdAt || song.created_at)}
                                             </span>
                                         </button>
                                     ))}
@@ -638,7 +782,7 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                 position: 'relative', // Ensure above background
                 zIndex: 10
             }}>
-                {songs.length === 0 ? (
+                {loadState === 'ready' && songs.length === 0 ? (
                     <div style={{ padding: '60px 0', textAlign: 'center', opacity: 0.8, color: 'var(--black)', background: 'rgba(255,255,255,0.7)', borderRadius: 12, backdropFilter: 'blur(4px)', width: '80%' }}>
                         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
                             <div style={{ width: 60, height: 60, border: '2px solid var(--black)', backgroundImage: 'url(images/newspaper-sprites.png)', backgroundSize: '200% 200%', backgroundPosition: '0% 0%' }}></div>
@@ -663,6 +807,15 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                             <article 
                                 key={song.id} 
                                 onClick={() => onEditSong(song)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        onEditSong(song);
+                                    }
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`Open crate ${song.title || 'Untitled'}`}
                                 className="animate-slide-up"
                                 style={{
                                     width: '94%',
@@ -673,8 +826,8 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                     backgroundPosition: `${bgX}% ${bgY}%`,
                                     padding: `${paddingConfig.top}px ${paddingConfig.right}px ${paddingConfig.bottom}px ${paddingConfig.left}px`,
                                     marginBottom: 16,
-                                    marginTop: i === 0 ? 0 : -140,
-                                    zIndex: i,
+                                    marginTop: 0,
+                                    zIndex: songs.length - i,
                                     filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.2))',
                                     minHeight: 320,
                                     position: 'relative',
@@ -763,6 +916,30 @@ const CratesView = ({ songs, onCreateSong, onEditSong }) => {
                                             />
                                         </div>
                                     )}
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginTop: 14, paddingTop: 10, borderTop: '1px solid var(--black)' }}>
+                                    <button
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            runDuplicate(song);
+                                        }}
+                                        disabled={Boolean(pendingAction)}
+                                        aria-label={`Duplicate ${song.title || 'Untitled'} crate`}
+                                        style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--black)', background: 'var(--white)', fontSize: 9, fontWeight: 900 }}
+                                    >
+                                        {pendingAction === `duplicate:${song.id}` ? 'DUPLICATING...' : 'DUPLICATE'}
+                                    </button>
+                                    <button
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            setDeleteTarget(song);
+                                        }}
+                                        disabled={Boolean(pendingAction)}
+                                        aria-label={`Delete ${song.title || 'Untitled'} crate`}
+                                        style={{ padding: '8px 10px', border: '1px solid var(--black)', background: '#FEE2E2', color: '#991B1B', fontSize: 9, fontWeight: 900 }}
+                                    >
+                                        DELETE
+                                    </button>
                                 </div>
                             </article>
                         );
@@ -1214,24 +1391,57 @@ const BarDetail = ({ bar, onClose, onDelete, onFavorite, onEdit }) => {
 // TRACK EDITOR
 // ============================================================================
 
+const crateEditableSnapshot = (value = {}) => JSON.stringify({
+    title: value.title || 'UNTITLED',
+    blocks: Array.isArray(value.blocks) ? value.blocks : [],
+    status: value.status || 'draft',
+    coverImage: value.coverImage || null,
+    beatUrl: value.beatUrl || '',
+    videoUrl: value.videoUrl || '',
+    studio: value.studio || '',
+    producer: value.producer || '',
+    otherArtists: value.otherArtists || '',
+    key: value.key || '',
+    bpm: value.bpm === '' || value.bpm == null ? null : Number(value.bpm)
+});
+
 const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPremiumRequired, user }) => {
-    const [title, setTitle] = useState(song?.title || 'UNTITLED');
-    const [blocks, setBlocks] = useState(song?.blocks || []);
-    const [status, setStatus] = useState(song?.status || 'draft');
-    const [coverImage, setCoverImage] = useState(song?.coverImage || null);
+    const draftKey = `dailybars_crate_draft_${user?.id || user?.username || 'guest'}_${song?.id || 'new'}`;
+    const restoredDraft = useMemo(() => {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(draftKey) || 'null');
+            const serverTime = Date.parse(song?.updatedAt || song?.updated_at || song?.createdAt || song?.created_at || 0);
+            return parsed?.data && Number(parsed.savedAt) > (Number.isFinite(serverTime) ? serverTime : 0)
+                ? parsed.data
+                : null;
+        } catch {
+            return null;
+        }
+    }, [draftKey, song?.id]);
+    const initialSong = restoredDraft || song || {};
+    const [title, setTitle] = useState(initialSong.title || 'UNTITLED');
+    const [blocks, setBlocks] = useState(initialSong.blocks || []);
+    const [status, setStatus] = useState(initialSong.status || 'draft');
+    const [coverImage, setCoverImage] = useState(initialSong.coverImage || null);
     const [saving, setSaving] = useState(false);
     const [aiLoading, setAiLoading] = useState(false);
-    const [activityStatus, setActivityStatus] = useState('');
+    const [activityStatus, setActivityStatus] = useState(restoredDraft ? 'RECOVERED UNSAVED DRAFT FROM THIS DEVICE' : '');
+    const [lastSavedSnapshot, setLastSavedSnapshot] = useState(() => crateEditableSnapshot(song));
+    const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+    const [remoteUpdate, setRemoteUpdate] = useState(null);
+    const lastServerUpdatedAtRef = useRef(song?.updatedAt || song?.updated_at || '');
+    const dirtyRef = useRef(Boolean(restoredDraft));
+    const closeCancelRef = useRef(null);
 
-    const [studio, setStudio] = useState(song?.studio || '');
-    const [producer, setProducer] = useState(song?.producer || '');
-    const [otherArtists, setOtherArtists] = useState(song?.otherArtists || '');
-    const [songKey, setSongKey] = useState(song?.key || '');
-    const [bpm, setBpm] = useState(song?.bpm ? String(song?.bpm) : '');
+    const [studio, setStudio] = useState(initialSong.studio || '');
+    const [producer, setProducer] = useState(initialSong.producer || '');
+    const [otherArtists, setOtherArtists] = useState(initialSong.otherArtists || '');
+    const [songKey, setSongKey] = useState(initialSong.key || '');
+    const [bpm, setBpm] = useState(initialSong.bpm ? String(initialSong.bpm) : '');
     const [sessionDetailsOpen, setSessionDetailsOpen] = useState(true);
 
-    const [beatUrl, setBeatUrl] = useState(song?.beatUrl || '');
-    const [videoUrl, setVideoUrl] = useState(song?.videoUrl || '');
+    const [beatUrl, setBeatUrl] = useState(initialSong.beatUrl || '');
+    const [videoUrl, setVideoUrl] = useState(initialSong.videoUrl || '');
     const [beatPlaying, setBeatPlaying] = useState(false);
     const [showBeatLocker, setShowBeatLocker] = useState(false);
     const [beatUrlInput, setBeatUrlInput] = useState('');
@@ -1253,8 +1463,12 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [collaborators, setCollaborators] = useState([]);
     const [collabLink, setCollabLink] = useState('');
     const [activeUsers, setActiveUsers] = useState([]);
+    const [collabStatus, setCollabStatus] = useState('');
+    const [collabPending, setCollabPending] = useState(false);
     const realtimeChannel = useRef(null);
     const presenceChannel = useRef(null);
+    const collabCloseRef = useRef(null);
+    const collabPreviousFocusRef = useRef(null);
     
     const toast = useToast();
     const getBlockTextareaRef = useCallback((blockId) => {
@@ -1263,78 +1477,209 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
         return blockTextareaRefs.current.get(blockId);
     }, []);
+
+    const editableSong = useMemo(() => ({
+        ...song,
+        title,
+        blocks,
+        status,
+        coverImage,
+        beatUrl,
+        videoUrl,
+        studio,
+        producer,
+        otherArtists,
+        key: songKey,
+        bpm: bpm ? parseInt(bpm, 10) : null
+    }), [song, title, blocks, status, coverImage, beatUrl, videoUrl, studio, producer, otherArtists, songKey, bpm]);
+    const currentSnapshot = useMemo(() => crateEditableSnapshot(editableSong), [editableSong]);
+    const isDirty = currentSnapshot !== lastSavedSnapshot;
+
+    useEffect(() => {
+        dirtyRef.current = isDirty;
+        if (!isDirty) {
+            localStorage.removeItem(draftKey);
+            return undefined;
+        }
+        const timer = setTimeout(() => {
+            localStorage.setItem(draftKey, JSON.stringify({
+                savedAt: Date.now(),
+                data: editableSong
+            }));
+        }, 250);
+        return () => clearTimeout(timer);
+    }, [draftKey, editableSong, isDirty]);
+
+    useEffect(() => {
+        const handleBeforeUnload = (event) => {
+            if (!dirtyRef.current) return;
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, []);
+
+    useEffect(() => {
+        if (!showCloseConfirm) return;
+        const previousFocus = document.activeElement;
+        const frame = requestAnimationFrame(() => closeCancelRef.current?.focus());
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            setShowCloseConfirm(false);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            previousFocus?.focus?.();
+        };
+    }, [showCloseConfirm]);
+
+    const applyServerSong = useCallback((nextSong) => {
+        setTitle(nextSong?.title || 'UNTITLED');
+        setBlocks(nextSong?.blocks || []);
+        setStatus(nextSong?.status || 'draft');
+        setCoverImage(nextSong?.coverImage || null);
+        setBeatUrl(nextSong?.beatUrl || '');
+        setVideoUrl(nextSong?.videoUrl || '');
+        setStudio(nextSong?.studio || '');
+        setProducer(nextSong?.producer || '');
+        setOtherArtists(nextSong?.otherArtists || '');
+        setSongKey(nextSong?.key || '');
+        setBpm(nextSong?.bpm ? String(nextSong.bpm) : '');
+        setLastSavedSnapshot(crateEditableSnapshot(nextSong));
+        lastServerUpdatedAtRef.current = nextSong?.updatedAt || nextSong?.updated_at || '';
+    }, []);
+
+    const requestClose = () => {
+        if (saving) return;
+        if (isDirty) {
+            setShowCloseConfirm(true);
+            return;
+        }
+        onClose();
+    };
     
-    // Set up real-time collaboration
+    // Poll the protected API for remote edits and keep presence fresh.
     useEffect(() => {
         if (!song?.id) return;
-        
-        // Subscribe to song changes
-        realtimeChannel.current = window.DailyDepositEngine.subscribeToSong(song.id, (updatedSong) => {
-            // Only update if change came from another user
-            if (updatedSong.updated_by !== user?.id) {
-                setTitle(updatedSong.title || 'UNTITLED');
-                setBlocks(updatedSong.blocks || []);
-                setCoverImage(updatedSong.cover_image || null);
-                setBeatUrl(updatedSong.beat_url || '');
-                setVideoUrl(updatedSong.video_url || '');
-                setOtherArtists(updatedSong.otherArtists || '');
-                toast?.addToast('TRACK UPDATED BY COLLABORATOR', 'info');
-                haptic('light');
+        let cancelled = false;
+        let pollTimer = null;
+
+        const pollSong = async () => {
+            if (cancelled || navigator.onLine === false) return;
+            try {
+                const updatedSong = await window.dailyBarsApi.api.getOne('songs', song.id);
+                const nextUpdatedAt = updatedSong?.updatedAt || updatedSong?.updated_at;
+                const updatedBy = updatedSong?.updatedBy || updatedSong?.updated_by;
+                if (!nextUpdatedAt || nextUpdatedAt === lastServerUpdatedAtRef.current || updatedBy === user?.id) return;
+                lastServerUpdatedAtRef.current = nextUpdatedAt;
+                if (dirtyRef.current) {
+                    setRemoteUpdate(updatedSong);
+                    setActivityStatus('COLLABORATOR UPDATE WAITING — YOUR DRAFT WAS NOT OVERWRITTEN');
+                } else {
+                    applyServerSong(updatedSong);
+                    setActivityStatus(`UPDATED BY @${updatedSong.updatedByUsername || updatedSong.updated_by_username || 'COLLABORATOR'}`);
+                    toast?.addToast('TRACK UPDATED BY COLLABORATOR', 'info');
+                    haptic('light');
+                }
+            } catch (error) {
+                if (!cancelled && error?.status !== 404) {
+                    setCollabStatus('LIVE UPDATES PAUSED — RETRYING');
+                }
             }
-        });
-        
-        // Join presence channel to see who's online
-        const setupPresence = async () => {
-            presenceChannel.current = await window.DailyDepositEngine.joinSongSession(
-                song.id, 
-                user?.id, 
-                user?.username
-            );
-            
-            // Listen for presence changes
-            presenceChannel.current.on('presence', { event: 'sync' }, () => {
-                const state = presenceChannel.current.presenceState();
-                const users = Object.values(state).flat().map(p => ({
-                    id: p.user_id,
-                    username: p.username,
-                    online_at: p.online_at
-                }));
-                setActiveUsers(users);
-            });
         };
-        
-        setupPresence();
-        
-        // Load collaborators
-        window.DailyDepositEngine.getSongCollaborators(song.id).then(setCollaborators);
-        
-        return () => {
-            // Cleanup subscriptions
-            if (realtimeChannel.current) {
-                window.DailyDepositEngine.unsubscribeFromSong(realtimeChannel.current);
+
+        const setupPresence = async () => {
+            try {
+                presenceChannel.current = await window.DailyDepositEngine.joinSongSession(
+                    song.id,
+                    user?.id,
+                    user?.username
+                );
+                if (cancelled || !presenceChannel.current) return;
+                presenceChannel.current.on('presence', { event: 'sync' }, () => {
+                    const state = presenceChannel.current?.presenceState?.() || {};
+                    const users = Object.values(state).flat().map(p => ({
+                        id: p.user_id,
+                        username: p.username,
+                        online_at: p.online_at
+                    }));
+                    setActiveUsers(users);
+                });
+            } catch (error) {
+                if (!cancelled) setCollabStatus('PRESENCE UNAVAILABLE — EDITING STILL WORKS');
             }
+        };
+        setupPresence();
+        window.DailyDepositEngine.getSongCollaborators(song.id)
+            .then((items) => {
+                if (!cancelled) setCollaborators(items);
+            })
+            .catch(() => {
+                if (!cancelled) setCollabStatus('COLLABORATORS COULD NOT LOAD — TRY AGAIN LATER');
+            });
+        pollTimer = setInterval(pollSong, Number(window.__DAILYBARS_CRATE_POLL_MS__) || 5000);
+
+        return () => {
+            cancelled = true;
+            clearInterval(pollTimer);
             if (presenceChannel.current) {
                 presenceChannel.current.unsubscribe();
             }
         };
-    }, [song?.id, user?.id, user?.username]);
+    }, [song?.id, user?.id, user?.username, applyServerSong]);
+
+    useEffect(() => {
+        if (!showCollabModal) return;
+        collabPreviousFocusRef.current = document.activeElement;
+        const frame = requestAnimationFrame(() => collabCloseRef.current?.focus());
+        const handleKeyDown = (event) => {
+            if (event.key !== 'Escape' || collabPending) return;
+            event.preventDefault();
+            setShowCollabModal(false);
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            cancelAnimationFrame(frame);
+            document.removeEventListener('keydown', handleKeyDown);
+            collabPreviousFocusRef.current?.focus?.();
+        };
+    }, [showCollabModal, collabPending]);
     
     // Generate collaboration link
     const handleCreateCollabLink = async () => {
+        setCollabPending(true);
+        setCollabStatus('CREATING SECURE INVITE...');
         try {
             const link = await window.DailyDepositEngine.createCollabLink(song.id, user?.id);
             setCollabLink(link);
+            setCollabStatus('INVITE READY — EXPIRES IN 7 DAYS');
             haptic('success');
         } catch (err) {
+            setCollabStatus(
+                navigator.onLine === false
+                    ? 'OFFLINE — INVITE WAS NOT CREATED'
+                    : (err?.message || 'FAILED TO CREATE INVITE').toUpperCase()
+            );
             toast?.addToast('FAILED TO CREATE LINK', 'error');
+        } finally {
+            setCollabPending(false);
         }
     };
     
     const copyCollabLink = async () => {
         if (collabLink) {
-            await navigator.clipboard.writeText(collabLink);
-            toast?.addToast('LINK COPIED!', 'success');
-            haptic('success');
+            try {
+                await navigator.clipboard.writeText(collabLink);
+                setCollabStatus('INVITE LINK COPIED');
+                toast?.addToast('LINK COPIED!', 'success');
+                haptic('success');
+            } catch {
+                setCollabStatus('COPY FAILED — SELECT THE LINK MANUALLY');
+            }
         }
     };
     
@@ -1523,31 +1868,41 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     };
 
     const handleSave = async () => {
+        if (remoteUpdate) {
+            setActivityStatus('RESOLVE THE COLLABORATOR UPDATE BEFORE SAVING');
+            return;
+        }
         setSaving(true);
         setActivityStatus('SAVING TRACK...');
         try {
-            await onSave({
-                ...song,
-                title,
-                blocks,
-                status,
-                coverImage,
-                beatUrl,
-                videoUrl,
-                studio,
-                producer,
-                otherArtists,
-                key: songKey,
-                bpm: bpm ? parseInt(bpm, 10) : null,
-                updated_by: user?.id // Track who made the update for realtime
-            });
+            const updated = await onSave(editableSong);
+            applyServerSong(updated || editableSong);
+            localStorage.removeItem(draftKey);
             setActivityStatus('TRACK SAVED');
             toast?.addToast('SAVED', 'success');
-        } catch {
-            setActivityStatus('SAVE FAILED — YOUR TRACK IS STILL OPEN');
+        } catch (error) {
+            if (error?.status === 409) {
+                try {
+                    const currentSong = await api.getOne('songs', song.id);
+                    setRemoteUpdate(currentSong);
+                    setActivityStatus('SAVE PAUSED — A NEWER COLLABORATOR VERSION IS WAITING');
+                } catch {
+                    setActivityStatus('SAVE PAUSED — RELOAD THE CRATE BEFORE TRYING AGAIN');
+                }
+            } else if (error?.status === 403 || /Daily Raps Pro|premium/i.test(error?.message || '')) {
+                setActivityStatus('PRO REQUIRED TO SAVE THIS BEAT — YOUR DRAFT IS STILL OPEN');
+                onPremiumRequired?.('Persistent beat uploads and beat links require Daily Raps Pro. Remove the beat to save on the free plan.');
+            } else {
+                setActivityStatus(
+                    navigator.onLine === false
+                        ? 'OFFLINE — UNSAVED DRAFT KEPT ON THIS DEVICE'
+                        : 'SAVE FAILED — YOUR TRACK IS STILL OPEN'
+                );
+            }
             toast?.addToast('SAVE FAILED — TRACK KEPT', 'error');
+        } finally {
+            setSaving(false);
         }
-        setSaving(false);
     };
     
     const handleBeatUpload = async (e) => {
@@ -1565,15 +1920,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             return;
         }
         
-        // Check if user can upload (premium/admin)
-        const canUpload = await window.DailyDepositEngine.canUploadBeats(user?.id);
-        if (!canUpload) {
-            toast?.addToast('PREMIUM REQUIRED', 'error');
-            onPremiumRequired?.('Uploading beats to save with your track is a premium perk.');
-            return;
-        }
-
         try {
+            setActivityStatus('UPLOADING BEAT...');
             toast?.addToast('UPLOADING BEAT...', 'info');
             
             // Simple metadata - just use filename
@@ -1599,90 +1947,21 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 setShowBeatLocker(false);
                 haptic('success');
                 toast?.addToast('BEAT UPLOADED!', 'success');
-                
-                // Auto-save the song with the new beat URL
-                try {
-                    await onSave({
-                        ...song,
-                        title,
-                        blocks,
-                        status,
-                        coverImage,
-                        beatUrl: result.url,
-                        videoUrl,
-                        studio,
-                        producer,
-                        otherArtists,
-                        key: songKey,
-                        bpm: bpm ? parseInt(bpm, 10) : null,
-                        updated_by: user?.id
-                    });
-                    toast?.addToast('SONG SAVED!', 'success');
-                } catch (saveErr) {
-                    console.error('Failed to save song with beat:', saveErr);
-                }
+                setActivityStatus('BEAT UPLOADED — SAVE TRACK TO KEEP IT');
             } else {
                 throw new Error(result?.error || 'Upload failed. Check storage config.');
             }
         } catch (err) {
             console.error('Beat upload failed:', err);
-            
-            // Check for RLS policy error (Supabase storage not configured)
-            const isRLSError = err.message?.includes('row-level security') || 
-                              err.message?.includes('StorageApiError') ||
-                              err.message?.includes('policy');
-            
-            if (isRLSError) {
-                console.warn('⚠️ Supabase Storage RLS not configured. Using local storage fallback.');
-                console.info('To fix: Configure storage bucket RLS policies in Supabase dashboard.');
-            }
-            
-            // Always try local storage fallback first (up to 15MB for mobile)
-            const maxLocalSize = 15 * 1024 * 1024; // 15MB
-            if (file.size <= maxLocalSize) {
-                try {
-                    toast?.addToast('SAVING LOCALLY...', 'info');
-                    const dataUrl = await new Promise((resolve, reject) => {
-                        const reader = new FileReader();
-                        reader.onload = () => resolve(reader.result);
-                        reader.onerror = reject;
-                        reader.readAsDataURL(file);
-                    });
-                    setBeatUrl(dataUrl);
-                    setShowBeatLocker(false);
-                    haptic('success');
-                    toast?.addToast('BEAT SAVED!', 'success');
-                    
-                    // Auto-save the song with the local beat URL
-                    try {
-                        await onSave({
-                            ...song,
-                            title,
-                            blocks,
-                            status,
-                            coverImage,
-                            beatUrl: dataUrl,
-                            videoUrl,
-                            studio,
-                            producer,
-                            otherArtists,
-                            key: songKey,
-                            bpm: bpm ? parseInt(bpm, 10) : null,
-                            updated_by: user?.id
-                        });
-                    } catch (saveErr) {
-                        console.error('Failed to save song with local beat:', saveErr);
-                    }
-                    return; // Success with local fallback
-                } catch (e) {
-                    console.error('Local storage fallback failed:', e);
-                }
-            }
-            
-            // Show appropriate error message
-            if (file.size > maxLocalSize) {
-                toast?.addToast('FILE TOO LARGE (MAX 15MB)', 'error');
+            if (/premium|Daily Raps Pro/i.test(err?.message || '')) {
+                setActivityStatus('PRO REQUIRED — BEAT WAS NOT ATTACHED');
+                onPremiumRequired?.('Uploading beats to persist with a crate requires Daily Raps Pro.');
             } else {
+                setActivityStatus(
+                    navigator.onLine === false
+                        ? 'OFFLINE — BEAT WAS NOT UPLOADED'
+                        : 'BEAT UPLOAD FAILED — TRACK IS UNCHANGED'
+                );
                 toast?.addToast('UPLOAD FAILED', 'error');
             }
         }
@@ -1937,7 +2216,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 <audio ref={beatAudioRef} src={beatUrl} loop onEnded={() => setBeatPlaying(false)} />
             )}
             
-            <button onClick={onClose} aria-label="Close Track Editor" style={{
+            <button onClick={requestClose} aria-label="Close Track Editor" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', left: 16, zIndex: 102,
                 width: 40, height: 40, background: 'var(--white)', border: '2px solid var(--black)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1975,15 +2254,89 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 <Icon name="FileText" size={14} />
             </button>
             
-            <button onClick={handleSave} disabled={saving} aria-busy={saving} aria-label="Save track" style={{
+            <button onClick={handleSave} disabled={saving || !isDirty || Boolean(remoteUpdate)} aria-busy={saving} aria-label="Save track" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 16, zIndex: 102,
                 padding: '10px 16px', background: 'var(--brand-green)', color: 'var(--white)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving ? 0.7 : 1
-            }}>{saving ? 'SAVING...' : 'SAVE'}</button>
-            {activityStatus && (
-                <div className="track-editor-activity" role="status" aria-live="polite" aria-atomic="true">
-                    {activityStatus}
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving || !isDirty || remoteUpdate ? 0.6 : 1
+            }}>{saving ? 'SAVING...' : isDirty ? 'SAVE' : 'SAVED'}</button>
+            <div className="track-editor-activity" role="status" aria-live="polite" aria-atomic="true">
+                {activityStatus || (
+                    navigator.onLine === false
+                        ? 'OFFLINE — UNSAVED CHANGES STAY ON THIS DEVICE'
+                        : isDirty
+                            ? 'UNSAVED CHANGES — LOCAL RECOVERY COPY READY'
+                            : 'ALL CHANGES SAVED'
+                )}
+            </div>
+
+            {remoteUpdate && (
+                <div className="crate-conflict-banner" role="alert" style={{
+                    position: 'fixed', zIndex: 180, top: 'calc(env(safe-area-inset-top) + 70px)',
+                    left: 16, right: 16, maxWidth: 520, margin: '0 auto', padding: 14,
+                    border: '3px solid var(--black)', boxShadow: '6px 6px 0 var(--black)',
+                    background: 'var(--electric)'
+                }}>
+                    <div className="font-display" style={{ fontSize: 14, marginBottom: 6 }}>COLLABORATOR UPDATE WAITING</div>
+                    <p style={{ fontSize: 11, lineHeight: 1.4, marginBottom: 10 }}>
+                        Your unsaved work is still intact. Load the collaborator’s saved version, or explicitly keep your draft and overwrite it on the next save.
+                    </p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                            onClick={() => {
+                                applyServerSong(remoteUpdate);
+                                setRemoteUpdate(null);
+                                localStorage.removeItem(draftKey);
+                                setActivityStatus('COLLABORATOR VERSION LOADED');
+                            }}
+                            style={{ flex: 1, padding: 10, border: '2px solid var(--black)', background: 'var(--white)', fontSize: 9, fontWeight: 900 }}
+                        >
+                            LOAD REMOTE
+                        </button>
+                        <button
+                            onClick={() => {
+                                const remoteUpdatedAt = remoteUpdate.updatedAt || remoteUpdate.updated_at;
+                                if (remoteUpdatedAt) {
+                                    lastServerUpdated.current = remoteUpdatedAt;
+                                    setUpdatedAt(remoteUpdatedAt);
+                                }
+                                setRemoteUpdate(null);
+                                setActivityStatus('KEEPING LOCAL DRAFT — SAVE TO OVERWRITE REMOTE');
+                            }}
+                            style={{ flex: 1, padding: 10, border: '2px solid var(--black)', background: 'var(--black)', color: 'var(--white)', fontSize: 9, fontWeight: 900 }}
+                        >
+                            KEEP MY DRAFT
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {showCloseConfirm && (
+                <div role="dialog" aria-modal="true" aria-labelledby="unsaved-crate-title" style={{
+                    position: 'fixed', inset: 0, zIndex: 400, background: 'rgba(0,0,0,.84)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+                }}>
+                    <div style={{ width: '100%', maxWidth: 360, background: 'var(--paper)', border: '4px solid var(--black)', boxShadow: '10px 10px 0 var(--electric)', padding: 20 }}>
+                        <h2 id="unsaved-crate-title" className="font-display" style={{ fontSize: 20, marginBottom: 10 }}>UNSAVED TRACK</h2>
+                        <p style={{ fontSize: 12, lineHeight: 1.5, marginBottom: 18 }}>
+                            This version is not on the server yet. A recovery copy stays on this device, but collaborators cannot see it until you save.
+                        </p>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                                ref={closeCancelRef}
+                                onClick={() => setShowCloseConfirm(false)}
+                                style={{ flex: 1, padding: 12, border: '2px solid var(--black)', background: 'var(--white)', fontWeight: 900 }}
+                            >
+                                KEEP EDITING
+                            </button>
+                            <button
+                                onClick={onClose}
+                                style={{ flex: 1, padding: 12, border: '2px solid var(--black)', background: '#B91C1C', color: 'white', fontWeight: 900 }}
+                            >
+                                CLOSE UNSAVED
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
             
@@ -1991,6 +2344,9 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             {showCollabModal && (
                 <div 
                     className="animate-fade-in"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="collaboration-title"
                     style={{
                         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 200,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
@@ -2011,9 +2367,9 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 <Icon name="Users" size={24} />
-                                <span className="font-display" style={{ fontSize: 16, fontWeight: 900 }}>COLLABORATE</span>
+                                 <span id="collaboration-title" className="font-display" style={{ fontSize: 16, fontWeight: 900 }}>COLLABORATE</span>
                             </div>
-                            <button onClick={() => setShowCollabModal(false)}>
+                             <button ref={collabCloseRef} onClick={() => setShowCollabModal(false)} disabled={collabPending} aria-label="Close collaboration">
                                 <Icon name="X" size={20} color="white" />
                             </button>
                         </div>
@@ -2056,20 +2412,25 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                                 fontSize: 9, fontFamily: 'monospace', background: 'var(--white)'
                                             }}
                                         />
-                                        <button onClick={copyCollabLink} style={{
+                                         <button onClick={copyCollabLink} disabled={collabPending} style={{
                                             padding: '10px 14px', background: 'var(--black)', color: 'var(--white)',
                                             fontWeight: 700, fontSize: 10
                                         }}>COPY</button>
                                     </div>
                                 ) : (
-                                    <button onClick={handleCreateCollabLink} style={{
+                                     <button onClick={handleCreateCollabLink} disabled={collabPending} aria-busy={collabPending} style={{
                                         width: '100%', padding: 14, background: 'var(--electric)',
                                         border: '2px solid var(--black)', fontSize: 11, fontWeight: 700,
                                         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
                                     }}>
-                                        <Icon name="Link" size={16} /> GENERATE INVITE LINK
+                                         <Icon name="Link" size={16} /> {collabPending ? 'CREATING...' : 'GENERATE INVITE LINK'}
                                     </button>
                                 )}
+                                 {collabStatus && (
+                                     <div role="status" aria-live="polite" style={{ fontSize: 9, fontWeight: 800, marginTop: 8 }}>
+                                         {collabStatus}
+                                     </div>
+                                 )}
                                 <div style={{ fontSize: 9, color: 'var(--gray)', marginTop: 8 }}>
                                     Link expires in 7 days. Anyone with link can edit.
                                 </div>
@@ -5095,6 +5456,8 @@ const App = () => {
     const [songs, setSongs] = useState([]);
     const [loadingBars, setLoadingBars] = useState(true);
     const [loadingSongs, setLoadingSongs] = useState(true);
+    const [songsLoadState, setSongsLoadState] = useState('loading');
+    const [songsLoadError, setSongsLoadError] = useState('');
     const [selectedBar, setSelectedBar] = useState(null);
     const [editingSong, setEditingSong] = useState(null);
     const [isTyping, setIsTyping] = useState(false);
@@ -5121,6 +5484,9 @@ const App = () => {
             ? window.RevenueCat?.isPurchaseConfigured?.()
             : window.DailyBarsApp?.stripeEnabled));
     const [isOnline, setIsOnline] = useState(() => navigator.onLine !== false);
+    const collabInviteTokenRef = useRef(new URLSearchParams(window.location.search).get('collab'));
+    const [collabJoinState, setCollabJoinState] = useState({ status: 'idle', message: '' });
+    const [collabJoinAttempt, setCollabJoinAttempt] = useState(0);
     const typingTimeoutRef = useRef(null);
 
     const aiUsageKey = useMemo(() => user?.username ? `ai_usage_${user.username}` : 'ai_usage_guest', [user?.username]);
@@ -5535,6 +5901,8 @@ const App = () => {
         
         setLoadingBars(true);
         setLoadingSongs(true);
+        setSongsLoadState('loading');
+        setSongsLoadError('');
         
         try { 
             const res = await api.get('bars', { sort: '-created_at', limit: 1000, eq: { username } });
@@ -5551,10 +5919,16 @@ const App = () => {
             const res = await api.get('songs', { sort: '-updated_at', limit: 1000, eq: { username } });
             const userSongs = res.data || [];
             console.log(`✅ Loaded ${userSongs.length} songs for @${username}`);
-            setSongs(userSongs); 
+            setSongs(userSongs);
+            setSongsLoadState('ready');
         } catch (err) { 
             console.error('❌ Songs load error:', err); 
-            setSongs([]);
+            setSongsLoadState('error');
+            setSongsLoadError(
+                navigator.onLine === false
+                    ? 'OFFLINE — SHOWING LAST KNOWN CRATES'
+                    : 'CRATES COULD NOT LOAD — LAST KNOWN DATA IS STILL HERE'
+            );
         }
         setLoadingSongs(false);
     };
@@ -5743,6 +6117,39 @@ const App = () => {
             return () => clearTimeout(loadTimeout);
         }
     }, [user?.username]); // Only re-run when username changes, not on every user object change
+
+    useEffect(() => {
+        const token = collabInviteTokenRef.current;
+        if (!user?.id || !token) return;
+        let cancelled = false;
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('collab');
+        window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+        setCollabJoinState({ status: 'pending', message: 'JOINING SHARED CRATE...' });
+
+        const join = async () => {
+            try {
+                const result = await window.DailyDepositEngine.joinViaCollabLink(token, user.id, user.username);
+                const joinedSong = await api.getOne('songs', result.songId);
+                if (cancelled) return;
+                collabInviteTokenRef.current = null;
+                setSongs(prev => [joinedSong, ...prev.filter(item => item.id !== joinedSong.id)]);
+                setSongsLoadState('ready');
+                setView('crates');
+                localStorage.setItem('dailybars_view', 'crates');
+                setEditingSong(joinedSong);
+                setCollabJoinState({ status: 'success', message: 'SHARED CRATE JOINED' });
+            } catch (error) {
+                if (cancelled) return;
+                setCollabJoinState({
+                    status: 'error',
+                    message: (error?.message || 'INVITE COULD NOT BE ACCEPTED').toUpperCase()
+                });
+            }
+        };
+        join();
+        return () => { cancelled = true; };
+    }, [user?.id, collabJoinAttempt]);
     
     const addBar = async (data) => {
         try {
@@ -5780,12 +6187,8 @@ const App = () => {
         catch (err) { console.error(err); }
     };
     
-    const createSong = async (initialTitle = 'UNTITLED') => {
+    const createSong = async (initialTitle = 'UNTITLED', { openEditor = true } = {}) => {
         try {
-            if (!hasPremium && songs.length >= 3) {
-                requestPremium('Premium unlocks unlimited crates and beat uploads.');
-                return null;
-            }
             const newSong = await api.create('songs', {
                 title: initialTitle,
                 blocks: [],
@@ -5800,10 +6203,16 @@ const App = () => {
                 bpm: null
             });
             setSongs(prev => [newSong, ...prev]);
-            setEditingSong(newSong);
+            if (openEditor) setEditingSong(newSong);
             updateStreak();
             return newSong;
-        } catch (err) { console.error(err); return null; }
+        } catch (err) {
+            console.error('Create crate failed:', err);
+            if (err?.status === 403 || /premium|unlimited crates/i.test(err?.message || '')) {
+                requestPremium('You have used all 3 free crate slots. Delete a crate to free a slot, or unlock Pro for unlimited crates.');
+            }
+            throw err;
+        }
     };
     
     const saveSong = async (songData) => {
@@ -5820,52 +6229,61 @@ const App = () => {
                 producer: songData.producer || '',
                 otherArtists: songData.otherArtists || '',
                 key: songData.key || '',
-                bpm: songData.bpm ?? null
+                bpm: songData.bpm ?? null,
+                expectedUpdatedAt: songData.updatedAt || songData.updated_at
             });
             setSongs(prev => prev.map(s => s.id === songData.id ? updated : s));
+            setEditingSong(updated);
             updateStreak();
+            return updated;
         } catch (err) { throw err; }
     };
-    
-    const handleAddToCrate = async (songId, bar) => {
+
+    const duplicateSong = async (song) => {
         try {
-            const song = songs.find(s => s.id === songId);
-            if (!song) return;
-
-            const blocksToInsert = [];
-
-            if (bar.audioUrl) {
-                blocksToInsert.push({
-                    id: generateId(),
-                    type: 'audio',
-                    content: bar.audioUrl
-                });
-            }
-
-            if (bar.text?.trim()) {
-                blocksToInsert.push({
-                    id: generateId(),
-                    type: 'text',
-                    content: bar.text
-                });
-            }
-
-            if (blocksToInsert.length === 0) return;
-
-            const updatedBlocks = [...(song.blocks || []), ...blocksToInsert];
-
-            const updatedSong = await api.update('songs', songId, {
-                blocks: updatedBlocks,
-                username: user.username
+            const duplicate = await api.create('songs', {
+                title: `${song.title || 'UNTITLED'} — COPY`,
+                blocks: (song.blocks || []).map(block => ({ ...block, id: generateId() })),
+                status: 'draft',
+                isFavorite: false,
+                coverImage: song.coverImage || null,
+                beatUrl: song.beatUrl || null,
+                videoUrl: song.videoUrl || '',
+                studio: song.studio || '',
+                producer: song.producer || '',
+                otherArtists: song.otherArtists || '',
+                key: song.key || '',
+                bpm: song.bpm ?? null
             });
-            
-            setSongs(prev => prev.map(s => s.id === songId ? updatedSong : s));
-            
-            // Show toast via ToastProvider logic if accessible, or just console
-            console.log('Added to crate!');
+            setSongs(prev => [duplicate, ...prev]);
+            return duplicate;
         } catch (err) {
-            console.error('Failed to add to crate:', err);
+            if (err?.status === 403 || /premium|unlimited crates/i.test(err?.message || '')) {
+                requestPremium('Duplication needs another crate slot. Delete a crate to free a free-plan slot, or unlock Pro for unlimited crates.');
+            }
+            throw err;
         }
+    };
+
+    const deleteSong = async (song) => {
+        await api.delete('songs', song.id);
+        setSongs(prev => prev.filter(item => item.id !== song.id));
+        if (editingSong?.id === song.id) setEditingSong(null);
+    };
+
+    const handleAddToCrate = async (songId, bar) => {
+        const blocksToInsert = [];
+        if (bar.audioUrl) blocksToInsert.push({ id: generateId(), type: 'audio', content: bar.audioUrl });
+        if (bar.imageUrl) blocksToInsert.push({ id: generateId(), type: 'image', content: bar.imageUrl });
+        if (bar.text?.trim()) blocksToInsert.push({ id: generateId(), type: 'text', content: bar.text });
+        if (!blocksToInsert.length) throw new Error('This bar has no text or media to add.');
+        const result = await api.appendBarToSong(songId, {
+            sourceBarId: bar.id,
+            blocks: blocksToInsert
+        });
+        setSongs(prev => prev.map(s => s.id === songId ? result.song : s));
+        if (editingSong?.id === songId) setEditingSong(result.song);
+        return result;
     };
     
     const handleSendToFreeGame = async (bar) => {
@@ -5948,6 +6366,23 @@ const App = () => {
                 />
                 
                 <main className="app-main scrollable view-enter" style={{ flex: 1 }} key={view}>
+                    {collabJoinState.status !== 'idle' && collabJoinState.status !== 'success' && (
+                        <div role="alert" style={{
+                            margin: 12, padding: 12, border: '2px solid var(--black)',
+                            background: collabJoinState.status === 'error' ? 'var(--warning)' : 'var(--electric)',
+                            fontSize: 10, fontWeight: 900, letterSpacing: '0.08em'
+                        }}>
+                            {collabJoinState.message}
+                            {collabJoinState.status === 'error' && (
+                                <button
+                                    onClick={() => setCollabJoinAttempt(value => value + 1)}
+                                    style={{ marginLeft: 12, textDecoration: 'underline' }}
+                                >
+                                    TRY AGAIN
+                                </button>
+                            )}
+                        </div>
+                    )}
                     {view === 'feed' && (
                         <FeedView 
                             bars={bars} 
@@ -5989,7 +6424,18 @@ const App = () => {
                     )}
                     {view === 'archive' && <ArchiveView bars={archiveBars} onSelect={setSelectedBar} />}
                     {view === 'favorites' && <FavoritesView bars={bars} onSelect={setSelectedBar} />}
-                    {view === 'crates' && <CratesView songs={songs} onCreateSong={() => createSong()} onEditSong={setEditingSong} />}
+                    {view === 'crates' && (
+                        <CratesView
+                            songs={songs}
+                            onCreateSong={() => createSong()}
+                            onEditSong={setEditingSong}
+                            onDeleteSong={deleteSong}
+                            onDuplicateSong={duplicateSong}
+                            loadState={songsLoadState}
+                            loadError={songsLoadError}
+                            onRetry={() => loadUserData(user)}
+                        />
+                    )}
                     {view === 'scratchlab' && ScratchLabViewComponent && (
                         canAccessScratchLab ? (
                             <ScratchLabViewComponent 
@@ -6115,10 +6561,10 @@ const App = () => {
                         onClose={() => setCrateModalBar(null)}
                         onSave={handleAddToCrate}
                         onCreateNew={async () => {
-                            const newSong = await createSong(`NEW TRACK - ${formatDate(new Date())}`);
-                            if (newSong) {
-                                handleAddToCrate(newSong.id, crateModalBar);
-                            }
+                            const newSong = await createSong(`NEW TRACK - ${formatDate(new Date())}`, { openEditor: false });
+                            const result = await handleAddToCrate(newSong.id, crateModalBar);
+                            setEditingSong(result.song);
+                            return result;
                         }}
                     />
                 )}

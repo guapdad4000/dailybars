@@ -287,7 +287,51 @@ const DailyDepositEngine = {
 
     // Get active collaborators on a song (presence)
     async joinSongSession(songId, userId, username) {
-        return null;
+        const listeners = new Set();
+        let state = {};
+        let stopped = false;
+        let timer = null;
+        const emit = () => listeners.forEach((listener) => listener());
+        const refresh = async () => {
+            if (stopped || navigator.onLine === false) return;
+            try {
+                await this.request(`/collaborators/${songId}/presence`, { method: 'PUT', body: '{}' });
+                const users = await this.request(`/collaborators/${songId}/presence`);
+                state = Object.fromEntries((users || []).map((entry) => [
+                    entry.user_id || entry.userId,
+                    [{
+                        user_id: entry.user_id || entry.userId,
+                        username: entry.username,
+                        online_at: entry.last_seen || entry.lastSeen
+                    }]
+                ]));
+                emit();
+            } catch (error) {
+                console.warn('Song presence refresh failed:', error);
+            }
+        };
+        await refresh();
+        timer = setInterval(refresh, 15000);
+        return {
+            on(type, filter, callback) {
+                if (type === 'presence' && filter?.event === 'sync' && typeof callback === 'function') {
+                    listeners.add(callback);
+                    queueMicrotask(callback);
+                }
+                return this;
+            },
+            presenceState() {
+                return state;
+            },
+            async unsubscribe() {
+                stopped = true;
+                clearInterval(timer);
+                listeners.clear();
+                try {
+                    await DailyDepositEngine.request(`/collaborators/${songId}/presence`, { method: 'DELETE' });
+                } catch {}
+            }
+        };
     },
 
     // Broadcast cursor/selection position to collaborators
@@ -297,17 +341,14 @@ const DailyDepositEngine = {
 
     // Create a shareable collaboration link
     async createCollabLink(songId, ownerId) {
-        // Generate a unique token
-        const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-        
         try {
-            await this.request('/collaborators/invite', { method: 'POST', body: JSON.stringify({
-                songId, token, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-            }) });
-            
-            // Return the shareable link
+            const invite = await this.request('/collaborators/invite', {
+                method: 'POST',
+                body: JSON.stringify({ songId })
+            });
+            if (!invite?.token) throw new Error('The server did not return an invite token.');
             const baseUrl = window.location.origin;
-            return `${baseUrl}?collab=${token}`;
+            return `${baseUrl}?collab=${encodeURIComponent(invite.token)}`;
         } catch (error) {
             console.error("❌ Failed to create collab link:", error);
             throw error;
@@ -316,6 +357,7 @@ const DailyDepositEngine = {
 
     // Join a song via collaboration link
     async joinViaCollabLink(token, userId, username) {
+        if (!token) throw new Error('Missing collaboration invite.');
         try {
             return await this.request('/collaborators/join', { method: 'POST', body: JSON.stringify({ token }) });
         } catch (error) {
@@ -330,7 +372,7 @@ const DailyDepositEngine = {
             return await this.request(`/collaborators/${songId}`);
         } catch (error) {
             console.error("❌ Failed to get collaborators:", error);
-            return [];
+            throw error;
         }
     },
 

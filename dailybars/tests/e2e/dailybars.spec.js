@@ -14,8 +14,46 @@ function makeBar(overrides = {}) {
   };
 }
 
-async function installApiMock(page, { bars = [], songs = [], failNextWrite = false, aiFailure = false } = {}) {
-  const state = { bars: [...bars], songs: [...songs], writes: [], failNextWrite, aiFailure };
+function makeSong(overrides = {}) {
+  return {
+    id: 'song-1',
+    username: 'qa',
+    title: 'Town Draft',
+    blocks: [],
+    status: 'draft',
+    cover_image: null,
+    beat_url: '',
+    video_url: '',
+    studio: '',
+    producer: '',
+    other_artists: '',
+    key: '',
+    bpm: null,
+    created_at: '2026-08-24T12:00:00.000Z',
+    updated_at: '2026-08-24T12:00:00.000Z',
+    updated_by: 'qa-user',
+    updated_by_username: 'qa',
+    ...overrides,
+  };
+}
+
+async function installApiMock(page, {
+  bars = [],
+  songs = [],
+  failNextWrite = false,
+  aiFailure = false,
+  enforceCrateLimit = false,
+  failSongsLoad = false,
+} = {}) {
+  const state = {
+    bars: [...bars],
+    songs: [...songs],
+    writes: [],
+    failNextWrite,
+    aiFailure,
+    enforceCrateLimit,
+    failSongsLoad,
+  };
 
   await page.route(NATIVE_API, async (route) => {
     const request = route.request();
@@ -53,6 +91,27 @@ async function installApiMock(page, { bars = [], songs = [], failNextWrite = fal
     }
 
     if (method === 'GET') {
+      if (table === 'songs' && parts[2]) {
+        const song = state.songs.find((item) => item.id === parts[2]);
+        await route.fulfill({
+          status: song ? 200 : 404,
+          contentType: 'application/json',
+          body: JSON.stringify(song || { error: 'Crate not found.' }),
+        });
+        return;
+      }
+      if (table === 'songs' && state.failSongsLoad) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'temporary crate outage' }),
+        });
+        return;
+      }
+      if (table === 'collaborators') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+        return;
+      }
       const body = table === 'bars' ? state.bars : table === 'songs' ? state.songs : [];
       await route.fulfill({
         status: 200,
@@ -63,8 +122,14 @@ async function installApiMock(page, { bars = [], songs = [], failNextWrite = fal
     }
 
     if (method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE') {
-      state.writes.push({ method, table, body: request.postDataJSON?.() });
-      if (state.failNextWrite) {
+      let writeBody = null;
+      try {
+        writeBody = request.postDataJSON();
+      } catch {
+        writeBody = request.postData();
+      }
+      state.writes.push({ method, table, body: writeBody });
+      if (state.failNextWrite && (table === 'bars' || table === 'songs')) {
         state.failNextWrite = false;
         await route.fulfill({
           status: 503,
@@ -88,15 +153,44 @@ async function installApiMock(page, { bars = [], songs = [], failNextWrite = fal
       }
       if (method === 'POST' && table === 'songs') {
         const body = request.postDataJSON();
-        const song = {
+        if (parts[3] === 'append-bar') {
+          const index = state.songs.findIndex((song) => song.id === parts[2]);
+          const song = state.songs[index];
+          const alreadyAdded = song.blocks.some((block) => block.sourceBarId === body.sourceBarId);
+          if (!alreadyAdded) {
+            song.blocks = [...song.blocks, ...body.blocks.map((block) => ({ ...block, sourceBarId: body.sourceBarId }))];
+            song.updated_at = new Date(Date.parse(song.updated_at) + 1000).toISOString();
+          }
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ song, alreadyAdded }),
+          });
+          return;
+        }
+        if (state.enforceCrateLimit && state.songs.length >= 3) {
+          await route.fulfill({
+            status: 403,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'Premium unlocks unlimited crates and beat uploads.' }),
+          });
+          return;
+        }
+        const song = makeSong({
           id: `song-${state.songs.length + 1}`,
           title: body.title,
           username: body.username || 'qa',
           blocks: body.blocks || [],
           status: body.status || 'draft',
-          created_at: '2026-08-24T12:00:00.000Z',
-          updated_at: '2026-08-24T12:00:00.000Z',
-        };
+          cover_image: body.cover_image || null,
+          beat_url: body.beat_url || '',
+          video_url: body.video_url || '',
+          studio: body.studio || '',
+          producer: body.producer || '',
+          other_artists: body.other_artists || '',
+          key: body.key || '',
+          bpm: body.bpm ?? null,
+        });
         state.songs.unshift(song);
         await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(song) });
         return;
@@ -109,6 +203,60 @@ async function installApiMock(page, { bars = [], songs = [], failNextWrite = fal
         const updated = { ...(state.bars[index] || makeBar({ id })), ...body };
         if (index >= 0) state.bars[index] = updated;
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
+        return;
+      }
+      if (method === 'PATCH' && table === 'songs') {
+        const body = request.postDataJSON();
+        const id = parts[2];
+        const index = state.songs.findIndex((song) => song.id === id);
+        const current = state.songs[index] || makeSong({ id });
+        if (body.expected_updated_at && Date.parse(body.expected_updated_at) !== Date.parse(current.updated_at)) {
+          await route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              error: 'This crate changed before your save completed.',
+              code: 'CRATE_VERSION_CONFLICT',
+              currentSong: current,
+            }),
+          });
+          return;
+        }
+        const { expected_updated_at: _expectedUpdatedAt, ...changes } = body;
+        const updated = {
+          ...current,
+          ...changes,
+          updated_at: new Date(Date.parse(current.updated_at) + 1000).toISOString(),
+          updated_by: 'qa-user',
+          updated_by_username: 'qa',
+        };
+        if (index >= 0) state.songs[index] = updated;
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(updated) });
+        return;
+      }
+      if (method === 'DELETE' && table === 'songs') {
+        state.songs = state.songs.filter((song) => song.id !== parts[2]);
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":true}' });
+        return;
+      }
+      if (table === 'collaborators' && parts[2] === 'invite') {
+        await route.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            token: 'server-generated-invite-token',
+            expiresAt: '2026-08-31T12:00:00.000Z',
+          }),
+        });
+        return;
+      }
+      if (table === 'collaborators' && parts[2] === 'join') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ songId: state.songs[0]?.id }),
+        });
         return;
       }
 
@@ -233,6 +381,224 @@ test.describe('bar creation, editing, and failure recovery', () => {
     await expect(page.getByText('SAVE FAILED — DRAFT KEPT ON THIS DEVICE')).toBeVisible();
     await expect(page.getByRole('button', { name: 'SAVE BAR' })).toBeEnabled();
     expect(errors.filter((error) => error.startsWith('pageerror:'))).toEqual([]);
+  });
+});
+
+test.describe('crate lifecycle, recovery, and collaboration', () => {
+  test('creates, renames, saves, reopens, duplicates, and deletes a crate', async ({ page }) => {
+    const state = await startQaSession(page);
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'START NEW SONG' }).click();
+
+    await page.getByPlaceholder('TRACK TITLE').fill('Broadway Session');
+    await page.getByRole('button', { name: 'VERSE', exact: true }).click();
+    await page.getByLabel('VERSE lyrics').fill('Town business in the margins');
+    await page.getByRole('button', { name: 'Save track' }).click();
+    await expect(page.getByText('TRACK SAVED')).toBeVisible();
+    await page.getByRole('button', { name: 'Close Track Editor' }).click();
+
+    const crate = page.getByRole('button', { name: 'Open crate Broadway Session' });
+    await expect(crate).toBeVisible();
+    await crate.press('Enter');
+    await expect(page.getByLabel('VERSE lyrics')).toHaveValue('Town business in the margins');
+    await page.getByRole('button', { name: 'Close Track Editor' }).click();
+
+    await page.getByRole('button', { name: 'Duplicate Broadway Session crate' }).click();
+    await expect(page.getByText('CRATE DUPLICATED')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Open crate Broadway Session — COPY' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Delete Broadway Session — COPY crate' }).click();
+    const dialog = page.getByRole('dialog', { name: 'DELETE THIS CRATE?' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'DELETE', exact: true }).click();
+    await expect(page.getByText('CRATE DELETED — ONE FREE SLOT IS NOW AVAILABLE')).toBeVisible();
+    expect(state.songs).toHaveLength(1);
+    expect(state.songs[0].title).toBe('Broadway Session');
+  });
+
+  test('keeps failed edits, warns on close, and succeeds on retry', async ({ page }) => {
+    const state = await startQaSession(page, { songs: [makeSong()], failNextWrite: true });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'Open crate Town Draft' }).click();
+    const title = page.getByPlaceholder('TRACK TITLE');
+    await title.fill('Unsaved Town Draft');
+
+    await page.getByRole('button', { name: 'Close Track Editor' }).click();
+    const closeDialog = page.getByRole('dialog', { name: 'UNSAVED TRACK' });
+    await expect(closeDialog).toBeVisible();
+    await closeDialog.getByRole('button', { name: 'KEEP EDITING' }).click();
+    await expect(title).toHaveValue('Unsaved Town Draft');
+
+    await page.getByRole('button', { name: 'Save track' }).click();
+    await expect(page.getByText('SAVE FAILED — YOUR TRACK IS STILL OPEN')).toBeVisible();
+    await expect(title).toHaveValue('Unsaved Town Draft');
+    await page.getByRole('button', { name: 'Save track' }).click();
+    await expect(page.getByText('TRACK SAVED')).toBeVisible();
+    expect(state.songs[0].title).toBe('Unsaved Town Draft');
+  });
+
+  test('adds a bar idempotently and reports an already-added retry', async ({ page }) => {
+    const bar = makeBar({ id: 'bar-source-1', text: 'Do not duplicate this bar' });
+    const state = await startQaSession(page, { bars: [bar], songs: [makeSong()] });
+    const barCard = page.locator('article').filter({ hasText: bar.text });
+    const addButton = barCard.getByRole('button', { name: 'CRATE', exact: true });
+
+    await addButton.click();
+    let dialog = page.getByRole('dialog', { name: 'ADD TO CRATE' });
+    await dialog.getByRole('button', { name: /Town Draft/ }).click();
+    await dialog.getByRole('button', { name: 'CONFIRM INSERT' }).click();
+    await expect(dialog.getByText('ADDED TO CRATE')).toBeVisible();
+    await expect(dialog).toBeHidden();
+
+    await addButton.click();
+    dialog = page.getByRole('dialog', { name: 'ADD TO CRATE' });
+    await dialog.getByRole('button', { name: /Town Draft/ }).click();
+    await dialog.getByRole('button', { name: 'CONFIRM INSERT' }).click();
+    await expect(dialog.getByText('ALREADY IN THIS CRATE')).toBeVisible();
+    expect(state.songs[0].blocks.filter((block) => block.sourceBarId === bar.id)).toHaveLength(1);
+  });
+
+  test('server limit error explains deletion and deleting frees the next slot', async ({ page }) => {
+    const state = await startQaSession(page, {
+      songs: [
+        makeSong({ id: 'song-1', title: 'One' }),
+        makeSong({ id: 'song-2', title: 'Two' }),
+        makeSong({ id: 'song-3', title: 'Three' }),
+      ],
+      enforceCrateLimit: true,
+    });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'START NEW SONG' }).click();
+    await expect(page.getByText(/used all 3 free crate slots/i)).toBeVisible();
+    await page.getByRole('button', { name: 'CLOSE', exact: true }).click();
+
+    await page.getByRole('button', { name: 'Delete One crate' }).click();
+    await page.getByRole('dialog', { name: 'DELETE THIS CRATE?' }).getByRole('button', { name: 'DELETE', exact: true }).click();
+    expect(state.songs).toHaveLength(2);
+    await page.getByRole('button', { name: 'START NEW SONG' }).click();
+    await expect(page.getByPlaceholder('TRACK TITLE')).toBeVisible();
+    expect(state.songs).toHaveLength(3);
+  });
+
+  test('persists media, metadata, block ordering, and playback across reopen', async ({ page }) => {
+    const state = await startQaSession(page, {
+      songs: [makeSong({
+        title: 'Media Crate',
+        cover_image: 'data:image/png;base64,AAAA',
+        beat_url: 'https://example.test/beat.mp3',
+        video_url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+        studio: 'Oakland HQ',
+        producer: 'Town Producer',
+        other_artists: 'Guest Voice',
+        key: 'B MINOR',
+        bpm: 92,
+        blocks: [
+          { id: 'text-1', type: 'text', label: 'VERSE', content: 'First verse' },
+          { id: 'audio-1', type: 'audio', content: 'data:audio/webm;base64,AAAA' },
+        ],
+      })],
+    });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'Open crate Media Crate' }).click();
+    await expect(page.getByAltText('Cover')).toBeVisible();
+    await expect(page.locator('audio[src="https://example.test/beat.mp3"]')).toHaveCount(1);
+    await expect(page.locator('iframe[src*="youtube.com/embed"]')).toBeVisible();
+    await expect(page.getByPlaceholder('E.g. OAKLAND HQ')).toHaveValue('Oakland HQ');
+    await page.getByRole('button', { name: 'Move VERSE block down' }).click();
+    await page.getByRole('button', { name: 'Save track' }).click();
+    await page.getByRole('button', { name: 'Close Track Editor' }).click();
+    await page.getByRole('button', { name: 'Open crate Media Crate' }).click();
+    expect(state.songs[0].blocks.map((block) => block.id)).toEqual(['audio-1', 'text-1']);
+    await expect(page.getByRole('textbox', { name: 'VERSE lyrics' })).toHaveValue('First verse');
+  });
+
+  test('does not overwrite a dirty draft when a collaborator saves remotely', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.__DAILYBARS_CRATE_POLL_MS__ = 100;
+    });
+    const state = await startQaSession(page, { songs: [makeSong()] });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'Open crate Town Draft' }).click();
+    const title = page.getByPlaceholder('TRACK TITLE');
+    await title.fill('My Local Draft');
+
+    state.songs[0] = {
+      ...state.songs[0],
+      title: 'Remote Collaborator Draft',
+      updated_at: '2026-08-24T12:01:00.000Z',
+      updated_by: 'other-user',
+      updated_by_username: 'town-collaborator',
+    };
+    const conflict = page.getByRole('alert').filter({ hasText: 'COLLABORATOR UPDATE WAITING' });
+    await expect(conflict).toBeVisible();
+    await expect(title).toHaveValue('My Local Draft');
+    await conflict.getByRole('button', { name: 'KEEP MY DRAFT' }).click();
+    await page.getByRole('button', { name: 'Save track' }).click();
+    await expect(page.getByText('TRACK SAVED')).toBeVisible();
+    expect(state.songs[0].title).toBe('My Local Draft');
+  });
+
+  test('uses a server-generated invite and accepts it for the signed-in recipient', async ({ page }) => {
+    const ownerState = await startQaSession(page, { songs: [makeSong()] });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'Open crate Town Draft' }).click();
+    await page.getByRole('button', { name: 'Open track collaboration' }).click();
+    await page.getByRole('button', { name: 'GENERATE INVITE LINK' }).click();
+    await expect(page.getByRole('dialog', { name: 'COLLABORATE' }).locator('input[readonly]')).toHaveValue(
+      'http://127.0.0.1:5001?collab=server-generated-invite-token'
+    );
+    const inviteWrite = ownerState.writes.find((write) =>
+      write.method === 'POST' && write.table === 'collaborators' && write.body?.songId
+    );
+    expect(inviteWrite.body).toEqual({ songId: 'song-1' });
+
+    const recipient = await page.context().browser().newPage();
+    const recipientState = await installApiMock(recipient, {
+      songs: [makeSong({ title: 'Shared Town Draft' })],
+    });
+    await recipient.goto('/index.html?collab=server-generated-invite-token');
+    await recipient.getByRole('button', { name: 'ENTER DEV QA ACCOUNT' }).click();
+    await expect(recipient.getByPlaceholder('TRACK TITLE')).toHaveValue('Shared Town Draft');
+    await expect(recipient).not.toHaveURL(/collab=/);
+    expect(recipientState.writes.some((write) =>
+      write.method === 'POST' &&
+      write.table === 'collaborators' &&
+      write.body?.token === 'server-generated-invite-token'
+    )).toBe(true);
+    await recipient.close();
+  });
+
+  test('server version conflict preserves both the local draft and the remote save', async ({ page }) => {
+    const state = await startQaSession(page, { songs: [makeSong()] });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await page.getByRole('button', { name: 'Open crate Town Draft' }).click();
+    const title = page.getByPlaceholder('TRACK TITLE');
+    await title.fill('Unsaved Local Race');
+    state.songs[0] = {
+      ...state.songs[0],
+      title: 'Remote Save Won First',
+      updated_at: '2026-08-24T12:01:00.000Z',
+      updated_by: 'other-user',
+      updated_by_username: 'town-collaborator',
+    };
+
+    await page.getByRole('button', { name: 'Save track' }).click();
+    const conflict = page.getByRole('alert').filter({ hasText: 'COLLABORATOR UPDATE WAITING' });
+    await expect(conflict).toBeVisible();
+    await expect(title).toHaveValue('Unsaved Local Race');
+    expect(state.songs[0].title).toBe('Remote Save Won First');
+    await conflict.getByRole('button', { name: 'LOAD REMOTE' }).click();
+    await expect(title).toHaveValue('Remote Save Won First');
+  });
+
+  test('shows retryable crate load failure without pretending it is empty', async ({ page }) => {
+    const state = await startQaSession(page, { failSongsLoad: true });
+    await page.getByRole('button', { name: 'Go to CRATES' }).click();
+    await expect(page.getByRole('alert')).toContainText('CRATES COULD NOT LOAD');
+    await expect(page.getByText('NO NEWS IS GOOD NEWS')).toBeHidden();
+    state.failSongsLoad = false;
+    await page.getByRole('button', { name: 'TRY AGAIN' }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
   });
 });
 
