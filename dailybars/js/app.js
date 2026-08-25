@@ -24,6 +24,7 @@ const REVENUECAT_KEY = RELEASE_PLATFORM === 'ios'
 const REVENUECAT_CONFIGURED = Boolean(REVENUECAT_KEY);
 const STRIPE_CONFIGURED = APP_CONFIG.stripeEnabled === true;
 
+const SERVER_ENTITLEMENT_PURCHASE_PLATFORM = !NATIVE_PURCHASE_PLATFORM;
 const SUPABASE_CONFIGURED = Boolean(APP_CONFIG.supabaseUrl && APP_CONFIG.supabaseAnonKey);
 const SUPABASE_URL = SUPABASE_CONFIGURED
     ? APP_CONFIG.supabaseUrl
@@ -31,7 +32,7 @@ const SUPABASE_URL = SUPABASE_CONFIGURED
 const SUPABASE_ANON_KEY = APP_CONFIG.supabaseAnonKey || 'release-not-configured';
 const CUSTOMER_ACCESS_ENABLED = APP_ENVIRONMENT !== 'production' ||
     (APP_CONFIG.releaseEnabled === true && SUPABASE_CONFIGURED &&
-        (NATIVE_PURCHASE_PLATFORM ? REVENUECAT_CONFIGURED : STRIPE_CONFIGURED));
+        SERVER_ENTITLEMENT_PURCHASE_PLATFORM && STRIPE_CONFIGURED);
 const CUSTOMER_ACCESS_ERROR = 'Customer sign-in is not enabled for this release build.';
 
 const requireCustomerAccess = () => {
@@ -172,7 +173,7 @@ const callAI = async (prompt, systemPrompt) => {
         return data?.text || data?.content || null;
     } catch (error) {
         console.error('AI Error:', error);
-        return null;
+        throw error;
     }
 };
 
@@ -2849,7 +2850,6 @@ const QuickInput = ({
             onPremiumRequired?.();
             return;
         }
-        onAIUse?.();
         setAiLoading(true);
         try {
             const prompts = {
@@ -2860,11 +2860,17 @@ const QuickInput = ({
             };
             const result = await callAI(prompts[mode]);
             if (!result) throw new Error('No AI response');
+            onAIUse?.();
             setText(prev => prev + (prev ? '\n\n' : '') + result);
             toast?.addToast('GENERATED', 'success');
         } catch (error) {
             console.error('Quick input AI failed:', error);
-            toast?.addToast('AI GENERATION FAILED', 'error');
+            if (/Daily Raps Pro|Free accounts can use AI/i.test(error?.message || '')) {
+                toast?.addToast('PREMIUM REQUIRED', 'error');
+                onPremiumRequired?.();
+            } else {
+                toast?.addToast('AI GENERATION FAILED', 'error');
+            }
         } finally {
             setAiLoading(false);
         }

@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS users (
   stripe_subscription_id TEXT UNIQUE,
   stripe_subscription_price_id TEXT,
   stripe_subscription_updated_at TIMESTAMPTZ,
+  stripe_checkout_session_id TEXT,
+  stripe_checkout_session_created_at TIMESTAMPTZ,
   storage_used_bytes BIGINT NOT NULL DEFAULT 0 CHECK (storage_used_bytes >= 0),
   storage_limit_bytes BIGINT NOT NULL DEFAULT 104857600,
   current_streak INTEGER NOT NULL DEFAULT 0 CHECK (current_streak >= 0),
@@ -39,6 +41,8 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_price_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_updated_at TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_checkout_session_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_checkout_session_created_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_stripe_customer_id ON users(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_stripe_subscription_id ON users(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
 

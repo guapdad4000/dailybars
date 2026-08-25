@@ -36,8 +36,12 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 5071
+localPort = 5050
 externalPort = 3001
+
+[[ports]]
+localPort = 5051
+externalPort = 3002
 
 [postMerge]
 path = "scripts/post-merge.sh"
@@ -52,5 +56,7 @@ build = ["bash", "-c", "cd dailybars && DAILYBARS_ENVIRONMENT=production npm run
 
 [userenv.production]
 DAILYBARS_RELEASE_ENABLED = "false"
-DAILYBARS_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWIiOiJ0aWxwZ3dveXllcnZiZ2RsdWNhcCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzY2OTEwMDQ5LCJleHAiOjIwODI0ODYwNDl9.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0"
+DAILYBARS_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0"
 DAILYBARS_SUPABASE_URL = "https://tilpgwoyyervbgdlucap.supabase.co"
+DAILYBARS_AUTH_REDIRECT_URL = "https://dailybars.replit.app"
+DAILYBARS_PUBLIC_URL = "https://dailybars.replit.app"

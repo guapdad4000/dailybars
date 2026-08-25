@@ -4,3 +4,5 @@
 - [Preview-only QA access](preview-qa-access.md) — QA-only entitlements must use the preview-host boundary, not the static build environment label.
 - [Train route navigation](train-route-navigation.md) — The train is a core Daily Raps identity element; extend it with useful state instead of replacing it.
 - [Premium entitlement enforcement](premium-entitlement-enforcement.md) — Web Pro access is server-derived from signed Stripe events; client state cannot unlock paid write paths.
+- [Stripe connection server credentials](stripe-connector-server-key.md) — A healthy attached Stripe connector may still expose no server secret; verify with stripe:seed before release work.
+- [Task-gated production verification](task-gated-production-verification.md) — Publish uses the main version, so active task work requiring live checks must merge fail-closed before activation.

@@ -1361,7 +1361,6 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             onPremiumRequired?.('AI tools are limited to premium after 3 runs.');
             return;
         }
-        onAIUse?.();
         setAiLoading(true);
         try {
             const context = blocks.filter(b => b.type === 'text').map(b => b.content).join('\n');
@@ -1373,11 +1372,17 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             };
             const result = await callAI(prompts[mode]);
             if (!result) throw new Error('No AI response');
+            onAIUse?.();
             setBlocks(prev => [...prev, { id: generateId(), type: 'text', content: result, source: 'ai' }]);
             toast?.addToast('GENERATED', 'success');
         } catch (error) {
             console.error('Track Editor AI failed:', error);
-            toast?.addToast('AI GENERATION FAILED', 'error');
+            if (/Daily Raps Pro|Free accounts can use AI/i.test(error?.message || '')) {
+                toast?.addToast('PREMIUM REQUIRED', 'error');
+                onPremiumRequired?.('AI tools are limited to premium after 3 runs.');
+            } else {
+                toast?.addToast('AI GENERATION FAILED', 'error');
+            }
         } finally {
             setAiLoading(false);
         }
@@ -5326,24 +5331,6 @@ const App = () => {
         localStorage.setItem(aiUsageKey, next.toString());
     }, [aiUsageCount, aiUsageKey]);
 
-    const syncPremiumUsageToSupabase = useCallback(async (usageCount) => {
-        if (!user?.id || !navigator.onLine || usageCount <= 0) return;
-        try {
-            const payload = {
-                user_key: userKey,
-                ai_uses: usageCount,
-                last_ai_use: new Date().toISOString(),
-            };
-            await window.dailyBarsApi.request('/telemetry/premium', { method: 'PUT', body: JSON.stringify(payload) });
-        } catch (err) {
-            console.warn('Premium usage sync error', err);
-        }
-    }, [user?.id, user?.username, userKey]);
-
-    useEffect(() => {
-        syncPremiumUsageToSupabase(aiUsageCount);
-    }, [aiUsageCount, syncPremiumUsageToSupabase]);
-
     const premiumOverlay = showPremiumPrompt ? (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
             <div style={{ background: 'var(--white)', border: '3px solid var(--black)', boxShadow: '8px 8px 0 var(--black)', maxWidth: 340, width: '100%', padding: 20 }}>
@@ -5468,34 +5455,11 @@ const App = () => {
                 console.warn('Supabase session restore skipped:', error.message);
             }
 
-            const storedUser = localStorage.getItem('dailybars_session');
-            if (storedUser) {
-                try {
-                    const parsed = JSON.parse(storedUser);
-                    if (parsed.expiresAt && Date.now() < parsed.expiresAt) {
-                        setUser(parsed.user);
-                    } else {
-                        localStorage.removeItem('dailybars_session');
-                    }
-                } catch {
-                    localStorage.removeItem('dailybars_session');
-                }
-            }
-
-            const legacyUser = localStorage.getItem('guap_user');
-            if (legacyUser && !localStorage.getItem('dailybars_session')) {
-                try {
-                    const parsed = JSON.parse(legacyUser);
-                    setUser(parsed);
-                    localStorage.setItem('dailybars_session', JSON.stringify({
-                        user: parsed,
-                        expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000)
-                    }));
-                    localStorage.removeItem('guap_user');
-                } catch {
-                    localStorage.removeItem('guap_user');
-                }
-            }
+            // Browser storage is a cache, never an identity source. Only a current
+            // Supabase session (or the isolated development QA route) may restore
+            // a user and any paid entitlement.
+            localStorage.removeItem('dailybars_session');
+            localStorage.removeItem('guap_user');
 
             if (mounted) setIsCheckingAuth(false);
         };

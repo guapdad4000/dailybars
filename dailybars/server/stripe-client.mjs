@@ -4,8 +4,8 @@ import { StripeSync, runMigrations } from 'stripe-replit-sync';
 const connectionUrl = 'https://';
 
 async function getStripeCredentials() {
-  const environmentSecret = String(process.env.STRIPE_SECRET_KEY || '').trim();
-  if (environmentSecret) return { secretKey: environmentSecret };
+  const configuredSecretKey = process.env.STRIPE_SECRET_KEY?.trim();
+  if (configuredSecretKey) return { secretKey: configuredSecretKey };
 
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const identity = process.env.REPL_IDENTITY

@@ -94,17 +94,18 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
+  const proxySecret = Deno.env.get('DAILYBARS_AI_PROXY_SECRET');
+  const suppliedSecret = req.headers.get('x-dailybars-proxy-secret');
+  if (!proxySecret || !suppliedSecret || suppliedSecret !== proxySecret) {
+    return jsonResponse({ error: 'AI requests must use the Daily Raps API.' }, 403);
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
-  const proxySecret = Deno.env.get('DAILYBARS_AI_PROXY_SECRET');
   const authorization = req.headers.get('Authorization') || '';
 
   if (!supabaseUrl || !anonKey) {
     return jsonResponse({ error: 'Missing Supabase auth configuration' }, 500);
-  }
-
-  if (!proxySecret || req.headers.get('x-dailybars-proxy-secret') !== proxySecret) {
-    return jsonResponse({ error: 'AI requests must use the Daily Raps API.' }, 403);
   }
 
   if (!authorization) {

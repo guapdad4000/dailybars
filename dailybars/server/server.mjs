@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,10 +13,13 @@ const port = Number(process.env.PORT || 5000);
 const isDevelopment = process.env.DAILYBARS_ENVIRONMENT !== 'production';
 const supabaseUrl = process.env.DAILYBARS_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.DAILYBARS_SUPABASE_ANON_KEY || '';
+const releaseEnabled = process.env.DAILYBARS_RELEASE_ENABLED === 'true';
 const stripeEnabled = process.env.DAILYBARS_STRIPE_ENABLED === 'true';
+const billingEnabled = releaseEnabled && stripeEnabled;
 const stripePriceLookupKey = process.env.DAILYBARS_STRIPE_PRICE_LOOKUP_KEY || 'dailybars_pro_monthly';
-const aiProxySecret = process.env.DAILYBARS_AI_PROXY_SECRET || '';
-const aiFunctionName = process.env.DAILYBARS_AI_FUNCTION || 'dailybars-ai';
+const minimaxApiKey = process.env.MINIMAX_API_KEY || '';
+const minimaxBaseUrl = String(process.env.DAILYBARS_MINIMAX_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, '');
+const minimaxModel = process.env.DAILYBARS_MINIMAX_MODEL || 'MiniMax-M2';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false },
@@ -44,6 +48,57 @@ class HttpError extends Error {
   }
 }
 
+const generateWithMiniMax = async (prompt, systemPrompt) => {
+  if (!minimaxApiKey) throw new HttpError(503, 'AI generation is not configured for this release.');
+  let response;
+  try {
+    response = await fetch(`${minimaxBaseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${minimaxApiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: minimaxModel,
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt ||
+              "You are GUAPDAD 4000's AI assistant. Write bars with Oakland energy - witty, slick, confident. Just output the bars, no explanations.",
+          },
+          { role: 'user', content: prompt },
+        ],
+        stream: false,
+        temperature: 0.85,
+        max_tokens: 1200,
+      }),
+    });
+  } catch (error) {
+    console.error('[ai] MiniMax request failed:', error);
+    throw new HttpError(503, 'AI generation is temporarily unavailable.');
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  const providerCode = Number(payload?.base_resp?.status_code || 0);
+  if (!response.ok || providerCode !== 0) {
+    console.warn('[ai] MiniMax rejected a generation request', {
+      httpStatus: response.status,
+      providerCode: providerCode || null,
+      providerMessage: payload?.error?.message || payload?.base_resp?.status_msg || null,
+    });
+    throw new HttpError(503, 'AI generation is temporarily unavailable.');
+  }
+
+  const content = payload?.choices?.[0]?.message?.content;
+  const text = typeof content === 'string'
+    ? content.trim()
+    : Array.isArray(content)
+      ? content.map((part) => typeof part === 'string' ? part : part?.text || '').join('\n').trim()
+      : '';
+  if (!text) throw new HttpError(502, 'AI generation returned an empty response.');
+  return text;
+};
+
 const send = (res, status, body, headers = {}) => {
   const payload = body === undefined ? '' : JSON.stringify(body);
   res.writeHead(status, {
@@ -58,6 +113,21 @@ const errorResponse = (res, error) => {
   const status = error instanceof HttpError ? error.status : 500;
   if (status >= 500) console.error('[api]', error);
   send(res, status, { error: error.message || 'Request failed' });
+};
+
+const withTransaction = async (operation) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await operation(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const parseBody = async (req) => {
@@ -83,7 +153,7 @@ const readRawBody = async (req, maxBytes = 1024 * 1024) => {
 };
 
 const requireStripeBilling = () => {
-  if (!stripeEnabled) throw new HttpError(503, 'Billing is not enabled for this release.');
+  if (!billingEnabled) throw new HttpError(503, 'Billing is not enabled for this release.');
 };
 
 const checkoutBaseUrl = (req) => {
@@ -133,20 +203,23 @@ const locateSubscriptionUser = async (client, subscription) => {
 
 const applySubscription = async (client, event, subscription, expectedPrice) => {
   const usesExpectedPrice = subscription.items?.data?.some((item) => item.price?.id === expectedPrice.id);
-  if (!usesExpectedPrice) return;
   const user = await locateSubscriptionUser(client, subscription);
   if (!user) return;
+  if (!usesExpectedPrice && user.stripe_subscription_id !== subscription.id) return;
 
   const eventAt = new Date(Number(event.created || 0) * 1000);
-  const active = ['active', 'trialing'].includes(subscription.status);
+  const active = usesExpectedPrice && ['active', 'trialing'].includes(subscription.status);
   const premiumProtected = user.role === 'admin' || user.subscription_status === 'lifetime';
   const expiresAt = active ? subscriptionPeriodEnd(subscription) : null;
+  const currentPriceId = subscription.items?.data?.[0]?.price?.id || null;
   await client.query(`
     UPDATE users
     SET stripe_customer_id = $2,
         stripe_subscription_id = $3,
         stripe_subscription_price_id = $4,
         stripe_subscription_updated_at = $5,
+        stripe_checkout_session_id = NULL,
+        stripe_checkout_session_created_at = NULL,
         role = CASE WHEN $6 THEN role WHEN $7 THEN 'premium' ELSE 'user' END,
         subscription_status = CASE WHEN $6 THEN subscription_status WHEN $7 THEN 'premium' ELSE 'free' END,
         subscription_expires_at = CASE WHEN $6 THEN subscription_expires_at WHEN $7 THEN $8 ELSE NULL END,
@@ -157,7 +230,7 @@ const applySubscription = async (client, event, subscription, expectedPrice) => 
     user.id,
     String(subscription.customer || ''),
     subscription.id,
-    expectedPrice.id,
+    currentPriceId,
     eventAt,
     premiumProtected,
     active,
@@ -296,6 +369,19 @@ const isPremiumUser = (user) => {
 
 const requirePremiumUser = (user) => {
   if (!isPremiumUser(user)) throw new HttpError(403, 'Daily Raps Pro is required for this feature.');
+};
+
+const requireFreeCrateAllowance = async (client, user) => {
+  const lockedUser = await lockCurrentUser(client, user.id);
+  if (isPremiumUser(lockedUser)) return lockedUser;
+  const { rows } = await client.query(
+    'SELECT count(*)::int AS count FROM songs WHERE user_id = $1',
+    [lockedUser.id],
+  );
+  if (Number(rows[0]?.count || 0) >= 3) {
+    throw new HttpError(403, 'Premium unlocks unlimited crates and beat uploads.');
+  }
+  return lockedUser;
 };
 
 const lockCurrentUser = async (client, userId) => {
@@ -449,7 +535,23 @@ const updateActivity = async (client, userId) => {
 };
 
 const routeApi = async (req, res, pathname, url) => {
-  if (pathname === '/api/health') return send(res, 200, { ok: true, database: true });
+  if (pathname === '/api/health') {
+    const { rows } = await pool.query(`
+      SELECT COUNT(*)::int = 2 AS billing_schema_ready
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'users'
+        AND column_name IN (
+          'stripe_checkout_session_id',
+          'stripe_checkout_session_created_at'
+        )
+    `);
+    return send(res, 200, {
+      ok: true,
+      database: true,
+      billingSchemaReady: rows[0]?.billing_schema_ready === true,
+    });
+  }
   const user = await authenticate(req);
   const parts = pathname.replace(/^\/api\/?/, '').split('/').filter(Boolean);
   const resource = parts[0];
@@ -462,27 +564,104 @@ const routeApi = async (req, res, pathname, url) => {
     if (Object.keys(body).length) throw new HttpError(400, 'Checkout options are selected by the server.');
     const stripe = await getStripeClient();
     const price = await getDailyRapsPrice(stripe);
-    let customerId = user.stripe_customer_id;
+    const baseUrl = checkoutBaseUrl(req);
+    const client = await pool.connect();
+    let customerId;
+    let attemptId;
+    let pendingToken;
+    try {
+      await client.query('BEGIN');
+      const lockedUser = await lockCurrentUser(client, user.id);
+      if (isPremiumUser(lockedUser)) {
+        throw new HttpError(409, 'This account already has Daily Raps Pro. Manage it in the billing portal.');
+      }
+
+      const pendingMatch = String(lockedUser.stripe_checkout_session_id || '')
+        .match(/^pending:([0-9a-f-]{36})$/i);
+      if (lockedUser.stripe_checkout_session_id && !pendingMatch) {
+        try {
+          const existingSession = await stripe.checkout.sessions.retrieve(lockedUser.stripe_checkout_session_id);
+          if (existingSession.status === 'open' && existingSession.url) {
+            await client.query('COMMIT');
+            return send(res, 200, { url: existingSession.url });
+          }
+        } catch {
+          // A stale or unavailable Checkout Session should not permanently block billing.
+        }
+      }
+
+      customerId = lockedUser.stripe_customer_id;
+      if (customerId) {
+        const subscriptions = await stripe.subscriptions.list({ customer: customerId, status: 'all', limit: 100 });
+        const existingSubscription = subscriptions.data.find((subscription) =>
+          ['active', 'trialing', 'past_due', 'unpaid'].includes(subscription.status) &&
+          subscription.items?.data?.some((item) => item.price?.id === price.id),
+        );
+        if (existingSubscription) {
+          await applySubscription(client, { created: Math.floor(Date.now() / 1000) }, existingSubscription, price);
+          await client.query('COMMIT');
+          return send(res, 409, { error: 'This account already has Daily Raps Pro. Manage it in the billing portal.' });
+        }
+      }
+
+      const reusePendingAttempt = Boolean(pendingMatch);
+      attemptId = reusePendingAttempt ? pendingMatch[1] : crypto.randomUUID();
+      pendingToken = `pending:${attemptId}`;
+      await client.query(`
+        UPDATE users
+        SET stripe_checkout_session_id = $2,
+            stripe_checkout_session_created_at = CASE WHEN $3 THEN stripe_checkout_session_created_at ELSE now() END,
+            updated_at = now()
+        WHERE id = $1
+      `, [lockedUser.id, pendingToken, reusePendingAttempt]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
         metadata: { dailybars_user_id: user.id },
+      }, {
+        idempotencyKey: `dailybars-customer-${user.id}`,
       });
       customerId = customer.id;
-      await pool.query('UPDATE users SET stripe_customer_id = $2, updated_at = now() WHERE id = $1', [user.id, customerId]);
     }
-    const baseUrl = checkoutBaseUrl(req);
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       client_reference_id: user.id,
       mode: 'subscription',
       line_items: [{ price: price.id, quantity: 1 }],
-      metadata: { dailybars_user_id: user.id },
+      metadata: { dailybars_user_id: user.id, dailybars_checkout_attempt_id: attemptId },
       subscription_data: { metadata: { dailybars_user_id: user.id } },
       success_url: `${baseUrl}/?checkout=success`,
       cancel_url: `${baseUrl}/?checkout=cancel`,
+    }, {
+      idempotencyKey: `dailybars-checkout-${attemptId}`,
     });
     if (!session.url) throw new HttpError(502, 'Stripe did not return a checkout URL.');
+
+    const persisted = await pool.query(`
+      UPDATE users
+      SET stripe_customer_id = $2,
+          stripe_checkout_session_id = $3,
+          stripe_checkout_session_created_at = now(),
+          updated_at = now()
+      WHERE id = $1
+        AND stripe_checkout_session_id = $4
+      RETURNING id
+    `, [user.id, customerId, session.id, pendingToken]);
+    if (!persisted.rowCount) {
+      const current = await pool.query('SELECT stripe_checkout_session_id FROM users WHERE id = $1', [user.id]);
+      if (current.rows[0]?.stripe_checkout_session_id !== session.id) {
+        throw new HttpError(409, 'A newer checkout attempt is already in progress. Please try again.');
+      }
+    }
     return send(res, 200, { url: session.url });
   }
 
@@ -497,6 +676,25 @@ const routeApi = async (req, res, pathname, url) => {
       return_url: checkoutBaseUrl(req),
     });
     return send(res, 200, { url: session.url });
+  }
+
+  if (resource === 'ai' && parts[1] === 'generate' && req.method === 'POST') {
+    const body = await parseBody(req);
+    const prompt = String(body.prompt || '').trim();
+    const systemPrompt = String(body.systemPrompt || '').trim();
+    if (!prompt) throw new HttpError(400, 'Prompt required.');
+    if (prompt.length > 12_000 || systemPrompt.length > 12_000) {
+      throw new HttpError(400, 'AI prompts must be 12,000 characters or fewer.');
+    }
+
+    const reservedUser = await reserveAiUse(user);
+    try {
+      const text = await generateWithMiniMax(prompt, systemPrompt);
+      return send(res, 200, { text });
+    } catch (error) {
+      await releaseReservedAiUse(reservedUser);
+      throw error;
+    }
   }
 
   if (resource === 'me' && parts[1] === 'trophies' && req.method === 'GET') {
@@ -683,37 +881,6 @@ const routeApi = async (req, res, pathname, url) => {
   if (resource === 'telemetry' && parts[1] === 'premium' && req.method === 'PUT') {
     throw new HttpError(403, 'Premium usage is managed by the server.');
   }
-  if (resource === 'ai' && parts[1] === 'generate' && req.method === 'POST') {
-    if (!aiProxySecret) throw new HttpError(503, 'AI generation is not configured for this release.');
-    const authorization = String(req.headers.authorization || '');
-    if (!authorization.startsWith('Bearer ')) throw new HttpError(401, 'Sign in is required to use AI.');
-    const body = await parseBody(req);
-    const prompt = String(body.prompt || '').trim();
-    const systemPrompt = String(body.systemPrompt || '').trim();
-    if (!prompt) throw new HttpError(400, 'Prompt required.');
-    if (prompt.length > 4_000 || systemPrompt.length > 4_000) throw new HttpError(400, 'AI prompt is too long.');
-    const usageUser = await reserveAiUse(user);
-    try {
-      const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/functions/v1/${aiFunctionName}`, {
-        method: 'POST',
-        headers: {
-          authorization,
-          apikey: supabaseAnonKey,
-          'content-type': 'application/json',
-          'x-dailybars-proxy-secret': aiProxySecret,
-        },
-        body: JSON.stringify({ prompt, systemPrompt }),
-        signal: AbortSignal.timeout(60_000),
-      });
-      const responseBody = await response.json().catch(() => ({}));
-      if (!response.ok) throw new HttpError(response.status >= 400 && response.status < 500 ? response.status : 502, responseBody.error || 'AI generation failed.');
-      return send(res, 200, responseBody);
-    } catch (error) {
-      await releaseReservedAiUse(usageUser);
-      throw error;
-    }
-  }
-
   const table = resource;
   if (!/^[a-z_]+$/.test(table) || (!publicTables.has(table) && !ownedTables.has(table) && table !== 'users')) {
     throw new HttpError(404, 'Unknown API resource.');
@@ -745,17 +912,11 @@ const routeApi = async (req, res, pathname, url) => {
     try {
       await client.query('BEGIN');
       if (table === 'bars' || table === 'songs') {
-        const lockedUser = await lockCurrentUser(client, user.id);
-        if (table === 'songs' && !isPremiumUser(lockedUser)) {
-          const { rows: counts } = await client.query(
-            'SELECT COUNT(*)::int AS count FROM songs WHERE user_id = $1 OR (user_id IS NULL AND lower(username) = lower($2))',
-            [user.id, user.username],
-          );
-          if (counts[0].count >= 3) {
-            throw new HttpError(403, 'Free accounts can create up to three crates. Upgrade to Daily Raps Pro for more.');
-          }
-        }
         const data = mapInput(table, body);
+        if (table === 'songs') {
+          const lockedUser = await requireFreeCrateAllowance(client, user);
+          if (data.beat_url) requirePremiumUser(lockedUser);
+        }
         data.user_id = user.id;
         data.username = user.username;
         const row = await insertRow(client, table, data);
@@ -798,6 +959,9 @@ const routeApi = async (req, res, pathname, url) => {
       if (!existing && table !== 'community_submissions') throw new HttpError(404, 'Record not found.');
       if (table === 'community_submissions' && existing?.user_id !== user.id) throw new HttpError(403, 'You do not own this post.');
       const data = mapInput(table, await parseBody(req));
+      if (table === 'songs' && data.beat_url && data.beat_url !== existing.beat_url) {
+        requirePremiumUser(await lockCurrentUser(client, user.id));
+      }
       if (table === 'bars' || table === 'songs') delete data.user_id;
       return send(res, 200, await updateRow(client, table, id, data));
     } finally { client.release(); }
@@ -838,7 +1002,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) { errorResponse(res, error); }
 });
 
-if (stripeEnabled) {
+if (billingEnabled) {
   const domain = String(process.env.REPLIT_DOMAINS || '').split(',')[0];
   if (!domain) throw new Error('REPLIT_DOMAINS is required to configure the Stripe webhook.');
   await initializeStripe(`https://${domain}/api/stripe/webhook`);
