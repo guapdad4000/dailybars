@@ -1,6 +1,8 @@
 const { test, expect } = require('playwright/test');
 
 const SUPABASE_REST = 'https://tilpgwoyyervbgdlucap.supabase.co/rest/v1/';
+const SUPABASE_AUTH_USER = 'https://tilpgwoyyervbgdlucap.supabase.co/auth/v1/user';
+const SUPABASE_STORAGE_KEY = 'sb-tilpgwoyyervbgdlucap-auth-token';
 
 // Keep the visual suite independent of the live Supabase project. The QA session
 // is intentionally the same deterministic account used by the functional tests.
@@ -55,19 +57,30 @@ async function signInQa(page, options) {
 
 async function signInRegularUser(page) {
   await installVisualFixtures(page);
-  await page.addInitScript(() => {
-    localStorage.setItem('dailybars_session', JSON.stringify({
-      user: {
-        id: 'visual-user',
-        username: 'member',
-        email: 'member@example.com',
-        xp: 0,
-        level: 1
-      },
-      expiresAt: Date.now() + (7 * 24 * 60 * 60 * 1000),
-      createdAt: Date.now()
-    }));
+  const authUser = {
+    id: '00000000-0000-0000-0000-000000000020',
+    aud: 'authenticated',
+    role: 'authenticated',
+    email: 'member@example.com',
+    user_metadata: { username: 'member' },
+  };
+  await page.route(SUPABASE_AUTH_USER, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(authUser),
+    });
   });
+  await page.addInitScript(({ storageKey, user }) => {
+    localStorage.setItem(storageKey, JSON.stringify({
+      access_token: 'visual-test-access-token',
+      refresh_token: 'visual-test-refresh-token',
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      expires_in: 3600,
+      token_type: 'bearer',
+      user,
+    }));
+  }, { storageKey: SUPABASE_STORAGE_KEY, user: authUser });
   await page.goto('/index.html');
   await expect(page.getByText('DROP A BAR...')).toBeVisible();
   await stabilize(page);
