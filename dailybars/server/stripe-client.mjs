@@ -4,6 +4,9 @@ import { StripeSync, runMigrations } from 'stripe-replit-sync';
 const connectionUrl = 'https://';
 
 async function getStripeCredentials() {
+  const environmentSecret = String(process.env.STRIPE_SECRET_KEY || '').trim();
+  if (environmentSecret) return { secretKey: environmentSecret };
+
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
   const identity = process.env.REPL_IDENTITY
     ? `repl ${process.env.REPL_IDENTITY}`
@@ -12,7 +15,7 @@ async function getStripeCredentials() {
       : '';
 
   if (!hostname || !identity) {
-    throw new Error('Stripe is not available in this environment. Connect Stripe through Replit before enabling billing.');
+    throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY through Replit Secrets before enabling billing.');
   }
 
   const response = await fetch(
@@ -26,7 +29,9 @@ async function getStripeCredentials() {
 
   const data = await response.json();
   const settings = data.items?.[0]?.settings;
-  if (!settings?.secret_key) throw new Error('The connected Stripe account does not have a server secret key.');
+  if (!settings?.secret_key) {
+    throw new Error('Stripe is not configured. Add STRIPE_SECRET_KEY through Replit Secrets before enabling billing.');
+  }
   return { secretKey: settings.secret_key };
 }
 
