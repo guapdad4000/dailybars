@@ -282,38 +282,47 @@ const haptic = (type = 'light') => {
 // RHYME CONNECT - Datamuse API
 // ============================================================================
 
-const fetchRhymes = async (word) => {
-    try {
-        const response = await fetch(`https://api.datamuse.com/words?rel_rhy=${encodeURIComponent(word)}&max=10`);
-        const data = await response.json();
-        return data.map(item => item.word);
-    } catch (error) {
-        console.error('Rhyme fetch error:', error);
-        return [];
+const suggestionError = (message, code) => Object.assign(new Error(message), { code });
+const SUGGESTION_TIMEOUT_MS = Math.max(
+    500,
+    Math.min(15000, Number(window.__DAILYBARS_WORD_ASSIST_TIMEOUT_MS__) || 6500)
+);
+
+const fetchDatamuseWords = async (word, relation, max, { signal } = {}) => {
+    const query = String(word || '').trim();
+    if (!query) return [];
+    if (navigator.onLine === false) {
+        throw suggestionError('Suggestions require a connection.', 'offline');
     }
+
+    let response;
+    try {
+        response = await fetch(
+            `https://api.datamuse.com/words?${relation}=${encodeURIComponent(query)}&max=${max}`,
+            { signal }
+        );
+    } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        throw suggestionError('The suggestion service could not be reached.', navigator.onLine === false ? 'offline' : 'network');
+    }
+
+    if (!response.ok) {
+        throw suggestionError(`The suggestion service returned ${response.status}.`, 'provider');
+    }
+
+    const data = await response.json().catch(() => null);
+    if (!Array.isArray(data)) {
+        throw suggestionError('The suggestion service returned an invalid response.', 'invalid');
+    }
+
+    return [...new Set(data
+        .map(item => typeof item?.word === 'string' ? item.word.trim() : '')
+        .filter(Boolean))];
 };
 
-const fetchNearRhymes = async (word) => {
-    try {
-        const response = await fetch(`https://api.datamuse.com/words?rel_nry=${encodeURIComponent(word)}&max=8`);
-        const data = await response.json();
-        return data.map(item => item.word);
-    } catch (error) {
-        console.error('Near rhyme fetch error:', error);
-        return [];
-    }
-};
-
-const fetchSynonyms = async (word) => {
-    try {
-        const response = await fetch(`https://api.datamuse.com/words?rel_syn=${encodeURIComponent(word)}&max=8`);
-        const data = await response.json();
-        return data.map(item => item.word);
-    } catch (error) {
-        console.error('Synonym fetch error:', error);
-        return [];
-    }
-};
+const fetchRhymes = (word, options) => fetchDatamuseWords(word, 'rel_rhy', 10, options);
+const fetchNearRhymes = (word, options) => fetchDatamuseWords(word, 'rel_nry', 8, options);
+const fetchSynonyms = (word, options) => fetchDatamuseWords(word, 'rel_syn', 8, options);
 
 // ============================================================================
 // RHYME HIGHLIGHTING SYSTEM - Color-coded end-of-line rhymes
@@ -457,66 +466,129 @@ const getPhoneticEnding = (word) => {
     return ending;
 };
 
-// Analyze text and find all rhyme groups across the entire text
+const getRhymeColor = (groupIndex) => RHYME_COLORS[groupIndex % RHYME_COLORS.length];
+
+const getStableRhymeColor = (ending) => {
+    let hash = 0;
+    for (const character of ending) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+    return getRhymeColor(Math.abs(hash));
+};
+
+const tokenizeRhymeText = (text = '') => {
+    const tokens = [];
+    const matcher = /[a-zA-Z']+/g;
+    let cursor = 0;
+    let match;
+    while ((match = matcher.exec(text)) !== null) {
+        if (match.index > cursor) {
+            tokens.push({ type: 'text', value: text.slice(cursor, match.index), start: cursor, end: match.index });
+        }
+        tokens.push({
+            type: 'word',
+            value: match[0],
+            ending: getPhoneticEnding(match[0]),
+            start: match.index,
+            end: match.index + match[0].length
+        });
+        cursor = match.index + match[0].length;
+    }
+    if (cursor < text.length) tokens.push({ type: 'text', value: text.slice(cursor), start: cursor, end: text.length });
+    return tokens;
+};
+
+// Highlighting uses a lightweight spelling heuristic, not a pronunciation
+// dictionary. Calling these "sound groups" keeps the promise honest while
+// Datamuse supplies the separately labelled exact and near/slant suggestions.
 const analyzeRhymes = (text) => {
-    if (!text) return { endingToColor: {} };
-    
-    // Match all words (including those with apostrophes)
-    const words = text.match(/[a-zA-Z']+/g) || [];
-    const endingCounts = {};
-    
-    words.forEach(word => {
-        // Skip single characters unless they are 'I' or 'A' (though 'a' rarely rhymes in multisyllabic contexts, 'I' is common)
-        // Actually, let's just allow all. The map logic handles normalization.
-        if (word.length < 1) return;
-        
-        const ending = getPhoneticEnding(word);
-        if (ending && ending.length > 0) {
-            endingCounts[ending] = (endingCounts[ending] || 0) + 1;
+    const tokens = tokenizeRhymeText(text || '');
+    const endingWords = {};
+    tokens.forEach(token => {
+        if (token.type === 'word' && token.ending) {
+            if (!endingWords[token.ending]) endingWords[token.ending] = new Set();
+            endingWords[token.ending].add(token.value.toLowerCase());
         }
     });
-    
-    // Assign colors to endings with > 1 count
+
     const endingToColor = {};
-    let colorIndex = 0;
-    
-    // Sort endings by frequency to assign colors deterministically
-    const sortedEndings = Object.keys(endingCounts).sort((a,b) => endingCounts[b] - endingCounts[a]);
-    
-    sortedEndings.forEach(ending => {
-        if (endingCounts[ending] >= 2) {
-            endingToColor[ending] = getRhymeColor(colorIndex);
-            colorIndex++;
-        }
+    Object.entries(endingWords).forEach(([ending, words]) => {
+        if (words.size >= 2) endingToColor[ending] = getStableRhymeColor(ending);
     });
-    
-    return { endingToColor };
+
+    return {
+        tokens,
+        endingToColor,
+        groups: Object.keys(endingToColor).sort().map(ending => ({
+            ending,
+            color: endingToColor[ending],
+            words: [...new Set(tokens
+                .filter(token => token.type === 'word' && token.ending === ending)
+                .map(token => token.value.toLowerCase()))]
+        }))
+    };
 };
 
-// Get color for a specific rhyme group index
-const getRhymeColor = (groupIndex) => {
-    return RHYME_COLORS[groupIndex % RHYME_COLORS.length];
+const getWordRangeAtPosition = (text, position, selectionEnd = position) => {
+    const fullText = String(text || '');
+    if (!fullText) return null;
+    let start = Math.max(0, Math.min(Number(position) || 0, fullText.length));
+    let end = Math.max(start, Math.min(Number(selectionEnd) || start, fullText.length));
+    const selected = fullText.slice(start, end);
+    if (selected && /^[a-zA-Z']+$/.test(selected)) return { word: selected, start, end };
+
+    if (start === fullText.length || !/[a-zA-Z']/.test(fullText[start] || '')) {
+        if (start > 0 && /[a-zA-Z']/.test(fullText[start - 1])) start -= 1;
+    }
+    if (!/[a-zA-Z']/.test(fullText[start] || '')) return null;
+
+    end = start + 1;
+    while (start > 0 && /[a-zA-Z']/.test(fullText[start - 1])) start -= 1;
+    while (end < fullText.length && /[a-zA-Z']/.test(fullText[end])) end += 1;
+    const word = fullText.slice(start, end);
+    return word.length >= 2 ? { word, start, end } : null;
 };
 
-// Textarea with rhyme highlighting - VISIBLE TEXT approach
-// Shows actual textarea text (not transparent) with highlight markers shown separately
-// This ensures cursor position is ALWAYS correct since we're not hiding the real text
-const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, className, style, autoFocus, textareaRef, onWordDoubleTap }) => {
+const applySuggestionToText = (text, suggestion, range, expectedWord) => {
+    const current = String(text || '');
+    const replacement = String(suggestion || '').trim();
+    let start = Math.max(0, Math.min(range?.start ?? current.length, current.length));
+    let end = Math.max(start, Math.min(range?.end ?? start, current.length));
+    const rangeStillMatches = expectedWord &&
+        current.slice(start, end).toLowerCase() === String(expectedWord).toLowerCase();
+    if (!rangeStillMatches) return { text: current, caret: start, replaced: false };
+    const nextText = `${current.slice(0, start)}${replacement}${current.slice(end)}`;
+    return { text: nextText, caret: start + replacement.length, replaced: true };
+};
+
+// A native textarea remains the only editable surface. A perfectly matched,
+// aria-hidden mirror sits behind it so highlighting never owns the caret,
+// selection, undo stack, paste behavior, or IME composition.
+const RhymeTextarea = ({
+    value,
+    onChange,
+    onBlur,
+    onKeyDown,
+    placeholder,
+    className,
+    style,
+    autoFocus,
+    textareaRef,
+    onWordDoubleTap,
+    ariaLabel = 'Writing editor'
+}) => {
     const internalRef = useRef(null);
     const containerRef = useRef(null);
+    const mirrorRef = useRef(null);
     const ref = textareaRef || internalRef;
     const isComposing = useRef(false);
+    const [legendId] = useState(() => `rhyme-legend-${generateId()}`);
     
-    // Double-tap detection for mobile
     const lastTapTime = useRef(0);
     const lastTapPosition = useRef({ x: 0, y: 0 });
     const doubleTapThreshold = 350;
     const tapDistanceThreshold = 30;
     
     const handleChange = (e) => {
-        if (isComposing.current) return;
         onChange?.(e);
-        // Auto-resize textarea
         if (ref.current) {
             ref.current.style.height = 'auto';
             ref.current.style.height = ref.current.scrollHeight + 'px';
@@ -529,17 +601,17 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
     
     const handleCompositionEnd = (e) => {
         isComposing.current = false;
-        handleChange(e);
+        if (e.target.value !== value) handleChange(e);
     };
-    
-    const handleInput = (e) => {
-        if (isComposing.current) return;
-        if (ref.current && e.target.value !== value) {
-            onChange?.(e);
+
+    const syncScroll = useCallback(() => {
+        if (ref.current && mirrorRef.current) {
+            mirrorRef.current.style.height = `${ref.current.offsetHeight}px`;
+            mirrorRef.current.scrollTop = ref.current.scrollTop;
+            mirrorRef.current.scrollLeft = ref.current.scrollLeft;
         }
-    };
+    }, [ref]);
     
-    // Initial focus and resize
     useEffect(() => {
         if (autoFocus && ref.current) {
             setTimeout(() => {
@@ -550,132 +622,104 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
         }
     }, [autoFocus, ref]);
     
-    // Resize on value change
     useEffect(() => {
         if (ref.current) {
             ref.current.style.height = 'auto';
             ref.current.style.height = ref.current.scrollHeight + 'px';
+            syncScroll();
         }
-    }, [value, ref]);
+    }, [value, ref, syncScroll]);
     
-    // Get the word at cursor position
     const getWordAtCursor = useCallback(() => {
         const textarea = ref.current;
         if (!textarea) return null;
-        
-        const start = textarea.selectionStart;
-        const fullText = textarea.value;
-        
-        if (!fullText || start === undefined) return null;
-        
-        let wordStart = start;
-        let wordEnd = start;
-        
-        while (wordStart > 0 && /[\w']/.test(fullText[wordStart - 1])) wordStart--;
-        while (wordEnd < fullText.length && /[\w']/.test(fullText[wordEnd])) wordEnd++;
-        
-        const word = fullText.substring(wordStart, wordEnd).trim();
-        return word.length >= 2 ? word : null;
+        return getWordRangeAtPosition(textarea.value, textarea.selectionStart, textarea.selectionEnd);
     }, [ref]);
+
+    const openSuggestions = useCallback((position) => {
+        if (!onWordDoubleTap || isComposing.current) return;
+        const range = getWordAtCursor();
+        if (!range) return;
+        onWordDoubleTap({ ...range, position });
+        haptic('light');
+    }, [getWordAtCursor, onWordDoubleTap]);
     
-    // Handle double-tap for mobile
     const handleTouchEnd = useCallback((e) => {
         if (!onWordDoubleTap) return;
-        
         const now = Date.now();
         const touch = e.changedTouches?.[0];
         if (!touch) return;
-        
         const currentPos = { x: touch.clientX, y: touch.clientY };
         const timeDiff = now - lastTapTime.current;
         const distance = Math.sqrt(
             Math.pow(currentPos.x - lastTapPosition.current.x, 2) + 
             Math.pow(currentPos.y - lastTapPosition.current.y, 2)
         );
-        
         if (timeDiff < doubleTapThreshold && distance < tapDistanceThreshold) {
-            setTimeout(() => {
-                const word = getWordAtCursor();
-                if (word) {
-                    onWordDoubleTap({
-                        word,
-                        position: { x: currentPos.x, y: currentPos.y }
-                    });
-                    haptic('light');
-                }
-            }, 10);
+            setTimeout(() => openSuggestions(currentPos), 10);
             lastTapTime.current = 0;
         } else {
             lastTapTime.current = now;
             lastTapPosition.current = currentPos;
         }
-    }, [onWordDoubleTap, getWordAtCursor]);
+    }, [onWordDoubleTap, openSuggestions]);
     
-    // Handle double-click for desktop
     const handleDoubleClick = useCallback((e) => {
-        if (!onWordDoubleTap) return;
-        const word = getWordAtCursor();
-        if (word) {
-            onWordDoubleTap({ word, position: { x: e.clientX, y: e.clientY } });
-            haptic('light');
+        if (onWordDoubleTap) {
+            setTimeout(() => openSuggestions({ x: e.clientX, y: e.clientY }), 0);
         }
-    }, [onWordDoubleTap, getWordAtCursor]);
-    
-    // Analyze rhymes for the legend/indicator
-    const { endingToColor } = useMemo(() => analyzeRhymes(value || ''), [value]);
-    
-    // Build rhyme legend - small colored dots showing which sounds rhyme
-    const rhymeLegend = useMemo(() => {
-        if (!value || Object.keys(endingToColor).length === 0) return null;
-        
-        // Get unique rhyming words grouped by color
-        const colorGroups = {};
-        const words = value.match(/[a-zA-Z']+/g) || [];
-        
-        words.forEach(word => {
-            const ending = getPhoneticEnding(word);
-            const color = endingToColor[ending];
-            if (color) {
-                if (!colorGroups[color]) colorGroups[color] = new Set();
-                colorGroups[color].add(word.toLowerCase());
-            }
-        });
-        
-        const groups = Object.entries(colorGroups).slice(0, 6); // Max 6 groups shown
-        if (groups.length === 0) return null;
-        
+    }, [onWordDoubleTap, openSuggestions]);
+
+    const handleEditorKeyDown = useCallback((e) => {
+        onKeyDown?.(e);
+        if (e.defaultPrevented) return;
+        if (onWordDoubleTap && e.altKey && e.key.toLowerCase() === 'r') {
+            e.preventDefault();
+            const rect = ref.current?.getBoundingClientRect();
+            openSuggestions({
+                x: Math.min((rect?.left || 0) + 40, window.innerWidth - 280),
+                y: Math.min((rect?.top || 0) + 40, window.innerHeight - 340)
+            });
+        }
+    }, [onKeyDown, onWordDoubleTap, openSuggestions, ref]);
+
+    const { endingToColor, tokens, groups } = useMemo(() => analyzeRhymes(value || ''), [value]);
+
+    const highlightedText = useMemo(() => tokens.map((token, index) => {
+        if (token.type !== 'word' || !endingToColor[token.ending]) {
+            return <span key={`${token.start}-${index}`}>{token.value}</span>;
+        }
         return (
-            <div style={{
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: 6,
-                marginTop: 8,
-                paddingTop: 8,
-                borderTop: '1px dashed var(--light-gray)'
-            }}>
-                {groups.map(([color, wordsSet], i) => {
-                    const wordList = Array.from(wordsSet).slice(0, 3);
-                    return (
-                        <div key={i} style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            padding: '2px 6px',
-                            background: color,
-                            borderRadius: 3,
-                            fontSize: 9,
-                            fontWeight: 600,
-                        }}>
-                            {wordList.join(' · ')}
-                            {wordsSet.size > 3 && <span>+{wordsSet.size - 3}</span>}
-                        </div>
-                    );
-                })}
+            <span
+                key={`${token.start}-${index}`}
+                className="rhyme-highlight"
+                data-rhyme-ending={token.ending}
+                style={{ '--rhyme-color': endingToColor[token.ending] }}
+            >
+                {token.value}
+            </span>
+        );
+    }), [endingToColor, tokens]);
+
+    const rhymeLegend = useMemo(() => {
+        if (!groups.length) return null;
+        return (
+            <div id={legendId} className="rhyme-legend">
+                <span className="rhyme-legend-label">HEURISTIC SOUND GROUPS</span>
+                {groups.slice(0, 6).map(group => (
+                    <span
+                        key={group.ending}
+                        className="rhyme-legend-group"
+                        style={{ '--rhyme-color': group.color }}
+                    >
+                        {group.words.slice(0, 3).join(' · ')}
+                        {group.words.length > 3 && <span> +{group.words.length - 3}</span>}
+                    </span>
+                ))}
             </div>
         );
-    }, [value, endingToColor]);
+    }, [groups, legendId]);
     
-    // Compute text styles
     const textStyles = useMemo(() => ({
         fontFamily: className?.includes('font-serif') 
             ? "'Playfair Display', Georgia, serif" 
@@ -695,20 +739,33 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                 width: '100%',
             }}
         >
-            {/* Single visible textarea - no overlay tricks */}
+            <div
+                ref={mirrorRef}
+                className="rhyme-textarea-mirror"
+                aria-hidden="true"
+                style={{
+                    ...textStyles,
+                    minHeight: style?.minHeight || 80
+                }}
+            >
+                {highlightedText}
+                <span>{'\u200b'}</span>
+            </div>
             <textarea
                 ref={ref}
                 value={value}
                 onChange={handleChange}
-                onInput={handleInput}
                 onBlur={onBlur}
-                onKeyDown={onKeyDown}
+                onKeyDown={handleEditorKeyDown}
                 onCompositionStart={handleCompositionStart}
                 onCompositionEnd={handleCompositionEnd}
                 onTouchEnd={handleTouchEnd}
                 onDoubleClick={handleDoubleClick}
+                onScroll={syncScroll}
                 placeholder={placeholder}
                 autoFocus={autoFocus}
+                aria-label={ariaLabel}
+                aria-describedby={groups.length ? legendId : undefined}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="sentences"
@@ -725,7 +782,8 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                     outline: 'none',
                     resize: 'none',
                     background: 'transparent',
-                    color: 'var(--black)', // VISIBLE TEXT - cursor will be correct
+                    color: 'transparent',
+                    WebkitTextFillColor: 'transparent',
                     caretColor: 'var(--black)',
                     whiteSpace: 'pre-wrap',
                     wordWrap: 'break-word',
@@ -735,8 +793,6 @@ const RhymeTextarea = ({ value, onChange, onBlur, onKeyDown, placeholder, classN
                     WebkitTapHighlightColor: 'transparent',
                 }}
             />
-            
-            {/* Rhyme legend shown below textarea */}
             {rhymeLegend}
         </div>
     );
@@ -2567,161 +2623,180 @@ const IdeaCard = ({ bar, index, onImageClick, onTextEdit, onFavorite, onDelete, 
 // ============================================================================
 
 const RhymePopup = ({ word, position, onSelect, onClose }) => {
-    const [rhymes, setRhymes] = useState([]);
-    const [nearRhymes, setNearRhymes] = useState([]);
-    const [synonyms, setSynonyms] = useState([]);
-    const [loading, setLoading] = useState(true);
+    const [results, setResults] = useState({ rhymes: [], nearRhymes: [], synonyms: [] });
+    const [status, setStatus] = useState('loading');
+    const [retryKey, setRetryKey] = useState(0);
     const popupRef = useRef(null);
-    
+    const previousFocusRef = useRef(document.activeElement);
+    const [titleId] = useState(() => `rhyme-popup-${generateId()}`);
+
+    const closeAndRestoreFocus = useCallback(() => {
+        onClose();
+        setTimeout(() => previousFocusRef.current?.focus?.(), 0);
+    }, [onClose]);
+
     useEffect(() => {
+        const previousFocus = previousFocusRef.current;
+        setTimeout(() => popupRef.current?.querySelector('[data-popup-close]')?.focus(), 0);
+        return () => setTimeout(() => previousFocus?.focus?.(), 0);
+    }, []);
+
+    useEffect(() => {
+        let active = true;
+        const controller = new AbortController();
+        let timedOut = false;
+        let timeoutId;
+
         const loadRhymes = async () => {
-            setLoading(true);
-            const [exactRhymes, nearRhymeResults, synonymResults] = await Promise.all([
-                fetchRhymes(word),
-                fetchNearRhymes(word),
-                fetchSynonyms(word)
-            ]);
-            setRhymes(exactRhymes);
-            setNearRhymes(nearRhymeResults);
-            setSynonyms(synonymResults);
-            setLoading(false);
-        };
-        loadRhymes();
-    }, [word]);
-    
-    useEffect(() => {
-        const handleClickOutside = (e) => {
-            if (popupRef.current && !popupRef.current.contains(e.target)) {
-                onClose();
+            setResults({ rhymes: [], nearRhymes: [], synonyms: [] });
+            if (navigator.onLine === false) {
+                setStatus('offline');
+                return;
+            }
+            setStatus('loading');
+            timeoutId = setTimeout(() => {
+                timedOut = true;
+                controller.abort();
+            }, SUGGESTION_TIMEOUT_MS);
+            try {
+                const [rhymes, nearRhymes, synonyms] = await Promise.all([
+                    fetchRhymes(word, { signal: controller.signal }),
+                    fetchNearRhymes(word, { signal: controller.signal }),
+                    fetchSynonyms(word, { signal: controller.signal })
+                ]);
+                if (!active) return;
+                setResults({ rhymes, nearRhymes, synonyms });
+                setStatus(rhymes.length || nearRhymes.length || synonyms.length ? 'ready' : 'empty');
+            } catch (error) {
+                if (!active) return;
+                if (error?.name === 'AbortError' && !timedOut) return;
+                setStatus(
+                    timedOut
+                        ? 'timeout'
+                        : (error?.code === 'offline' || navigator.onLine === false ? 'offline' : 'error')
+                );
+            } finally {
+                clearTimeout(timeoutId);
             }
         };
-        document.addEventListener('mousedown', handleClickOutside);
-        document.addEventListener('touchstart', handleClickOutside);
+
+        loadRhymes();
         return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-            document.removeEventListener('touchstart', handleClickOutside);
+            active = false;
+            clearTimeout(timeoutId);
+            controller.abort();
         };
-    }, [onClose]);
-    
+    }, [retryKey, word]);
+
+    useEffect(() => {
+        if (status === 'ready') {
+            setTimeout(() => popupRef.current?.querySelector('[data-suggestion]')?.focus(), 0);
+        }
+    }, [status]);
+
+    useEffect(() => {
+        const handlePointerOutside = (event) => {
+            if (popupRef.current && !popupRef.current.contains(event.target)) closeAndRestoreFocus();
+        };
+        const handleEscape = (event) => {
+            if (event.key !== 'Escape') return;
+            event.preventDefault();
+            event.stopPropagation();
+            closeAndRestoreFocus();
+        };
+        document.addEventListener('pointerdown', handlePointerOutside);
+        document.addEventListener('keydown', handleEscape, true);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerOutside);
+            document.removeEventListener('keydown', handleEscape, true);
+        };
+    }, [closeAndRestoreFocus]);
+
+    const chooseSuggestion = (suggestion) => {
+        onSelect(suggestion);
+        haptic('light');
+    };
+
+    const renderGroup = (label, values, variant) => {
+        if (!values.length) return null;
+        return (
+            <section className={`rhyme-suggestion-group rhyme-suggestion-${variant}`}>
+                <h3>{label}</h3>
+                <div>
+                    {values.map(value => (
+                        <button
+                            key={`${variant}-${value}`}
+                            data-suggestion
+                            onClick={() => chooseSuggestion(value)}
+                            aria-label={`Use ${value} as ${label.toLowerCase().replace(/s$/, '')}`}
+                        >
+                            {value}
+                        </button>
+                    ))}
+                </div>
+            </section>
+        );
+    };
+
     if (!word) return null;
-    
+    const left = Math.max(12, Math.min(position?.x || 12, window.innerWidth - 268));
+    const top = Math.max(12, Math.min((position?.y || 12) + 10, window.innerHeight - 338));
+    const retry = () => setRetryKey(key => key + 1);
+
     return (
-        <div 
+        <div
             ref={popupRef}
-            className="animate-scale-in"
-            style={{
-                position: 'fixed',
-                left: Math.min(position.x, window.innerWidth - 260),
-                top: Math.min(position.y + 10, window.innerHeight - 300),
-                width: 240,
-                maxHeight: 280,
-                background: 'var(--white)',
-                border: '2px solid var(--black)',
-                boxShadow: '6px 6px 0 var(--black)',
-                zIndex: 500,
-                overflow: 'hidden'
-            }}
+            role="dialog"
+            aria-modal="false"
+            aria-labelledby={titleId}
+            className="rhyme-popup animate-scale-in"
+            style={{ left, top }}
         >
-            <div style={{
-                background: 'var(--electric)',
-                padding: '8px 12px',
-                borderBottom: '2px solid var(--black)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center'
-            }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>
-                    🧠 RHYMES FOR "{word.toUpperCase()}"
-                </span>
-                <button onClick={onClose} style={{ padding: 2 }}>
+            <div className="rhyme-popup-header">
+                <span id={titleId}>WORD ASSIST: “{word.toUpperCase()}”</span>
+                <button data-popup-close onClick={closeAndRestoreFocus} aria-label="Close word suggestions">
                     <Icon name="X" size={14} />
                 </button>
             </div>
-            
-            <div className="scrollable" style={{ maxHeight: 220, padding: 8 }}>
-                {loading ? (
-                    <div style={{ padding: 20, textAlign: 'center', color: 'var(--gray)' }}>
-                        <span className="animate-pulse">FINDING RHYMES...</span>
+
+            <div className="rhyme-popup-body scrollable" aria-live="polite">
+                {status === 'loading' && (
+                    <div className="rhyme-popup-state" role="status">
+                        <span className="animate-pulse">CHECKING EXACT, NEAR + RELATED WORDS...</span>
                     </div>
-                ) : (
+                )}
+                {status === 'offline' && (
+                    <div className="rhyme-popup-state" role="alert">
+                        <strong>YOU’RE OFFLINE</strong>
+                        <span>YOUR DRAFT IS SAFE. RECONNECT TO LOOK UP WORDS.</span>
+                        <button onClick={retry}>TRY AGAIN</button>
+                    </div>
+                )}
+                {status === 'timeout' && (
+                    <div className="rhyme-popup-state" role="alert">
+                        <strong>LOOKUP TIMED OUT</strong>
+                        <span>THE WORD SERVICE TOOK TOO LONG TO ANSWER.</span>
+                        <button onClick={retry}>TRY AGAIN</button>
+                    </div>
+                )}
+                {status === 'error' && (
+                    <div className="rhyme-popup-state" role="alert">
+                        <strong>COULDN’T REACH WORD ASSIST</strong>
+                        <span>THIS IS A CONNECTION ERROR, NOT “NO RHYMES.”</span>
+                        <button onClick={retry}>TRY AGAIN</button>
+                    </div>
+                )}
+                {status === 'empty' && (
+                    <div className="rhyme-popup-state" role="status">
+                        <strong>NO MATCHES FOUND</strong>
+                        <span>TRY A DIFFERENT WORD OR SPELLING.</span>
+                    </div>
+                )}
+                {status === 'ready' && (
                     <>
-                        {rhymes.length > 0 && (
-                            <div style={{ marginBottom: 12 }}>
-                                <div style={{ fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>PERFECT RHYMES</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                    {rhymes.map((rhyme, i) => (
-                                        <button 
-                                            key={i} 
-                                            onClick={() => { onSelect(rhyme); haptic('light'); }}
-                                            style={{
-                                                padding: '6px 10px',
-                                                background: 'var(--black)',
-                                                color: 'var(--white)',
-                                                fontSize: 11,
-                                                fontWeight: 600,
-                                                textTransform: 'lowercase'
-                                            }}
-                                        >
-                                            {rhyme}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {nearRhymes.length > 0 && (
-                            <div>
-                                <div style={{ fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>NEAR RHYMES</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                    {nearRhymes.map((rhyme, i) => (
-                                        <button 
-                                            key={i} 
-                                            onClick={() => { onSelect(rhyme); haptic('light'); }}
-                                            style={{
-                                                padding: '5px 8px',
-                                                border: '1px solid var(--black)',
-                                                background: 'transparent',
-                                                fontSize: 10,
-                                                textTransform: 'lowercase'
-                                            }}
-                                        >
-                                            {rhyme}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {synonyms.length > 0 && (
-                            <div style={{ marginTop: 12 }}>
-                                <div style={{ fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>SYNONYMS</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                    {synonyms.map((syn, i) => (
-                                        <button 
-                                            key={i} 
-                                            onClick={() => { onSelect(syn); haptic('light'); }}
-                                            style={{
-                                                padding: '5px 8px',
-                                                border: '1px dashed var(--black)',
-                                                background: 'rgba(0,0,0,0.02)',
-                                                fontSize: 10,
-                                                textTransform: 'lowercase',
-                                                color: 'var(--black)'
-                                            }}
-                                        >
-                                            {syn}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                        
-                        {rhymes.length === 0 && nearRhymes.length === 0 && synonyms.length === 0 && (
-                            <div style={{ padding: 20, textAlign: 'center', color: 'var(--gray)', fontSize: 11 }}>
-                                NO RHYMES FOUND<br/>
-                                <span style={{ fontSize: 9 }}>TRY A DIFFERENT WORD</span>
-                            </div>
-                        )}
+                        {renderGroup('EXACT RHYMES', results.rhymes, 'exact')}
+                        {renderGroup('NEAR / SLANT RHYMES', results.nearRhymes, 'near')}
+                        {renderGroup('RELATED WORDS', results.synonyms, 'related')}
                     </>
                 )}
             </div>
@@ -2749,28 +2824,41 @@ const QuickInput = ({
     const [tagInput, setTagInput] = useState('');
     const [imageUrl, setImageUrl] = useState(null);
     const [aiLoading, setAiLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [activityStatus, setActivityStatus] = useState('');
     
-    // Auto-save draft
     useEffect(() => {
         const savedDraft = localStorage.getItem('quick_input_draft');
         if (savedDraft) {
-            setText(savedDraft);
-            setExpanded(true); // Auto-expand if there's a draft
+            try {
+                const parsed = JSON.parse(savedDraft);
+                setText(typeof parsed?.text === 'string' ? parsed.text : savedDraft);
+                if (Array.isArray(parsed?.tags)) setTags(parsed.tags);
+            } catch {
+                setText(savedDraft);
+            }
+            setExpanded(true);
+            setActivityStatus('DRAFT RESTORED FROM THIS DEVICE');
         }
     }, []);
 
     useEffect(() => {
-        if (text) {
-            localStorage.setItem('quick_input_draft', text);
+        if (text || tags.length) {
+            localStorage.setItem('quick_input_draft', JSON.stringify({ text, tags }));
         } else {
             localStorage.removeItem('quick_input_draft');
         }
-    }, [text]);
+    }, [tags, text]);
     
     const { isRecording, audioUrl, duration, error: recordError, stream, startRecording, stopRecording, clearRecording, getBase64 } = useVoiceRecorder(30000);
     const [savedAudioUrl, setSavedAudioUrl] = useState(null);
     
-    const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 } });
+    const [rhymePopup, setRhymePopup] = useState({
+        show: false,
+        word: '',
+        range: null,
+        position: { x: 0, y: 0 }
+    });
     const textareaRef = useRef(null);
     const saveInFlightRef = useRef(false);
     
@@ -2800,6 +2888,7 @@ const QuickInput = ({
     
     const handleTextChange = (e) => {
         setText(e.target.value);
+        if (activityStatus && !saving && !aiLoading) setActivityStatus('DRAFT SAVED ON THIS DEVICE');
         e.target.style.height = 'auto';
         e.target.style.height = e.target.scrollHeight + 'px';
         onTyping?.();
@@ -2808,20 +2897,33 @@ const QuickInput = ({
     const handleSave = async () => {
         if (!text.trim() && !savedAudioUrl) return;
         if (saveInFlightRef.current) return;
+        if (navigator.onLine === false) {
+            setActivityStatus('OFFLINE — DRAFT KEPT ON THIS DEVICE');
+            toast?.addToast('OFFLINE — DRAFT KEPT', 'error');
+            return;
+        }
         saveInFlightRef.current = true;
+        setSaving(true);
+        setActivityStatus('SAVING BAR...');
         try {
             await Promise.resolve(onSave?.({ text, tags, imageUrl, audioUrl: savedAudioUrl }));
+            setText('');
+            setTags([]);
+            setImageUrl(null);
+            setSavedAudioUrl(null);
+            localStorage.removeItem('quick_input_draft');
+            clearRecording();
+            setActivityStatus('BAR SAVED');
+            setExpanded(false);
+            haptic('success');
+        } catch (error) {
+            console.error('Quick input save failed:', error);
+            setActivityStatus('SAVE FAILED — DRAFT KEPT ON THIS DEVICE');
+            toast?.addToast('SAVE FAILED — DRAFT KEPT', 'error');
         } finally {
             saveInFlightRef.current = false;
+            setSaving(false);
         }
-        setText('');
-        setTags([]);
-        setImageUrl(null);
-        setSavedAudioUrl(null);
-        localStorage.removeItem('quick_input_draft');
-        clearRecording();
-        setExpanded(false);
-        haptic('success');
     };
     
     const handleAddTag = (e) => {
@@ -2845,12 +2947,8 @@ const QuickInput = ({
     };
     
     const handleAI = async (mode) => {
-        if (canUseAI && !canUseAI()) {
-            toast?.addToast('PREMIUM REQUIRED', 'error');
-            onPremiumRequired?.();
-            return;
-        }
         setAiLoading(true);
+        setActivityStatus('GENERATING WITH AI...');
         try {
             const prompts = {
                 freestyle: `Freestyle 4-6 bars about: ${text || 'success and the Bay Area lifestyle'}`,
@@ -2862,13 +2960,20 @@ const QuickInput = ({
             if (!result) throw new Error('No AI response');
             onAIUse?.();
             setText(prev => prev + (prev ? '\n\n' : '') + result);
+            setActivityStatus('AI DRAFT ADDED — REVIEW BEFORE SAVING');
             toast?.addToast('GENERATED', 'success');
         } catch (error) {
             console.error('Quick input AI failed:', error);
             if (/Daily Raps Pro|Free accounts can use AI/i.test(error?.message || '')) {
+                setActivityStatus('AI LIMIT REACHED — YOUR DRAFT IS UNCHANGED');
                 toast?.addToast('PREMIUM REQUIRED', 'error');
                 onPremiumRequired?.();
             } else {
+                setActivityStatus(
+                    navigator.onLine === false
+                        ? 'OFFLINE — YOUR DRAFT IS UNCHANGED'
+                        : 'AI GENERATION FAILED — YOUR DRAFT IS UNCHANGED'
+                );
                 toast?.addToast('AI GENERATION FAILED', 'error');
             }
         } finally {
@@ -2908,21 +3013,32 @@ const QuickInput = ({
         // But for "Cancel" button in UI:
     };
     
-    // Handle double-tap from RhymeTextarea - now works on mobile!
-    const handleWordDoubleTap = useCallback(({ word, position }) => {
+    const handleWordDoubleTap = useCallback(({ word, start, end, position }) => {
         if (word && word.length >= 2) {
             setRhymePopup({
                 show: true,
-                word: word,
-                position: position
+                word,
+                range: { start, end },
+                position
             });
         }
     }, []);
     
     const handleRhymeSelect = (rhyme) => {
-        setText(prev => prev + (prev.endsWith(' ') || prev === '' ? '' : ' ') + rhyme);
-        setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 } });
-        toast?.addToast(`ADDED: ${rhyme.toUpperCase()}`, 'success');
+        const next = applySuggestionToText(text, rhyme, rhymePopup.range, rhymePopup.word);
+        setRhymePopup({ show: false, word: '', range: null, position: { x: 0, y: 0 } });
+        if (!next.replaced) {
+            setActivityStatus('DRAFT CHANGED — OPEN WORD ASSIST AGAIN');
+            toast?.addToast('DRAFT CHANGED — TRY AGAIN', 'error');
+            return;
+        }
+        setText(next.text);
+        setTimeout(() => {
+            textareaRef.current?.focus();
+            textareaRef.current?.setSelectionRange(next.caret, next.caret);
+        }, 0);
+        setActivityStatus(`REPLACED “${rhymePopup.word.toUpperCase()}” WITH “${rhyme.toUpperCase()}”`);
+        toast?.addToast(`REPLACED: ${rhyme.toUpperCase()}`, 'success');
     };
     
     if (!expanded) {
@@ -3190,14 +3306,15 @@ const QuickInput = ({
                     textareaRef={textareaRef}
                     value={text}
                     onChange={handleTextChange}
-                    placeholder="WRITE YOUR BARS... (DOUBLE-TAP A WORD FOR RHYMES)"
+                    placeholder="WRITE YOUR BARS..."
                     autoFocus
                     className="font-serif rhyme-editor-active"
                     style={{ width: '100%', minHeight: 80, fontSize: 18, lineHeight: 1.5 }}
                     onWordDoubleTap={handleWordDoubleTap}
+                    ariaLabel="Quick bar draft"
                 />
                 <div style={{ fontSize: 9, color: 'var(--gray)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    <Icon name="Info" size={10} /> RHYMES AUTO-HIGHLIGHTED • DOUBLE-TAP FOR SUGGESTIONS
+                    <Icon name="Info" size={10} /> SOUND GROUPS HIGHLIGHT LIVE • DOUBLE-TAP OR ALT+R FOR WORD ASSIST
                 </div>
                 <div style={{ display: 'flex', gap: 16, marginTop: 8, fontSize: 10, color: 'var(--gray)' }}>
                     <span>{countBars(text)} BARS</span>
@@ -3211,7 +3328,7 @@ const QuickInput = ({
                     word={rhymePopup.word}
                     position={rhymePopup.position}
                     onSelect={handleRhymeSelect}
-                    onClose={() => setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 } })}
+                    onClose={() => setRhymePopup({ show: false, word: '', range: null, position: { x: 0, y: 0 } })}
                 />
             )}
             
@@ -3249,14 +3366,27 @@ const QuickInput = ({
                 ))}
             </div>
             
+            <div
+                className="writing-activity-status"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+            >
+                {activityStatus || 'DRAFT SAVES ON THIS DEVICE'}
+            </div>
             <div style={{ padding: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <button onClick={() => { setExpanded(false); }} style={{
                     fontSize: 11, color: 'var(--gray)', letterSpacing: '0.1em'
                 }}>MINIMIZE</button>
-                <button onClick={handleSave} disabled={!text.trim() && !savedAudioUrl} style={{
+                <button
+                    onClick={handleSave}
+                    disabled={saving || (!text.trim() && !savedAudioUrl)}
+                    aria-busy={saving}
+                    style={{
                     padding: '12px 24px', background: (text.trim() || savedAudioUrl) ? 'var(--black)' : 'var(--light-gray)',
-                    color: 'var(--white)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em'
-                }}>SAVE BAR</button>
+                    color: 'var(--white)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em',
+                    opacity: saving ? .65 : 1
+                }}>{saving ? 'SAVING...' : 'SAVE BAR'}</button>
             </div>
         </div>
     );
@@ -3905,6 +4035,7 @@ window.DailyBarsApp = {
     RhymeHighlightedText,
     RHYME_COLORS,
     analyzeRhymes,
+    applySuggestionToText,
     LOGO_SOLID,
     LOGO_HOLLOW,
     RadioWidget: window.RadioWidget,

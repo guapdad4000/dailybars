@@ -500,8 +500,7 @@ button:active { transform: scale(0.98); }
 
 /* ============================================================================
    RHYME HIGHLIGHTING SYSTEM
-   Simple visible textarea with rhyme legend below
-   No overlay tricks - cursor is always correct
+   Native textarea over an aria-hidden, metric-matched highlight mirror
    ============================================================================ */
 
 /* Container for rhyme-enabled textareas */
@@ -515,8 +514,41 @@ button:active { transform: scale(0.98); }
     width: 100%;
 }
 
-/* The actual textarea - fully visible, no tricks */
+.rhyme-textarea-mirror {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    color: var(--black);
+    background: transparent;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.rhyme-highlight {
+    color: var(--black);
+    background: linear-gradient(
+        to bottom,
+        transparent 18%,
+        color-mix(in srgb, var(--rhyme-color) 78%, white) 18%,
+        color-mix(in srgb, var(--rhyme-color) 78%, white) 88%,
+        transparent 88%
+    );
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    box-shadow: inset 0 -2px 0 var(--rhyme-color);
+}
+
 .rhyme-textarea-input {
+    position: relative;
+    z-index: 1;
     -webkit-text-size-adjust: 100%;
     -moz-text-size-adjust: 100%;
     text-size-adjust: 100%;
@@ -526,53 +558,239 @@ button:active { transform: scale(0.98); }
     user-select: text;
     -webkit-user-select: text;
     caret-color: var(--black) !important;
-    /* Ensure proper line height */
     line-height: 1.5;
 }
 
-/* Focus state */
 .rhyme-textarea-input:focus {
     outline: none;
 }
 
-/* Placeholder styling */
 .rhyme-textarea-input::placeholder {
     color: var(--gray);
+    -webkit-text-fill-color: var(--gray);
     opacity: 0.6;
 }
 
-/* Mobile-specific fixes */
+.rhyme-textarea-input::selection {
+    background: rgba(250, 255, 0, 0.48);
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+}
+
+.rhyme-legend {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--light-gray);
+    font-family: var(--font-body, 'IBM Plex Mono', monospace);
+}
+
+.rhyme-legend-label {
+    width: 100%;
+    color: var(--gray);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: .12em;
+}
+
+.rhyme-legend-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    border: 1px solid var(--black);
+    background: color-mix(in srgb, var(--rhyme-color) 74%, white);
+    box-shadow: 2px 2px 0 var(--black);
+    color: var(--black);
+    font-size: 9px;
+    font-weight: 700;
+}
+
 @media (pointer: coarse) {
     .rhyme-textarea-input {
-        /* Larger touch target */
         min-height: 100px;
-        /* Prevent zoom on focus in iOS - must be 16px+ */
         font-size: 16px !important;
-        /* Better touch scrolling */
         -webkit-overflow-scrolling: touch;
-        /* Disable auto features that interfere */
-        autocomplete: off;
-        autocorrect: off;
-        autocapitalize: sentences;
     }
-    
+
+    .rhyme-textarea-mirror {
+        font-size: 16px !important;
+    }
+
     .rhyme-textarea-container {
         touch-action: manipulation;
     }
 }
 
-/* iOS-specific fixes */
 @supports (-webkit-touch-callout: none) {
     .rhyme-textarea-input {
-        /* Prevent iOS zoom on input */
         font-size: max(16px, 1em) !important;
-        /* Fix iOS textarea quirks */
         -webkit-appearance: none;
         border-radius: 0;
-        /* Prevent iOS from adding shadows */
         -webkit-box-shadow: none;
         box-shadow: none;
     }
+}
+
+@media (forced-colors: active) {
+    .rhyme-textarea-mirror { display: none; }
+    .rhyme-textarea-input {
+        color: CanvasText !important;
+        -webkit-text-fill-color: CanvasText !important;
+    }
+}
+
+.rhyme-popup {
+    position: fixed;
+    z-index: 500;
+    width: min(240px, calc(100vw - 24px));
+    max-height: 320px;
+    overflow: hidden;
+    background: var(--white);
+    border: 2px solid var(--black);
+    box-shadow: 6px 6px 0 var(--black);
+}
+
+.rhyme-popup-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 9px 10px;
+    background: var(--electric);
+    border-bottom: 2px solid var(--black);
+}
+
+.rhyme-popup-header > span {
+    overflow: hidden;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rhyme-popup-header button {
+    flex: 0 0 28px;
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--black);
+    background: var(--white);
+}
+
+.rhyme-popup-body {
+    max-height: 258px;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.rhyme-suggestion-group + .rhyme-suggestion-group {
+    margin-top: 14px;
+}
+
+.rhyme-suggestion-group h3 {
+    margin: 0 0 7px;
+    color: var(--gray);
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: .13em;
+}
+
+.rhyme-suggestion-group > div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.rhyme-suggestion-group button,
+.rhyme-popup-state button {
+    min-height: 32px;
+    padding: 6px 9px;
+    border: 1px solid var(--black);
+    background: var(--white);
+    color: var(--black);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: lowercase;
+}
+
+.rhyme-suggestion-exact button {
+    border-width: 2px;
+    background: var(--black);
+    color: var(--white);
+}
+
+.rhyme-suggestion-near button { border-style: dashed; }
+.rhyme-suggestion-related button { background: var(--cream); }
+
+.rhyme-popup button:focus-visible {
+    outline: 3px solid var(--brand-green);
+    outline-offset: 2px;
+}
+
+.rhyme-popup-state {
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px 8px;
+    text-align: center;
+}
+
+.rhyme-popup-state strong {
+    font-size: 12px;
+    letter-spacing: .08em;
+}
+
+.rhyme-popup-state span {
+    color: var(--gray);
+    font-size: 9px;
+    line-height: 1.5;
+    letter-spacing: .05em;
+}
+
+.rhyme-popup-state button {
+    margin-top: 4px;
+    border-width: 2px;
+    background: var(--electric);
+    text-transform: uppercase;
+}
+
+.writing-activity-status {
+    min-height: 28px;
+    padding: 7px 16px;
+    border-top: 1px dashed var(--light-gray);
+    color: var(--gray);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-align: right;
+}
+
+.track-editor-activity {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 68px);
+    left: 50%;
+    z-index: 102;
+    max-width: calc(100vw - 32px);
+    padding: 6px 10px;
+    transform: translateX(-50%);
+    border: 1px solid var(--black);
+    background: var(--electric);
+    box-shadow: 2px 2px 0 var(--black);
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-align: center;
 }
 
 /* ============================================================================

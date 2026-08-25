@@ -3,7 +3,7 @@
 // Network-first for app code, cache-first for static assets.
 // ============================================================================
 
-const CACHE_VERSION = 77;
+const CACHE_VERSION = 78;
 const CACHE_NAME = `daily-bars-v${CACHE_VERSION}`;
 
 const urlsToCache = [

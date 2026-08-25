@@ -14,7 +14,7 @@ const {
     ToastProvider, useToast, Icon,
     DailyDropWidget, ImagePreview, BottomBar, Header,
     SocialExportModal, IdeaCard, RhymePopup, QuickInput,
-    RhymeTextarea, RhymeHighlightedText,
+    RhymeTextarea, RhymeHighlightedText, applySuggestionToText,
     RadioWidget,
     LOGO_SOLID, LOGO_HOLLOW,
     UserProfileModal
@@ -1221,6 +1221,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [coverImage, setCoverImage] = useState(song?.coverImage || null);
     const [saving, setSaving] = useState(false);
     const [aiLoading, setAiLoading] = useState(false);
+    const [activityStatus, setActivityStatus] = useState('');
 
     const [studio, setStudio] = useState(song?.studio || '');
     const [producer, setProducer] = useState(song?.producer || '');
@@ -1236,7 +1237,14 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const [beatUrlInput, setBeatUrlInput] = useState('');
     const [videoUrlInput, setVideoUrlInput] = useState('');
     const beatAudioRef = useRef(null);
-    const [rhymePopup, setRhymePopup] = useState({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null });
+    const [rhymePopup, setRhymePopup] = useState({
+        show: false,
+        word: '',
+        range: null,
+        position: { x: 0, y: 0 },
+        blockId: null
+    });
+    const blockTextareaRefs = useRef(new Map());
     const [recordingBlockIndex, setRecordingBlockIndex] = useState(null);
     const { isRecording, audioUrl, duration, error: recordError, startRecording, stopRecording, clearRecording, getBase64 } = useVoiceRecorder(30000);
     
@@ -1249,6 +1257,12 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     const presenceChannel = useRef(null);
     
     const toast = useToast();
+    const getBlockTextareaRef = useCallback((blockId) => {
+        if (!blockTextareaRefs.current.has(blockId)) {
+            blockTextareaRefs.current.set(blockId, React.createRef());
+        }
+        return blockTextareaRefs.current.get(blockId);
+    }, []);
     
     // Set up real-time collaboration
     useEffect(() => {
@@ -1356,12 +1370,8 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
     };
     
     const handleAI = async (mode) => {
-        if (canUseAI && !canUseAI()) {
-            toast?.addToast('PREMIUM REQUIRED', 'error');
-            onPremiumRequired?.('AI tools are limited to premium after 3 runs.');
-            return;
-        }
         setAiLoading(true);
+        setActivityStatus('GENERATING WITH AI...');
         try {
             const context = blocks.filter(b => b.type === 'text').map(b => b.content).join('\n');
             const prompts = {
@@ -1374,13 +1384,20 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
             if (!result) throw new Error('No AI response');
             onAIUse?.();
             setBlocks(prev => [...prev, { id: generateId(), type: 'text', content: result, source: 'ai' }]);
+            setActivityStatus('AI DRAFT ADDED — REVIEW BEFORE SAVING');
             toast?.addToast('GENERATED', 'success');
         } catch (error) {
             console.error('Track Editor AI failed:', error);
             if (/Daily Raps Pro|Free accounts can use AI/i.test(error?.message || '')) {
+                setActivityStatus('AI LIMIT REACHED — TRACK IS UNCHANGED');
                 toast?.addToast('PREMIUM REQUIRED', 'error');
                 onPremiumRequired?.('AI tools are limited to premium after 3 runs.');
             } else {
+                setActivityStatus(
+                    navigator.onLine === false
+                        ? 'OFFLINE — TRACK IS UNCHANGED'
+                        : 'AI GENERATION FAILED — TRACK IS UNCHANGED'
+                );
                 toast?.addToast('AI GENERATION FAILED', 'error');
             }
         } finally {
@@ -1388,25 +1405,37 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
         }
     };
 
-    const handleWordDoubleTap = useCallback(({ word, position, blockIndex }) => {
+    const handleWordDoubleTap = useCallback(({ word, start, end, position, blockId }) => {
         if (word && word.length >= 2) {
             setRhymePopup({
                 show: true,
                 word,
+                range: { start, end },
                 position,
-                blockIndex
+                blockId
             });
         }
     }, []);
 
     const handleRhymeSelect = (rhyme) => {
-        setBlocks(prev => prev.map((block, idx) => {
-            if (idx !== rhymePopup.blockIndex) return block;
-            const needsSpace = block.content && !block.content.endsWith(' ');
-            return { ...block, content: `${block.content || ''}${needsSpace ? ' ' : ''}${rhyme}` };
-        }));
-        setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null });
-        toast?.addToast(`ADDED: ${rhyme.toUpperCase()}`, 'success');
+        const targetBlock = blocks.find(block => block.id === rhymePopup.blockId);
+        const next = applySuggestionToText(targetBlock?.content, rhyme, rhymePopup.range, rhymePopup.word);
+        const targetRef = getBlockTextareaRef(rhymePopup.blockId);
+        setRhymePopup({ show: false, word: '', range: null, position: { x: 0, y: 0 }, blockId: null });
+        if (!next.replaced) {
+            setActivityStatus('TRACK CHANGED — OPEN WORD ASSIST AGAIN');
+            toast?.addToast('TRACK CHANGED — TRY AGAIN', 'error');
+            return;
+        }
+        setBlocks(prev => prev.map(block => (
+            block.id === rhymePopup.blockId ? { ...block, content: next.text } : block
+        )));
+        setTimeout(() => {
+            targetRef.current?.focus();
+            targetRef.current?.setSelectionRange(next.caret, next.caret);
+        }, 0);
+        setActivityStatus(`REPLACED “${rhymePopup.word.toUpperCase()}” WITH “${rhyme.toUpperCase()}”`);
+        toast?.addToast(`REPLACED: ${rhyme.toUpperCase()}`, 'success');
     };
 
     const handleCoverUpload = async (e) => {
@@ -1495,6 +1524,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
 
     const handleSave = async () => {
         setSaving(true);
+        setActivityStatus('SAVING TRACK...');
         try {
             await onSave({
                 ...song,
@@ -1511,8 +1541,12 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 bpm: bpm ? parseInt(bpm, 10) : null,
                 updated_by: user?.id // Track who made the update for realtime
             });
+            setActivityStatus('TRACK SAVED');
             toast?.addToast('SAVED', 'success');
-        } catch { toast?.addToast('SAVE FAILED', 'error'); }
+        } catch {
+            setActivityStatus('SAVE FAILED — YOUR TRACK IS STILL OPEN');
+            toast?.addToast('SAVE FAILED — TRACK KEPT', 'error');
+        }
         setSaving(false);
     };
     
@@ -1903,7 +1937,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 <audio ref={beatAudioRef} src={beatUrl} loop onEnded={() => setBeatPlaying(false)} />
             )}
             
-            <button onClick={onClose} style={{
+            <button onClick={onClose} aria-label="Close Track Editor" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', left: 16, zIndex: 102,
                 width: 40, height: 40, background: 'var(--white)', border: '2px solid var(--black)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1923,7 +1957,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 </div>
             )}
             
-            <button onClick={() => setShowCollabModal(true)} style={{
+            <button onClick={() => setShowCollabModal(true)} aria-label="Open track collaboration" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 130, zIndex: 102,
                 padding: '10px 12px', background: 'var(--electric)', color: 'var(--black)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700,
@@ -1932,7 +1966,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 <Icon name="Users" size={14} />
             </button>
             
-            <button onClick={handlePDFExport} style={{
+            <button onClick={handlePDFExport} aria-label="Export track as PDF" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 80, zIndex: 102,
                 padding: '10px 12px', background: 'var(--white)', color: 'var(--black)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700,
@@ -1941,12 +1975,17 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                 <Icon name="FileText" size={14} />
             </button>
             
-            <button onClick={handleSave} disabled={saving} style={{
+            <button onClick={handleSave} disabled={saving} aria-busy={saving} aria-label="Save track" style={{
                 position: 'fixed', top: 'calc(env(safe-area-inset-top) + 16px)', right: 16, zIndex: 102,
                 padding: '10px 16px', background: 'var(--brand-green)', color: 'var(--white)',
                 border: '2px solid var(--black)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.15)', opacity: saving ? 0.7 : 1
             }}>{saving ? 'SAVING...' : 'SAVE'}</button>
+            {activityStatus && (
+                <div className="track-editor-activity" role="status" aria-live="polite" aria-atomic="true">
+                    {activityStatus}
+                </div>
+            )}
             
             {/* COLLABORATION MODAL */}
             {showCollabModal && (
@@ -2424,7 +2463,7 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                             position: 'absolute', top: 8, right: 8, zIndex: 10, display: 'flex', gap: 4
                         }}>
                             {i > 0 && (
-                                <button onClick={() => moveBlock(i, 'up')} style={{
+                                <button onClick={() => moveBlock(i, 'up')} aria-label={`Move ${block.label || block.type} block up`} style={{
                                     width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                                 }}>
@@ -2432,14 +2471,14 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                 </button>
                             )}
                             {i < blocks.length - 1 && (
-                                <button onClick={() => moveBlock(i, 'down')} style={{
+                                <button onClick={() => moveBlock(i, 'down')} aria-label={`Move ${block.label || block.type} block down`} style={{
                                     width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
                                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                                 }}>
                                     <Icon name="ArrowDown" size={12} />
                                 </button>
                             )}
-                            <button onClick={() => deleteBlock(i)} style={{
+                            <button onClick={() => deleteBlock(i)} aria-label={`Delete ${block.label || block.type} block`} style={{
                                 width: 24, height: 24, background: 'var(--white)', border: '1px solid var(--black)',
                                 display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444'
                             }}>
@@ -2460,12 +2499,20 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                                     </div>
                                 )}
                                 <RhymeTextarea
+                                    textareaRef={getBlockTextareaRef(block.id)}
                                     value={block.content}
                                     onChange={(e) => updateBlock(i, e.target.value)}
                                     placeholder="WRITE YOUR VERSE..."
-                                    onWordDoubleTap={({ word, position }) => handleWordDoubleTap({ word, position, blockIndex: i })}
+                                    onWordDoubleTap={({ word, start, end, position }) => handleWordDoubleTap({
+                                        word,
+                                        start,
+                                        end,
+                                        position,
+                                        blockId: block.id
+                                    })}
                                     className="font-mono rhyme-editor-active"
                                     style={{ width: '100%', minHeight: 100, fontSize: 14, lineHeight: 1.6, overflowAnchor: 'none' }}
+                                    ariaLabel={`${block.label || 'Track'} lyrics`}
                                 />
                             </div>
                         ) : block.type === 'heading' ? (
@@ -2722,7 +2769,13 @@ const TrackEditor = ({ song, onClose, onSave, isPremium, canUseAI, onAIUse, onPr
                     word={rhymePopup.word}
                     position={rhymePopup.position}
                     onSelect={handleRhymeSelect}
-                    onClose={() => setRhymePopup({ show: false, word: '', position: { x: 0, y: 0 }, blockIndex: null })}
+                    onClose={() => setRhymePopup({
+                        show: false,
+                        word: '',
+                        range: null,
+                        position: { x: 0, y: 0 },
+                        blockId: null
+                    })}
                 />
             )}
         </div>
@@ -5706,7 +5759,10 @@ const App = () => {
             updateStreak();
             const refreshed = await api.get('users', { limit: 1 });
             if (refreshed.data?.[0]) setUser(prev => ({ ...prev, ...refreshed.data[0] }));
-        } catch (err) { console.error(err); }
+        } catch (err) {
+            console.error('Create bar failed:', err);
+            throw err;
+        }
     };
     
     const deleteBar = async (id) => {
@@ -5871,7 +5927,7 @@ const App = () => {
                         background: 'var(--black)', color: 'var(--electric)', padding: '8px 16px',
                         fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textAlign: 'center'
                     }}>
-                        OFFLINE — SAVED CHANGES WILL SYNC WHEN YOU RECONNECT
+                        OFFLINE — OPEN DRAFTS STAY ON THIS DEVICE. RECONNECT TO SAVE.
                     </div>
                 )}
                 <Header

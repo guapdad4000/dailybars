@@ -138,7 +138,7 @@ async function writeIndex() {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', async () => {
         try {
-          const registration = await navigator.serviceWorker.register('service-worker.js?v=77', { updateViaCache: 'none' });
+          const registration = await navigator.serviceWorker.register('service-worker.js?v=78', { updateViaCache: 'none' });
           registration.update();
           if (registration.waiting) registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         } catch (error) {
