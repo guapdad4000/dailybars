@@ -55,8 +55,9 @@ build = ["bash", "-c", "cd dailybars && DAILYBARS_ENVIRONMENT=production npm run
 [userenv]
 
 [userenv.production]
-DAILYBARS_RELEASE_ENABLED = "false"
 DAILYBARS_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRpbHBnd295eWVydmJnZGx1Y2FwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY5MTAwNDksImV4cCI6MjA4MjQ4NjA0OX0.Zw1DPMS91CxaNArACem74_-mR6IPmYpDqJksK8gwEk0"
 DAILYBARS_SUPABASE_URL = "https://tilpgwoyyervbgdlucap.supabase.co"
 DAILYBARS_AUTH_REDIRECT_URL = "https://dailybars.replit.app"
 DAILYBARS_PUBLIC_URL = "https://dailybars.replit.app"
+DAILYBARS_RELEASE_ENABLED = "false"
+DAILYBARS_STRIPE_ENABLED = "false"
